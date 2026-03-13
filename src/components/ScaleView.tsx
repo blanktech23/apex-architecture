@@ -168,7 +168,7 @@ export function ScaleView() {
           </div>
 
           {/* Revenue overview at selected scale */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4 mb-6">
             {[
               {
                 label: 'Customers',
@@ -203,17 +203,17 @@ export function ScaleView() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05 }}
-                className="glass p-5 text-center"
+                className="glass p-3 sm:p-5 text-center"
               >
                 <stat.icon
-                  className="w-5 h-5 mx-auto mb-2"
+                  className="w-4 h-4 sm:w-5 sm:h-5 mx-auto mb-1.5 sm:mb-2"
                   style={{ color: stat.color }}
                 />
                 <motion.p
                   key={`${stat.label}-${data.customers}`}
                   initial={{ scale: 0.8, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="text-2xl font-bold text-white"
+                  className="text-lg sm:text-2xl font-bold text-white"
                 >
                   {stat.value}
                 </motion.p>
@@ -239,7 +239,7 @@ export function ScaleView() {
                   key={`mnp-${data.customers}`}
                   initial={{ scale: 0.8, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="text-3xl font-bold text-emerald-400"
+                  className="text-2xl sm:text-3xl font-bold text-emerald-400"
                 >
                   {formatCurrency(monthlyNetProfit)}
                 </motion.p>
@@ -265,7 +265,7 @@ export function ScaleView() {
                   key={`y1np-${data.customers}`}
                   initial={{ scale: 0.8, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="text-3xl font-bold text-emerald-400"
+                  className="text-2xl sm:text-3xl font-bold text-emerald-400"
                 >
                   {formatCurrency(year1NetProfit)}
                 </motion.p>
@@ -307,17 +307,17 @@ export function ScaleView() {
                   key={`${item.label}-${data.customers}`}
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
-                  className="flex items-center justify-between rounded-lg px-4 py-2.5"
+                  className="flex items-center justify-between rounded-lg px-3 sm:px-4 py-2 sm:py-2.5"
                   style={{
                     background: 'rgba(255, 255, 255, 0.03)',
                     border: '1px solid rgba(255, 255, 255, 0.06)',
                   }}
                 >
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
                     <item.icon className="w-4 h-4 shrink-0" style={{ color: item.color }} />
-                    <div>
-                      <span className="text-xs text-slate-300">{item.label}</span>
-                      <p className="text-[10px] text-slate-600">{item.desc}</p>
+                    <div className="min-w-0">
+                      <span className="text-[11px] sm:text-xs text-slate-300">{item.label}</span>
+                      <p className="text-[9px] sm:text-[10px] text-slate-600 truncate">{item.desc}</p>
                     </div>
                   </div>
                   <span className="text-sm font-semibold text-white">
@@ -398,10 +398,15 @@ export function ScaleView() {
           </div>
 
           {/* Pricing tiers reference */}
-          <div className="mt-6 text-center">
-            <p className="text-[11px] text-slate-600">
+          <div className="mt-4 sm:mt-6 text-center">
+            <p className="text-[10px] sm:text-[11px] text-slate-600 hidden sm:block">
               Starter: $5K setup + $200/mo &nbsp;|&nbsp; Professional: $7.5K setup + $200/mo &nbsp;|&nbsp; Enterprise: $10K setup + $200/mo
             </p>
+            <div className="sm:hidden space-y-0.5">
+              <p className="text-[10px] text-slate-600">Starter: $5K + $200/mo</p>
+              <p className="text-[10px] text-slate-600">Professional: $7.5K + $200/mo</p>
+              <p className="text-[10px] text-slate-600">Enterprise: $10K + $200/mo</p>
+            </div>
           </div>
         </motion.div>
       </div>

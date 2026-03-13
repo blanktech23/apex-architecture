@@ -29,7 +29,7 @@ export default function Home() {
     <div className="flex flex-col h-screen">
       {/* Header */}
       <header className="shrink-0 border-b border-white/5">
-        <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-3 sm:py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center shrink-0">
               <Brain className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-400" />

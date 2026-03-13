@@ -209,9 +209,9 @@ export function DataFlowView() {
                 <step.icon className="w-5 h-5 sm:w-7 sm:h-7" style={{ color: step.color }} />
               </div>
               <div className="min-w-0">
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-1.5 sm:gap-2 mb-1 flex-wrap">
                   <span
-                    className="text-xs font-medium px-2 py-0.5 rounded-full"
+                    className="text-[10px] sm:text-xs font-medium px-2 py-0.5 rounded-full"
                     style={{
                       background: `${step.color}15`,
                       color: step.color,
@@ -220,15 +220,15 @@ export function DataFlowView() {
                   >
                     {step.agent}
                   </span>
-                  <ArrowRight className="w-3 h-3 text-slate-600" />
-                  <span className="text-xs text-slate-500">
+                  <ArrowRight className="w-3 h-3 text-slate-600 shrink-0" />
+                  <span className="text-[10px] sm:text-xs text-slate-500">
                     {step.integration}
                   </span>
                 </div>
-                <h3 className="text-lg font-semibold text-white mb-2">
+                <h3 className="text-base sm:text-lg font-semibold text-white mb-1.5 sm:mb-2">
                   {step.title}
                 </h3>
-                <p className="text-sm text-slate-400 leading-relaxed">
+                <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
                   {step.description}
                 </p>
               </div>
