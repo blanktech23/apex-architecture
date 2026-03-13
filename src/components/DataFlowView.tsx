@@ -115,17 +115,17 @@ export function DataFlowView() {
   const step = steps[currentStep];
 
   return (
-    <div className="absolute inset-0 flex items-center justify-center p-8 overflow-auto">
+    <div className="absolute inset-0 flex items-start sm:items-center justify-center p-4 sm:p-8 overflow-auto pt-6 sm:pt-8">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-3xl"
       >
-        <div className="text-center mb-6">
-          <h2 className="text-2xl font-semibold text-white tracking-tight mb-2">
+        <div className="text-center mb-4 sm:mb-6">
+          <h2 className="text-xl sm:text-2xl font-semibold text-white tracking-tight mb-2">
             A Lead&apos;s Journey Through Apex
           </h2>
-          <p className="text-slate-400 text-sm">
+          <p className="text-slate-400 text-xs sm:text-sm">
             Follow a single lead from first contact to CEO briefing
           </p>
         </div>
@@ -153,7 +153,7 @@ export function DataFlowView() {
         </div>
 
         {/* Step indicator */}
-        <div className="flex items-center justify-center gap-1 mb-8">
+        <div className="flex items-center justify-start sm:justify-center gap-1 mb-6 sm:mb-8 overflow-x-auto scrollbar-hide pb-1 px-2">
           {steps.map((s, i) => (
             <button
               key={s.id}
@@ -161,10 +161,10 @@ export function DataFlowView() {
                 setCurrentStep(i);
                 setIsPlaying(false);
               }}
-              className="flex items-center"
+              className="flex items-center shrink-0"
             >
               <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium transition-all"
+                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-medium transition-all"
                 style={{
                   background:
                     i <= currentStep ? `${s.color}30` : 'rgba(255,255,255,0.05)',
@@ -175,7 +175,7 @@ export function DataFlowView() {
                 {s.id}
               </div>
               {i < steps.length - 1 && (
-                <div className="w-6 h-0.5 mx-0.5">
+                <div className="w-4 sm:w-6 h-0.5 mx-0.5">
                   <div
                     className="h-full rounded-full transition-all duration-500"
                     style={{
@@ -196,17 +196,17 @@ export function DataFlowView() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.3 }}
-            className="glass p-8"
+            className="glass p-5 sm:p-8"
           >
-            <div className="flex items-start gap-5">
+            <div className="flex items-start gap-3 sm:gap-5">
               <div
-                className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0"
+                className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0"
                 style={{
                   background: `${step.color}20`,
                   border: `1px solid ${step.color}40`,
                 }}
               >
-                <step.icon className="w-7 h-7" style={{ color: step.color }} />
+                <step.icon className="w-5 h-5 sm:w-7 sm:h-7" style={{ color: step.color }} />
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-1">

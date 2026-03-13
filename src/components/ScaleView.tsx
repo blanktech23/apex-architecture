@@ -97,28 +97,28 @@ export function ScaleView() {
 
   return (
     <div className="absolute inset-0 overflow-auto">
-      <div className="min-h-full p-8 pb-16">
+      <div className="min-h-full p-4 sm:p-8 pb-16">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="w-full max-w-4xl mx-auto"
         >
-          <div className="text-center mb-8">
-            <h2 className="text-2xl font-semibold text-white tracking-tight mb-2">
+          <div className="text-center mb-6 sm:mb-8">
+            <h2 className="text-xl sm:text-2xl font-semibold text-white tracking-tight mb-2">
               Platform Economics at Scale
             </h2>
-            <p className="text-slate-400 text-sm">
+            <p className="text-slate-400 text-xs sm:text-sm">
               All tiers: $200/mo recurring. Setup fees: $5K / $7.5K / $10K (blended avg $7K)
             </p>
           </div>
 
           {/* Scale selector */}
-          <div className="flex items-center justify-center gap-3 mb-10 flex-wrap">
+          <div className="flex items-center justify-start sm:justify-center gap-2 sm:gap-3 mb-8 sm:mb-10 overflow-x-auto scrollbar-hide pb-1">
             {scaleData.map((d, i) => (
               <button
                 key={d.customers}
                 onClick={() => setActiveIndex(i)}
-                className={`relative px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                className={`relative px-3 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-all whitespace-nowrap ${
                   i === activeIndex
                     ? 'text-white'
                     : 'text-slate-500 hover:text-slate-300'
@@ -141,27 +141,27 @@ export function ScaleView() {
           </div>
 
           {/* Per-customer revenue breakdown */}
-          <div className="glass p-5 mb-6" style={{ border: '1px solid rgba(99, 102, 241, 0.2)' }}>
+          <div className="glass p-4 sm:p-5 mb-6" style={{ border: '1px solid rgba(99, 102, 241, 0.2)' }}>
             <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
               <Wallet className="w-4 h-4 text-indigo-400" />
               Every New Customer Brings
             </h3>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
               <div className="text-center">
                 <p className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider">One-Time Setup Fee</p>
-                <p className="text-xl font-bold text-amber-400">$5K — $10K</p>
+                <p className="text-lg sm:text-xl font-bold text-amber-400">$5K — $10K</p>
                 <p className="text-[10px] text-slate-600 mt-0.5">Starter $5K | Pro $7.5K | Enterprise $10K</p>
               </div>
               <div className="text-center relative">
-                <span className="absolute left-0 top-1/2 -translate-y-1/2 text-slate-600 text-lg">+</span>
+                <span className="hidden sm:block absolute left-0 top-1/2 -translate-y-1/2 text-slate-600 text-lg">+</span>
                 <p className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider">Monthly Recurring</p>
-                <p className="text-xl font-bold text-emerald-400">$200/mo</p>
+                <p className="text-lg sm:text-xl font-bold text-emerald-400">$200/mo</p>
                 <p className="text-[10px] text-slate-600 mt-0.5">Same across all tiers</p>
               </div>
               <div className="text-center relative">
-                <span className="absolute left-0 top-1/2 -translate-y-1/2 text-slate-600 text-lg">=</span>
+                <span className="hidden sm:block absolute left-0 top-1/2 -translate-y-1/2 text-slate-600 text-lg">=</span>
                 <p className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider">Year 1 Per Customer</p>
-                <p className="text-xl font-bold text-white">$7.4K — $12.4K</p>
+                <p className="text-lg sm:text-xl font-bold text-white">$7.4K — $12.4K</p>
                 <p className="text-[10px] text-slate-600 mt-0.5">Setup + 12 months recurring</p>
               </div>
             </div>
@@ -226,7 +226,7 @@ export function ScaleView() {
           </div>
 
           {/* What You Take Home — the hero section */}
-          <div className="glass p-6 mb-6" style={{ border: '1px solid rgba(34, 197, 94, 0.2)' }}>
+          <div className="glass p-4 sm:p-6 mb-6" style={{ border: '1px solid rgba(34, 197, 94, 0.2)' }}>
             <h3 className="text-sm font-semibold text-white mb-5 flex items-center gap-2">
               <PiggyBank className="w-4 h-4 text-emerald-400" />
               What You Take Home
@@ -290,7 +290,7 @@ export function ScaleView() {
           </div>
 
           {/* Cost breakdown — all 5 line items from plan */}
-          <div className="glass p-6 mb-6">
+          <div className="glass p-4 sm:p-6 mb-6">
             <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
               <Server className="w-4 h-4 text-slate-400" />
               Monthly Cost Breakdown
@@ -350,7 +350,7 @@ export function ScaleView() {
           </div>
 
           {/* Revenue vs Cost bars */}
-          <div className="glass p-6">
+          <div className="glass p-4 sm:p-6">
             <h3 className="text-sm font-semibold text-white mb-4">
               Revenue vs Platform Cost
             </h3>

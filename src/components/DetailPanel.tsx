@@ -96,7 +96,7 @@ export function DetailPanel({ selectedId, selectedType, onClose }: DetailPanelPr
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-md overflow-y-auto"
+            className="fixed right-0 top-0 bottom-0 z-50 w-full sm:max-w-md overflow-y-auto"
             style={{
               background:
                 'linear-gradient(135deg, rgba(15, 15, 26, 0.98) 0%, rgba(10, 10, 15, 0.98) 100%)',

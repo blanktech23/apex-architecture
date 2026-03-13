@@ -20,14 +20,14 @@ interface NavigationTabsProps {
 
 export function NavigationTabs({ activeTab, onTabChange }: NavigationTabsProps) {
   return (
-    <nav className="flex items-center gap-1 rounded-xl p-1" style={{ background: 'rgba(255,255,255,0.03)' }} role="tablist">
+    <nav className="flex items-center gap-1 rounded-xl p-1 overflow-x-auto scrollbar-hide -mx-1 sm:mx-0" style={{ background: 'rgba(255,255,255,0.03)' }} role="tablist">
       {tabs.map((tab) => (
         <button
           key={tab.id}
           role="tab"
           aria-selected={activeTab === tab.id}
           onClick={() => onTabChange(tab.id)}
-          className={`relative px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+          className={`relative px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
             activeTab === tab.id ? 'text-white' : 'text-slate-500 hover:text-slate-300'
           }`}
         >

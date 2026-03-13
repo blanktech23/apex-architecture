@@ -462,8 +462,8 @@ export function ArchitectureFlow({ activeTab, selectedId = null, selectedType = 
         onNodeMouseEnter={onNodeMouseEnter}
         onNodeMouseLeave={onNodeMouseLeave}
         fitView
-        fitViewOptions={{ padding: 0.3 }}
-        minZoom={0.3}
+        fitViewOptions={{ padding: 0.15 }}
+        minZoom={0.2}
         maxZoom={1.5}
         colorMode="dark"
         proOptions={{ hideAttribution: true }}

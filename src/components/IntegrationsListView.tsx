@@ -15,7 +15,7 @@ interface IntegrationsListViewProps {
 
 export function IntegrationsListView({ onSelect }: IntegrationsListViewProps) {
   return (
-    <div className="w-full h-full overflow-y-auto p-6 md:p-8">
+    <div className="w-full h-full overflow-y-auto p-4 sm:p-6 md:p-8">
       <div className="max-w-5xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 10 }}

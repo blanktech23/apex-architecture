@@ -29,16 +29,16 @@ export default function Home() {
     <div className="flex flex-col h-screen">
       {/* Header */}
       <header className="shrink-0 border-b border-white/5">
-        <div className="max-w-[1800px] mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-3 sm:py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center">
-              <Brain className="w-5 h-5 text-indigo-400" />
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center shrink-0">
+              <Brain className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-400" />
             </div>
             <div>
-              <h1 className="text-base font-semibold text-white tracking-tight">
+              <h1 className="text-sm sm:text-base font-semibold text-white tracking-tight">
                 Apex Intelligence
               </h1>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[10px] sm:text-[11px] text-slate-500">
                 Platform Architecture
               </p>
             </div>
@@ -78,12 +78,12 @@ export default function Home() {
       )}
 
       {/* Footer */}
-      <footer className="shrink-0 border-t border-white/5 px-6 py-3">
+      <footer className="shrink-0 border-t border-white/5 px-4 sm:px-6 py-2 sm:py-3">
         <div className="max-w-[1800px] mx-auto flex items-center justify-between">
-          <p className="text-[11px] text-slate-600">
+          <p className="text-[10px] sm:text-[11px] text-slate-600">
             Apex Intelligence &mdash; AI Agent Platform for Construction
           </p>
-          <p className="text-[11px] text-slate-600">
+          <p className="text-[10px] sm:text-[11px] text-slate-600 hidden sm:block">
             Click any agent or integration to explore details
           </p>
         </div>
