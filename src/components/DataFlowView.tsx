@@ -1,0 +1,245 @@
+'use client';
+
+import React, { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Play,
+  Pause,
+  RotateCcw,
+  Search,
+  Calendar,
+  Palette,
+  Calculator,
+  BarChart3,
+  Shield,
+  Crown,
+  ArrowRight,
+} from 'lucide-react';
+
+const steps = [
+  {
+    id: 1,
+    agent: 'Discovery Concierge',
+    color: '#3b82f6',
+    icon: Search,
+    title: 'New lead comes in',
+    description:
+      'A homeowner emails asking about a kitchen renovation. The Discovery Concierge responds within 15 minutes, qualifies the lead, and checks it against the ideal client profile.',
+    integration: 'Email + CRM',
+  },
+  {
+    id: 2,
+    agent: 'Discovery Concierge',
+    color: '#3b82f6',
+    icon: Calendar,
+    title: 'Consultation scheduled',
+    description:
+      'Lead is qualified. The Concierge schedules a consultation, sends a prep questionnaire, and updates the CRM with qualification notes.',
+    integration: 'Google Calendar',
+  },
+  {
+    id: 3,
+    agent: 'Design Spec Assistant',
+    color: '#a855f7',
+    icon: Palette,
+    title: 'Design phase begins',
+    description:
+      'After the consultation, the Design Spec Assistant creates a selection register. Every material choice, finish, and fixture is tracked with client approvals.',
+    integration: 'JobTread + Google Drive',
+  },
+  {
+    id: 4,
+    agent: 'Estimate Engine',
+    color: '#22c55e',
+    icon: Calculator,
+    title: 'Estimate built',
+    description:
+      'The Estimate Engine pulls historical data from similar projects, generates a confidence-range estimate, and compares subcontractor bids. The budget is set.',
+    integration: 'JobTread + QuickBooks',
+  },
+  {
+    id: 5,
+    agent: 'Project Orchestrator',
+    color: '#f97316',
+    icon: BarChart3,
+    title: 'Construction monitored',
+    description:
+      'Once the project kicks off, the Orchestrator tracks the schedule daily, monitors budget burn, coordinates subs, and flags issues before they become problems.',
+    integration: 'JobTread + Weather API',
+  },
+  {
+    id: 6,
+    agent: 'Operations Controller',
+    color: '#14b8a6',
+    icon: Shield,
+    title: 'Billing triggered',
+    description:
+      'At each milestone, the Operations Controller prepares invoice drafts, checks subcontractor compliance, and monitors cash flow. Nothing goes out without human approval.',
+    integration: 'QuickBooks',
+  },
+  {
+    id: 7,
+    agent: 'Executive Navigator',
+    color: '#eab308',
+    icon: Crown,
+    title: 'CEO briefed',
+    description:
+      'Every morning at 7 AM, the Navigator delivers a 3-minute briefing: project health, pipeline status, escalations needing attention, and the day\'s priorities.',
+    integration: 'All Systems',
+  },
+];
+
+export function DataFlowView() {
+  const [currentStep, setCurrentStep] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(true);
+
+  const nextStep = useCallback(() => {
+    setCurrentStep((prev) => (prev < steps.length - 1 ? prev + 1 : prev));
+  }, []);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    if (currentStep >= steps.length - 1) {
+      setIsPlaying(false);
+      return;
+    }
+    const timer = setTimeout(nextStep, 4000);
+    return () => clearTimeout(timer);
+  }, [isPlaying, currentStep, nextStep]);
+
+  const reset = () => {
+    setCurrentStep(0);
+    setIsPlaying(true);
+  };
+
+  const step = steps[currentStep];
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center p-8 overflow-auto">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-3xl"
+      >
+        <div className="text-center mb-6">
+          <h2 className="text-2xl font-semibold text-white tracking-tight mb-2">
+            A Lead&apos;s Journey Through Apex
+          </h2>
+          <p className="text-slate-400 text-sm">
+            Follow a single lead from first contact to CEO briefing
+          </p>
+        </div>
+
+        {/* Controls */}
+        <div className="flex items-center justify-center gap-3 mb-6">
+          <button
+            onClick={() => setIsPlaying(!isPlaying)}
+            className="w-10 h-10 rounded-xl flex items-center justify-center glass hover:bg-white/10 transition-colors"
+            aria-label={isPlaying ? 'Pause' : 'Play'}
+          >
+            {isPlaying ? (
+              <Pause className="w-4 h-4 text-white" />
+            ) : (
+              <Play className="w-4 h-4 text-white" />
+            )}
+          </button>
+          <button
+            onClick={reset}
+            className="w-10 h-10 rounded-xl flex items-center justify-center glass hover:bg-white/10 transition-colors"
+            aria-label="Reset"
+          >
+            <RotateCcw className="w-4 h-4 text-white" />
+          </button>
+        </div>
+
+        {/* Step indicator */}
+        <div className="flex items-center justify-center gap-1 mb-8">
+          {steps.map((s, i) => (
+            <button
+              key={s.id}
+              onClick={() => {
+                setCurrentStep(i);
+                setIsPlaying(false);
+              }}
+              className="flex items-center"
+            >
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium transition-all"
+                style={{
+                  background:
+                    i <= currentStep ? `${s.color}30` : 'rgba(255,255,255,0.05)',
+                  border: `2px solid ${i <= currentStep ? s.color : 'rgba(255,255,255,0.1)'}`,
+                  color: i <= currentStep ? s.color : '#64748b',
+                }}
+              >
+                {s.id}
+              </div>
+              {i < steps.length - 1 && (
+                <div className="w-6 h-0.5 mx-0.5">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{
+                      background: i < currentStep ? s.color : 'rgba(255,255,255,0.1)',
+                    }}
+                  />
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Current step content */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentStep}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3 }}
+            className="glass p-8"
+          >
+            <div className="flex items-start gap-5">
+              <div
+                className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0"
+                style={{
+                  background: `${step.color}20`,
+                  border: `1px solid ${step.color}40`,
+                }}
+              >
+                <step.icon className="w-7 h-7" style={{ color: step.color }} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span
+                    className="text-xs font-medium px-2 py-0.5 rounded-full"
+                    style={{
+                      background: `${step.color}15`,
+                      color: step.color,
+                      border: `1px solid ${step.color}30`,
+                    }}
+                  >
+                    {step.agent}
+                  </span>
+                  <ArrowRight className="w-3 h-3 text-slate-600" />
+                  <span className="text-xs text-slate-500">
+                    {step.integration}
+                  </span>
+                </div>
+                <h3 className="text-lg font-semibold text-white mb-2">
+                  {step.title}
+                </h3>
+                <p className="text-sm text-slate-400 leading-relaxed">
+                  {step.description}
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        </AnimatePresence>
+
+        <p className="text-center text-slate-600 text-xs mt-4">
+          Step {currentStep + 1} of {steps.length}
+        </p>
+      </motion.div>
+    </div>
+  );
+}
