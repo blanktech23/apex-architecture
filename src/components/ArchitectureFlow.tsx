@@ -463,8 +463,9 @@ export function ArchitectureFlow({ activeTab, selectedId = null, selectedType = 
         onNodeClick={onNodeClick}
         onNodeMouseEnter={onNodeMouseEnter}
         onNodeMouseLeave={onNodeMouseLeave}
-        fitView
-        fitViewOptions={{ padding: isMobile ? 0 : 0.05 }}
+        fitView={!isMobile}
+        fitViewOptions={{ padding: 0.05 }}
+        defaultViewport={isMobile ? { x: 195, y: 220, zoom: 0.38 } : undefined}
         minZoom={0.15}
         maxZoom={1.5}
         colorMode="dark"
