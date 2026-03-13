@@ -142,12 +142,11 @@ body {
 }
 
 /* Hide React Flow controls and minimap on mobile */
-@media (max-width: 640px) {
+@media (max-width: 639px) {
   .react-flow__minimap {
     display: none !important;
   }
   .react-flow__controls {
-    transform: scale(0.85);
-    transform-origin: bottom left;
+    display: none !important;
   }
 }

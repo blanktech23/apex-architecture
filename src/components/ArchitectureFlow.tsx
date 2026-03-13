@@ -287,9 +287,11 @@ export function ArchitectureFlow({ activeTab, selectedId = null, selectedType = 
   const [internalSelectedType, setInternalSelectedType] = useState<'agent' | 'integration' | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     setMounted(true);
+    setIsMobile(window.innerWidth < 640);
   }, []);
 
   const effectiveId = onSelect ? selectedId : internalSelectedId;
@@ -462,7 +464,7 @@ export function ArchitectureFlow({ activeTab, selectedId = null, selectedType = 
         onNodeMouseEnter={onNodeMouseEnter}
         onNodeMouseLeave={onNodeMouseLeave}
         fitView
-        fitViewOptions={{ padding: 0.05 }}
+        fitViewOptions={{ padding: isMobile ? 0 : 0.05 }}
         minZoom={0.15}
         maxZoom={1.5}
         colorMode="dark"
