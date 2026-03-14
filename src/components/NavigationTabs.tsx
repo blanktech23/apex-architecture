@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Menu, X } from 'lucide-react';
 
-export type TabId = 'overview' | 'agents' | 'integrations' | 'dataflow' | 'infrastructure' | 'scale';
+export type TabId = 'overview' | 'agents' | 'integrations' | 'dataflow' | 'infrastructure' | 'evolvability' | 'scale';
 
 const tabs: { id: TabId; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -12,6 +12,7 @@ const tabs: { id: TabId; label: string }[] = [
   { id: 'integrations', label: 'Integrations' },
   { id: 'dataflow', label: 'Data Flow' },
   { id: 'infrastructure', label: 'Infrastructure' },
+  { id: 'evolvability', label: 'Evolvability' },
   { id: 'scale', label: 'Scale' },
 ];
 

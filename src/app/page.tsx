@@ -10,6 +10,7 @@ import { DetailPanel } from '@/components/DetailPanel';
 import { ScaleView } from '@/components/ScaleView';
 import { DataFlowView } from '@/components/DataFlowView';
 import { InfrastructureView } from '@/components/InfrastructureView';
+import { EvolvabilityView } from '@/components/EvolvabilityView';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
@@ -67,6 +68,7 @@ export default function Home() {
         )}
         {activeTab === 'dataflow' && <DataFlowView />}
         {activeTab === 'infrastructure' && <InfrastructureView />}
+        {activeTab === 'evolvability' && <EvolvabilityView />}
         {activeTab === 'scale' && <ScaleView />}
       </main>
 
