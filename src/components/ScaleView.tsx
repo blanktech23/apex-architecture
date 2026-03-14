@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Users, TrendingUp, DollarSign, Zap, Server, Brain, Wallet, PiggyBank, Cloud, Database, Activity } from 'lucide-react';
+import { Users, TrendingUp, DollarSign, Zap, Server, Brain, Wallet, PiggyBank, Cloud, Database, Activity, CreditCard, Mail } from 'lucide-react';
 
 // Pricing tiers differ by both setup fee and monthly recurring.
 // Starter: $5,000 setup + $275/mo
@@ -12,14 +12,14 @@ import { Users, TrendingUp, DollarSign, Zap, Server, Brain, Wallet, PiggyBank, C
 // Blended setup: 0.4*5000 + 0.4*10000 + 0.2*20000 = $10,000 avg
 // Blended monthly: 0.4*275 + 0.4*500 + 0.2*750 = $460 avg
 //
-// Cost data from plan document Section 10:
-// | Component    | 10 Cust | 100 Cust | 1,000 Cust |
-// | Vercel Pro   | $20     | $20      | $150       |
-// | VPS (DO)     | $84     | $250     | $1,500     |
-// | Supabase     | $25     | $25      | $599       |
-// | OpenRouter   | $133    | $1,326   | $13,260    |
-// | Monitoring   | $0      | $0       | $50        |
-// | TOTAL        | $262    | $1,621   | $15,559    |
+// Cost data — researched March 2026 from actual pricing pages:
+// Vercel Pro: $20/mo per seat (vercel.com/pricing)
+// DigitalOcean: 4vCPU/8GB=$48, 8vCPU/16GB=$96 (digitalocean.com/pricing/droplets)
+// Supabase Pro: $25/mo, Team: $599/mo (supabase.com/pricing)
+// OpenRouter: GPT-4.1 Nano $0.10/$0.40, Haiku $1/$5, Sonnet $3/$15, Opus $15/$75 per 1M tokens
+// Grafana Cloud: free tier (10K series) — $0 until ~500 customers
+// Stripe: 2.9% + $0.30 per transaction (stripe.com/pricing)
+// SendGrid: free 100/day, Essentials $20/mo, Pro $90/mo (sendgrid.com/pricing)
 
 const MONTHLY_PER_CUSTOMER = 460;
 const BLENDED_SETUP = 10000;
@@ -28,41 +28,41 @@ const scaleData = [
   {
     customers: 1,
     monthlyRevenue: 1 * MONTHLY_PER_CUSTOMER,
-    vercel: 20, vps: 48, supabase: 25, openRouter: 13, monitoring: 0,
-    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring; },
-    get totalCost() { return this.infraCost + this.openRouter; },
+    vercel: 20, vps: 48, supabase: 25, openRouter: 14, monitoring: 0, stripe: 14, sendgrid: 0,
+    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring + this.sendgrid; },
+    get totalCost() { return this.infraCost + this.openRouter + this.stripe; },
     setupFees: 1 * BLENDED_SETUP,
   },
   {
     customers: 10,
     monthlyRevenue: 10 * MONTHLY_PER_CUSTOMER,
-    vercel: 20, vps: 84, supabase: 25, openRouter: 133, monitoring: 0,
-    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring; },
-    get totalCost() { return this.infraCost + this.openRouter; }, // $262
+    vercel: 20, vps: 96, supabase: 25, openRouter: 140, monitoring: 0, stripe: 136, sendgrid: 0,
+    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring + this.sendgrid; },
+    get totalCost() { return this.infraCost + this.openRouter + this.stripe; },
     setupFees: 10 * BLENDED_SETUP,
   },
   {
     customers: 50,
     monthlyRevenue: 50 * MONTHLY_PER_CUSTOMER,
-    vercel: 20, vps: 158, supabase: 25, openRouter: 663, monitoring: 0,
-    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring; },
-    get totalCost() { return this.infraCost + this.openRouter; }, // $866
+    vercel: 20, vps: 96, supabase: 25, openRouter: 700, monitoring: 0, stripe: 682, sendgrid: 20,
+    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring + this.sendgrid; },
+    get totalCost() { return this.infraCost + this.openRouter + this.stripe; },
     setupFees: 50 * BLENDED_SETUP,
   },
   {
     customers: 100,
     monthlyRevenue: 100 * MONTHLY_PER_CUSTOMER,
-    vercel: 20, vps: 250, supabase: 25, openRouter: 1326, monitoring: 0,
-    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring; },
-    get totalCost() { return this.infraCost + this.openRouter; }, // $1,621
+    vercel: 20, vps: 192, supabase: 25, openRouter: 1400, monitoring: 0, stripe: 1364, sendgrid: 20,
+    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring + this.sendgrid; },
+    get totalCost() { return this.infraCost + this.openRouter + this.stripe; },
     setupFees: 100 * BLENDED_SETUP,
   },
   {
     customers: 1000,
     monthlyRevenue: 1000 * MONTHLY_PER_CUSTOMER,
-    vercel: 150, vps: 1500, supabase: 599, openRouter: 13260, monitoring: 50,
-    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring; },
-    get totalCost() { return this.infraCost + this.openRouter; }, // $15,559
+    vercel: 150, vps: 1500, supabase: 599, openRouter: 14000, monitoring: 50, stripe: 13640, sendgrid: 90,
+    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring + this.sendgrid; },
+    get totalCost() { return this.infraCost + this.openRouter + this.stripe; },
     setupFees: 1000 * BLENDED_SETUP,
   },
 ];
@@ -289,7 +289,7 @@ export function ScaleView() {
             </div>
           </div>
 
-          {/* Cost breakdown — all 5 line items from plan */}
+          {/* Cost breakdown — all line items */}
           <div className="glass p-4 sm:p-6 mb-6">
             <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
               <Server className="w-4 h-4 text-slate-400" />
@@ -301,6 +301,8 @@ export function ScaleView() {
                 { label: 'VPS (DigitalOcean)', value: data.vps, icon: Server, color: '#6366f1', desc: 'Agent backend + Redis + NATS' },
                 { label: 'Supabase Pro', value: data.supabase, icon: Database, color: '#22c55e', desc: 'PostgreSQL + Auth + RLS' },
                 { label: 'OpenRouter (AI)', value: data.openRouter, icon: Brain, color: '#a855f7', desc: 'Multi-model inference' },
+                { label: 'Stripe', value: data.stripe, icon: CreditCard, color: '#635bff', desc: 'Payment processing (2.9% + $0.30)' },
+                { label: 'SendGrid', value: data.sendgrid, icon: Mail, color: '#1a82e2', desc: 'Transactional email delivery' },
                 { label: 'Monitoring', value: data.monitoring, icon: Activity, color: '#06b6d4', desc: 'Prometheus + Grafana' },
               ].map((item) => (
                 <motion.div
