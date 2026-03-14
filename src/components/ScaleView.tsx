@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Users, TrendingUp, DollarSign, Zap, Server, Brain, Wallet, PiggyBank, Cloud, Database, Activity, CreditCard, Mail } from 'lucide-react';
+import { Users, TrendingUp, DollarSign, Zap, Server, Brain, Wallet, PiggyBank, Cloud, Database, Activity, CreditCard, Mail, CloudSun, ScrollText, GitBranch } from 'lucide-react';
 
 // Pricing tiers differ by both setup fee and monthly recurring.
 // Starter: $5,000 setup + $275/mo
@@ -20,6 +20,9 @@ import { Users, TrendingUp, DollarSign, Zap, Server, Brain, Wallet, PiggyBank, C
 // Grafana Cloud: free tier (10K series) — $0 until ~500 customers
 // Stripe: 2.9% + $0.30 per transaction (stripe.com/pricing)
 // SendGrid: free 100/day, Essentials $20/mo, Pro $90/mo (sendgrid.com/pricing)
+// OpenWeatherMap: free 1K calls/day, paid $40/mo at >40 job sites (~20+ customers)
+// Grafana Loki: included in free tier until 300-500 customers, then $50-75/mo
+// GitHub Actions: 2,000 min/mo free, $0.008/min after — dev cost, not per-customer
 
 const MONTHLY_PER_CUSTOMER = 460;
 const BLENDED_SETUP = 10000;
@@ -28,40 +31,40 @@ const scaleData = [
   {
     customers: 1,
     monthlyRevenue: 1 * MONTHLY_PER_CUSTOMER,
-    vercel: 20, vps: 48, supabase: 25, openRouter: 14, monitoring: 0, stripe: 14, sendgrid: 0,
-    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring + this.sendgrid; },
+    vercel: 20, vps: 48, supabase: 25, openRouter: 14, monitoring: 0, stripe: 14, sendgrid: 0, weather: 0, loki: 0, ghActions: 0,
+    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring + this.sendgrid + this.weather + this.loki + this.ghActions; },
     get totalCost() { return this.infraCost + this.openRouter + this.stripe; },
     setupFees: 1 * BLENDED_SETUP,
   },
   {
     customers: 10,
     monthlyRevenue: 10 * MONTHLY_PER_CUSTOMER,
-    vercel: 20, vps: 96, supabase: 25, openRouter: 140, monitoring: 0, stripe: 136, sendgrid: 0,
-    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring + this.sendgrid; },
+    vercel: 20, vps: 96, supabase: 25, openRouter: 140, monitoring: 0, stripe: 136, sendgrid: 0, weather: 0, loki: 0, ghActions: 0,
+    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring + this.sendgrid + this.weather + this.loki + this.ghActions; },
     get totalCost() { return this.infraCost + this.openRouter + this.stripe; },
     setupFees: 10 * BLENDED_SETUP,
   },
   {
     customers: 50,
     monthlyRevenue: 50 * MONTHLY_PER_CUSTOMER,
-    vercel: 20, vps: 96, supabase: 25, openRouter: 700, monitoring: 0, stripe: 682, sendgrid: 20,
-    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring + this.sendgrid; },
+    vercel: 20, vps: 96, supabase: 25, openRouter: 700, monitoring: 0, stripe: 682, sendgrid: 20, weather: 40, loki: 0, ghActions: 0,
+    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring + this.sendgrid + this.weather + this.loki + this.ghActions; },
     get totalCost() { return this.infraCost + this.openRouter + this.stripe; },
     setupFees: 50 * BLENDED_SETUP,
   },
   {
     customers: 100,
     monthlyRevenue: 100 * MONTHLY_PER_CUSTOMER,
-    vercel: 20, vps: 192, supabase: 25, openRouter: 1400, monitoring: 0, stripe: 1364, sendgrid: 20,
-    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring + this.sendgrid; },
+    vercel: 20, vps: 192, supabase: 25, openRouter: 1400, monitoring: 0, stripe: 1364, sendgrid: 20, weather: 40, loki: 0, ghActions: 50,
+    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring + this.sendgrid + this.weather + this.loki + this.ghActions; },
     get totalCost() { return this.infraCost + this.openRouter + this.stripe; },
     setupFees: 100 * BLENDED_SETUP,
   },
   {
     customers: 1000,
     monthlyRevenue: 1000 * MONTHLY_PER_CUSTOMER,
-    vercel: 150, vps: 1500, supabase: 599, openRouter: 14000, monitoring: 50, stripe: 13640, sendgrid: 90,
-    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring + this.sendgrid; },
+    vercel: 150, vps: 1500, supabase: 599, openRouter: 14000, monitoring: 50, stripe: 13640, sendgrid: 90, weather: 40, loki: 75, ghActions: 100,
+    get infraCost() { return this.vercel + this.vps + this.supabase + this.monitoring + this.sendgrid + this.weather + this.loki + this.ghActions; },
     get totalCost() { return this.infraCost + this.openRouter + this.stripe; },
     setupFees: 1000 * BLENDED_SETUP,
   },
@@ -303,7 +306,10 @@ export function ScaleView() {
                 { label: 'OpenRouter (AI)', value: data.openRouter, icon: Brain, color: '#a855f7', desc: 'Multi-model inference' },
                 { label: 'Stripe', value: data.stripe, icon: CreditCard, color: '#635bff', desc: 'Payment processing (2.9% + $0.30)' },
                 { label: 'SendGrid', value: data.sendgrid, icon: Mail, color: '#1a82e2', desc: 'Transactional email delivery' },
-                { label: 'Monitoring', value: data.monitoring, icon: Activity, color: '#06b6d4', desc: 'Prometheus + Grafana' },
+                { label: 'OpenWeatherMap', value: data.weather, icon: CloudSun, color: '#87ceeb', desc: 'Job site forecasts (free < 20 customers)' },
+                { label: 'Grafana Loki', value: data.loki, icon: ScrollText, color: '#f2994a', desc: 'Log storage (free < 300 customers)' },
+                { label: 'GitHub Actions', value: data.ghActions, icon: GitBranch, color: '#8b949e', desc: 'CI/CD minutes (2K free/mo)' },
+                { label: 'Monitoring', value: data.monitoring, icon: Activity, color: '#06b6d4', desc: 'Prometheus + Grafana metrics' },
               ].map((item) => (
                 <motion.div
                   key={`${item.label}-${data.customers}`}
