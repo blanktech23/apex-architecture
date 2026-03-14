@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, CheckCircle2, AlertTriangle, TrendingUp, Link, BookOpen, Shield, ArrowRightLeft, User, ClipboardCheck, Lightbulb } from 'lucide-react';
+import { X, CheckCircle2, AlertTriangle, TrendingUp, Link, BookOpen, Shield, ArrowRightLeft, User, ClipboardCheck, Lightbulb, Server, Cpu, Radio, Clock, Database, Cloud } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { agents } from '@/data/agents';
@@ -215,7 +215,7 @@ function AgentDetail({ agent, onClose }: { agent: typeof agents[number]; onClose
       </section>
 
       {/* Metrics */}
-      <section>
+      <section className="mb-6">
         <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-3">
           <TrendingUp className="w-4 h-4 text-cyan-400" />
           Key metrics it tracks
@@ -235,6 +235,24 @@ function AgentDetail({ agent, onClose }: { agent: typeof agents[number]; onClose
           ))}
         </div>
       </section>
+
+      {/* Backend Infrastructure */}
+      {agent.infrastructure && (
+        <section>
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-3">
+            <Server className="w-4 h-4 text-violet-400" />
+            How it&apos;s powered
+          </h3>
+          <div className="space-y-2">
+            <InfraRow icon={Cloud} label="Execution" value={agent.infrastructure.execution} />
+            <InfraRow icon={Cpu} label="AI Routing" value={agent.infrastructure.ai} />
+            <InfraRow icon={Radio} label="Event Bus" value={agent.infrastructure.events} />
+            <InfraRow icon={Clock} label="Job Scheduling" value={agent.infrastructure.scheduling} />
+            <InfraRow icon={Database} label="Data Storage" value={agent.infrastructure.data} />
+            <InfraRow icon={Server} label="Hosting Model" value={agent.infrastructure.hosting} />
+          </div>
+        </section>
+      )}
     </>
   );
 }
@@ -346,7 +364,7 @@ function IntegrationDetail({ integration, onClose }: { integration: typeof integ
       </section>
 
       {/* Technical Details */}
-      <section>
+      <section className="mb-6">
         <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-3">
           <Shield className="w-4 h-4 text-cyan-400" />
           Technical Details
@@ -377,6 +395,22 @@ function IntegrationDetail({ integration, onClose }: { integration: typeof integ
           </div>
         </div>
       </section>
+
+      {/* Backend Infrastructure */}
+      {integration.infrastructure && (
+        <section>
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-3">
+            <Server className="w-4 h-4 text-violet-400" />
+            How it connects
+          </h3>
+          <div className="space-y-2">
+            <InfraRow icon={Cloud} label="Connection" value={integration.infrastructure.connection} />
+            <InfraRow icon={Database} label="Credentials" value={integration.infrastructure.credentials} />
+            <InfraRow icon={Radio} label="Webhooks" value={integration.infrastructure.webhooks} />
+            <InfraRow icon={Server} label="Hosting Model" value={integration.infrastructure.hosting} />
+          </div>
+        </section>
+      )}
     </>
   );
 }
@@ -509,6 +543,24 @@ function CloseButton({ onClose }: { onClose: () => void }) {
     >
       <X className="w-4 h-4 text-slate-400" />
     </button>
+  );
+}
+
+function InfraRow({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+  return (
+    <div
+      className="rounded-lg px-3 py-2.5"
+      style={{
+        background: 'rgba(255, 255, 255, 0.03)',
+        border: '1px solid rgba(255, 255, 255, 0.06)',
+      }}
+    >
+      <div className="flex items-center gap-1.5 mb-1">
+        <Icon className="w-3 h-3 text-violet-400" />
+        <span className="text-[10px] font-medium text-violet-300 uppercase tracking-wider">{label}</span>
+      </div>
+      <p className="text-xs text-slate-400 leading-relaxed">{value}</p>
+    </div>
   );
 }
 
