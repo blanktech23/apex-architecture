@@ -4,8 +4,7 @@ import React, { useState, useCallback } from 'react';
 import { Brain } from 'lucide-react';
 import { NavigationTabs, type TabId } from '@/components/NavigationTabs';
 import { ArchitectureFlow } from '@/components/ArchitectureFlow';
-import { AgentsListView } from '@/components/AgentsListView';
-import { IntegrationsListView } from '@/components/IntegrationsListView';
+import { ComponentsView } from '@/components/ComponentsView';
 import { DetailPanel } from '@/components/DetailPanel';
 import { ScaleView } from '@/components/ScaleView';
 import { DataFlowView } from '@/components/DataFlowView';
@@ -60,11 +59,8 @@ export default function Home() {
             onDeselect={handleDeselect}
           />
         )}
-        {activeTab === 'agents' && (
-          <AgentsListView onSelect={handleSelect} />
-        )}
-        {activeTab === 'integrations' && (
-          <IntegrationsListView onSelect={handleSelect} />
+        {activeTab === 'components' && (
+          <ComponentsView onSelect={handleSelect} />
         )}
         {activeTab === 'dataflow' && <DataFlowView />}
         {activeTab === 'infrastructure' && <InfrastructureView />}
@@ -73,7 +69,7 @@ export default function Home() {
       </main>
 
       {/* Detail panel for agents/integrations list views */}
-      {(activeTab === 'agents' || activeTab === 'integrations') && (
+      {activeTab === 'components' && (
         <DetailPanel
           selectedId={selectedId}
           selectedType={selectedType}

@@ -79,7 +79,7 @@ function buildNodes(activeTab: TabId): Node[] {
   agents.forEach((agent, i) => {
     const angle = i * 60;
     const pos = polarToXY(INNER_RADIUS, angle);
-    const dimmed = activeTab === 'integrations';
+    const dimmed = false;
 
     nodes.push({
       id: agent.id,
@@ -102,7 +102,7 @@ function buildNodes(activeTab: TabId): Node[] {
   integrations.forEach((integration) => {
     const posData = integrationPositions[integration.id] ?? { angle: 0, radius: 540 };
     const pos = polarToXY(posData.radius, posData.angle);
-    const dimmed = activeTab === 'agents';
+    const dimmed = false;
 
     nodes.push({
       id: integration.id,

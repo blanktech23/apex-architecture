@@ -11,22 +11,22 @@ type IconName = keyof typeof LucideIcons;
 
 interface IntegrationsListViewProps {
   onSelect: (id: string, type: 'agent' | 'integration') => void;
+  inline?: boolean;
 }
 
-export function IntegrationsListView({ onSelect }: IntegrationsListViewProps) {
-  return (
-    <div className="w-full h-full overflow-y-auto p-4 sm:p-6 md:p-8">
-      <div className="max-w-5xl mx-auto">
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
-        >
-          <h2 className="text-xl font-semibold text-white mb-1">Integrations</h2>
-          <p className="text-sm text-slate-500">
-            7 connected systems powering the agent network
-          </p>
-        </motion.div>
+export function IntegrationsListView({ onSelect, inline }: IntegrationsListViewProps) {
+  const content = (
+    <>
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="mb-8"
+      >
+        <h2 className="text-xl font-semibold text-white mb-1">Integrations</h2>
+        <p className="text-sm text-slate-500">
+          7 connected systems powering the agent network
+        </p>
+      </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {integrations.map((integration, i) => {
@@ -125,6 +125,15 @@ export function IntegrationsListView({ onSelect }: IntegrationsListViewProps) {
             );
           })}
         </div>
+    </>
+  );
+
+  if (inline) return content;
+
+  return (
+    <div className="w-full h-full overflow-y-auto p-4 sm:p-6 md:p-8">
+      <div className="max-w-5xl mx-auto">
+        {content}
       </div>
     </div>
   );
