@@ -4,13 +4,14 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Menu, X } from 'lucide-react';
 
-export type TabId = 'overview' | 'agents' | 'integrations' | 'dataflow' | 'scale';
+export type TabId = 'overview' | 'agents' | 'integrations' | 'dataflow' | 'infrastructure' | 'scale';
 
 const tabs: { id: TabId; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'agents', label: 'Agents' },
   { id: 'integrations', label: 'Integrations' },
   { id: 'dataflow', label: 'Data Flow' },
+  { id: 'infrastructure', label: 'Infrastructure' },
   { id: 'scale', label: 'Scale' },
 ];
 

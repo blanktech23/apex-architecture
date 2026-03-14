@@ -9,6 +9,7 @@ import { IntegrationsListView } from '@/components/IntegrationsListView';
 import { DetailPanel } from '@/components/DetailPanel';
 import { ScaleView } from '@/components/ScaleView';
 import { DataFlowView } from '@/components/DataFlowView';
+import { InfrastructureView } from '@/components/InfrastructureView';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
@@ -65,6 +66,7 @@ export default function Home() {
           <IntegrationsListView onSelect={handleSelect} />
         )}
         {activeTab === 'dataflow' && <DataFlowView />}
+        {activeTab === 'infrastructure' && <InfrastructureView />}
         {activeTab === 'scale' && <ScaleView />}
       </main>
 
