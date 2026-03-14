@@ -218,28 +218,23 @@ function StatusBadge({ status }: { status: 'reused' | 'new' | 'reconfigured' | '
   );
 }
 
-export function EvolvabilityView() {
+export function EvolvabilityView({ inline }: { inline?: boolean }) {
   const [expandedSchema, setExpandedSchema] = useState(false);
   const [expandedRollouts, setExpandedRollouts] = useState(false);
 
-  return (
-    <div className="absolute inset-0 overflow-auto">
-      <div className="min-h-full p-4 sm:p-8 pb-16">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-4xl mx-auto"
-        >
-          {/* Header */}
-          <div className="text-center mb-8 sm:mb-10">
-            <h2 className="text-xl sm:text-2xl font-semibold text-white tracking-tight mb-2">
-              Built to Evolve
-            </h2>
-            <p className="text-slate-400 text-xs sm:text-sm max-w-xl mx-auto">
-              New agents, new integrations, new industries — without changing core infrastructure.
-              The platform is designed so that expansion is configuration, not engineering.
-            </p>
-          </div>
+  const content = (
+    <>
+      {!inline && (
+        <div className="text-center mb-8 sm:mb-10">
+          <h2 className="text-xl sm:text-2xl font-semibold text-white tracking-tight mb-2">
+            Built to Evolve
+          </h2>
+          <p className="text-slate-400 text-xs sm:text-sm max-w-xl mx-auto">
+            New agents, new integrations, new industries — without changing core infrastructure.
+            The platform is designed so that expansion is configuration, not engineering.
+          </p>
+        </div>
+      )}
 
           {/* ============================================ */}
           {/* SECTION 1: Plugin Architecture */}
@@ -729,6 +724,22 @@ export function EvolvabilityView() {
               The result: expanding to a new industry is days of configuration, not months of engineering.
             </p>
           </div>
+    </>
+  );
+
+  if (inline) {
+    return content;
+  }
+
+  return (
+    <div className="absolute inset-0 overflow-auto">
+      <div className="min-h-full p-4 sm:p-8 pb-16">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-4xl mx-auto"
+        >
+          {content}
         </motion.div>
       </div>
     </div>
