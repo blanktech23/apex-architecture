@@ -27,6 +27,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { EvolvabilityView } from './EvolvabilityView';
 
 // --- SECTION 1: Multi-Tenancy Visual ---
 
@@ -271,11 +272,11 @@ export function InfrastructureView() {
           {/* Header */}
           <div className="text-center mb-8 sm:mb-10">
             <h2 className="text-xl sm:text-2xl font-semibold text-white tracking-tight mb-2">
-              Platform Infrastructure
+              Platform Infrastructure & Evolvability
             </h2>
             <p className="text-slate-400 text-xs sm:text-sm max-w-xl mx-auto">
-              One shared server runs every customer&apos;s agents. Here&apos;s how 5 companies
-              on 3 different tiers coexist with complete data isolation.
+              How the platform runs multiple companies on shared infrastructure with complete isolation —
+              and how it scales to new industries without rebuilding.
             </p>
           </div>
 
@@ -552,22 +553,15 @@ export function InfrastructureView() {
             </div>
           </div>
 
-          {/* Architecture summary */}
-          <div
-            className="rounded-xl p-4 sm:p-5 text-center"
-            style={{
-              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(34, 197, 94, 0.06) 100%)',
-              border: '1px solid rgba(99, 102, 241, 0.15)',
-            }}
-          >
-            <Eye className="w-5 h-5 text-indigo-400 mx-auto mb-2" />
-            <p className="text-xs text-slate-300 max-w-lg mx-auto leading-relaxed">
-              <span className="text-white font-semibold">One server, many companies, zero data leakage.</span>{' '}
-              Database RLS, NATS namespacing, per-tenant API keys, AES-256 encryption, RBAC, and feature flags
-              work together to create complete isolation on shared infrastructure — keeping costs at ~$15/customer/month
-              while each company operates as if they have their own dedicated system.
-            </p>
+          {/* Divider between Infrastructure and Evolvability */}
+          <div className="my-10 flex items-center gap-4">
+            <div className="flex-1 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+            <span className="text-[10px] font-medium text-slate-600 uppercase tracking-widest">Built to Evolve</span>
+            <div className="flex-1 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
           </div>
+
+          {/* Evolvability content (inline) */}
+          <EvolvabilityView inline />
         </motion.div>
       </div>
     </div>
