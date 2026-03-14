@@ -37,8 +37,8 @@ const edgeTypes: EdgeTypes = {
   animated: AnimatedEdge,
 };
 
-// Position agents in inner ring at 60deg intervals
-// Agents: 0°=Discovery, 60°=Design, 120°=Orchestrator, 180°=Estimate, 240°=Ops, 300°=ExecNav
+// Position agents in inner ring at ~51.4deg intervals (360/7)
+// Agents: 0°=Discovery, 51°=Design, 103°=Orchestrator, 154°=Estimate, 206°=Ops, 257°=ExecNav, 309°=Support
 const INNER_RADIUS = 320;
 const CENTER_X = 0;
 const CENTER_Y = 0;
@@ -77,7 +77,7 @@ function buildNodes(activeTab: TabId): Node[] {
 
   // Agent nodes in inner ring
   agents.forEach((agent, i) => {
-    const angle = i * 60;
+    const angle = i * (360 / agents.length);
     const pos = polarToXY(INNER_RADIUS, angle);
     const dimmed = false;
 

@@ -90,6 +90,7 @@ const currentTemplate = {
     'Project Orchestrator',
     'Operations Controller',
     'Executive Navigator',
+    'Support Agent',
   ],
 };
 
@@ -104,6 +105,7 @@ const futureTemplates: IndustryTemplate[] = [
       { name: 'Project Orchestrator', status: 'reused' },
       { name: 'Operations Controller', status: 'reused' },
       { name: 'Executive Navigator', status: 'reused' },
+      { name: 'Support Agent', status: 'reused' },
     ],
     integrations: [
       { name: 'ServiceTitan', status: 'swapped' },
@@ -111,7 +113,7 @@ const futureTemplates: IndustryTemplate[] = [
       { name: 'Google Drive', status: 'same' },
       { name: 'Gmail', status: 'same' },
     ],
-    note: 'Swap Design Spec for Equipment Spec Tracker. Swap JobTread for ServiceTitan. 5 of 6 agents reused as-is.',
+    note: 'Swap Design Spec for Equipment Spec Tracker. Swap JobTread for ServiceTitan. 6 of 7 agents reused as-is.',
   },
   {
     name: 'Design-Build',
@@ -123,6 +125,7 @@ const futureTemplates: IndustryTemplate[] = [
       { name: 'Project Orchestrator', status: 'reconfigured' },
       { name: 'Operations Controller', status: 'reconfigured' },
       { name: 'Executive Navigator', status: 'reconfigured' },
+      { name: 'Support Agent', status: 'reused' },
     ],
     integrations: [
       { name: 'JobTread', status: 'same' },
@@ -130,7 +133,7 @@ const futureTemplates: IndustryTemplate[] = [
       { name: 'Google Drive', status: 'same' },
       { name: 'Gmail', status: 'same' },
     ],
-    note: 'Same 6 agents, different prompts. Different qualification criteria, estimate categories, and Drive folder hierarchy.',
+    note: 'Same 7 agents, different prompts. Different qualification criteria, estimate categories, and Drive folder hierarchy.',
   },
   {
     name: 'Landscaping',
@@ -141,6 +144,7 @@ const futureTemplates: IndustryTemplate[] = [
       { name: 'Seasonal Planning', status: 'new' },
       { name: 'Project Orchestrator', status: 'reused' },
       { name: 'Executive Navigator', status: 'reused' },
+      { name: 'Support Agent', status: 'reused' },
     ],
     integrations: [
       { name: 'LMN', status: 'swapped' },
@@ -160,6 +164,7 @@ const futureTemplates: IndustryTemplate[] = [
       { name: 'Project Orchestrator', status: 'reused' },
       { name: 'Operations Controller', status: 'reused' },
       { name: 'Executive Navigator', status: 'reused' },
+      { name: 'Support Agent', status: 'reused' },
       { name: 'Permit Tracker', status: 'new' },
     ],
     integrations: [
@@ -169,7 +174,7 @@ const futureTemplates: IndustryTemplate[] = [
       { name: 'Gmail', status: 'same' },
       { name: 'Procore', status: 'new' },
     ],
-    note: 'All 6 agents reused plus new Permit Tracker. Add Procore integration for project management.',
+    note: 'All 7 agents reused plus new Permit Tracker. Add Procore integration for project management.',
   },
 ];
 
@@ -180,10 +185,10 @@ const staysSame = [
   { label: 'NATS event bus', icon: Cable },
   { label: 'Redis + BullMQ', icon: Database },
   { label: 'Supabase + RLS', icon: Shield },
-  { label: 'OpenRouter', icon: Bot },
+  { label: 'LiteLLM', icon: Bot },
   { label: 'Vercel dashboard', icon: LayoutTemplate },
   { label: 'Billing (Stripe)', icon: Plug },
-  { label: 'Auth (next-auth)', icon: KeyRound },
+  { label: 'Auth (better-auth)', icon: KeyRound },
   { label: 'Approval Queue', icon: Check },
   { label: 'Multi-tenancy isolation', icon: Lock },
 ];

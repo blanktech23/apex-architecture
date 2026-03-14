@@ -45,7 +45,7 @@ const tenants: Tenant[] = [
     name: 'Slate Design & Remodel',
     tier: 'Professional',
     tierColor: '#6366f1',
-    agents: 6,
+    agents: 7,
     employees: 5,
     roles: ['CEO', 'Office Manager', 'Project Manager', 'Designer', 'Bookkeeper'],
   },
@@ -61,7 +61,7 @@ const tenants: Tenant[] = [
     name: 'Apex Renovations',
     tier: 'Professional',
     tierColor: '#6366f1',
-    agents: 6,
+    agents: 7,
     employees: 3,
     roles: ['CEO', 'Project Manager', 'Bookkeeper'],
   },
@@ -69,7 +69,7 @@ const tenants: Tenant[] = [
     name: 'Premier Custom Homes',
     tier: 'Enterprise',
     tierColor: '#eab308',
-    agents: 6,
+    agents: 7,
     employees: 8,
     roles: ['CEO', 'Admin', '2 PMs', '2 Designers', 'Estimator', 'Bookkeeper'],
   },
@@ -116,8 +116,8 @@ const isolationLayers: IsolationLayer[] = [
     icon: Cpu,
     color: '#a855f7',
     what: 'Each company has its own AI budget — a runaway agent at one company can\'t drain another company\'s allocation.',
-    how: 'Per-tenant OpenRouter API key with monthly spending limits. Daily usage synced to the billing dashboard in Supabase. Circuit breaker: any single agent execution exceeding $5 is killed immediately.',
-    technical: 'OpenRouter per-key daily limit: hard cap at 2x expected spend → key disabled. Per-agent max_tokens: 4,096 standard, 8,192 complex. Loop detection: abort if same tool called 3x consecutively. Model cascade routes by complexity — not all requests use expensive models.',
+    how: 'Per-tenant LiteLLM API key with spending caps + fallback routing. Daily usage synced to the billing dashboard in Supabase. Circuit breaker: any single agent execution exceeding $5 is killed immediately.',
+    technical: 'LiteLLM per-key daily limit: hard cap at 2x expected spend → key disabled. Per-agent max_tokens: 4,096 standard, 8,192 complex. Loop detection: abort if same tool called 3x consecutively. Model cascade routes by complexity — not all requests use expensive models.',
   },
   {
     name: 'Secret Encryption',
@@ -139,9 +139,9 @@ const isolationLayers: IsolationLayer[] = [
     name: 'Feature Gating',
     icon: ToggleRight,
     color: '#eab308',
-    what: 'Different tiers unlock different features. Starter gets 3 agents, Professional gets 6, Enterprise gets 6 + custom agents.',
+    what: 'Different tiers unlock different features. Starter gets 3 agents, Professional gets 7 (6 operational + Support Agent), Enterprise gets 7 + custom agents.',
     how: 'Per-tenant feature flags stored in the tenants table. The agent_templates system defines which agents are enabled per tier. Customers can\'t access agents outside their tier — enforcement at both API and UI levels.',
-    technical: 'Agent templates: Starter = Discovery Concierge + Estimate Engine + Project Orchestrator. Professional = all 6 agents. Enterprise = all 6 + custom agent development. Feature flags support gradual rollouts (10% → 50% → 100%) and per-tenant beta access.',
+    technical: 'Agent templates: Starter = Discovery Concierge + Estimate Engine + Project Orchestrator. Professional = all 7 agents. Enterprise = all 7 + custom agent development. Feature flags support gradual rollouts (10% → 50% → 100%) and per-tenant beta access.',
   },
 ];
 
@@ -163,7 +163,7 @@ const backendStack: StackComponent[] = [
     color: '#6366f1',
     role: 'Agent Backend Server',
     details: 'The single shared server that runs all agent processes, handles webhook ingestion, and routes AI requests. Runs Docker Compose with Node.js, Redis, and NATS containers. All customers share this server.',
-    specs: 'Starting: 8 vCPU / 16GB RAM ($84/mo). At 100 customers: dual-node ($250/mo). At 1,000: cluster ($1,500/mo). All tenant isolation is software-level — no per-customer VMs.',
+    specs: 'Starting: 8 vCPU / 16GB RAM ($96/mo). At 100 customers: dual-node ($250/mo). At 1,000: cluster ($1,500/mo). All tenant isolation is software-level — no per-customer VMs.',
   },
   {
     name: 'Docker Compose',
@@ -174,12 +174,12 @@ const backendStack: StackComponent[] = [
     specs: '3 containers: node (agent executor + API), redis (BullMQ + cache), nats (JetStream event bus). Health checks and auto-restart on failure. Volume mounts for persistent data.',
   },
   {
-    name: 'OpenRouter',
+    name: 'LiteLLM',
     icon: Cpu,
     color: '#a855f7',
     role: 'AI Model Gateway',
-    details: 'Routes AI requests to the optimal model based on task complexity. Simple tasks (lead scoring) → GPT-4.1 Nano ($0.10/1M tokens). Medium tasks (email drafts) → Claude Haiku 4.5 ($1/1M). Complex tasks (estimates, financial analysis) → Claude Sonnet 4.5 ($3/1M). Frontier tasks (CEO briefings) → Claude Opus 4.6 ($5/1M).',
-    specs: 'Per-tenant API keys with monthly spending caps. Prompt caching: 90% discount on repeat system prompts (Claude) and 75% (OpenAI). At ~4,500 customers, switch to direct Anthropic/OpenAI volume discounts for 15-20% savings.',
+    details: 'Self-hosted, zero markup, 100+ providers, fallback routing. Routes AI requests to the optimal model based on task complexity. Simple tasks (lead scoring) → GPT-4.1 Nano ($0.10/1M tokens). Medium tasks (email drafts) → Claude Haiku 4.5 ($1/1M). Complex tasks (estimates, financial analysis) → Claude Sonnet 4.5 ($3/1M). Frontier tasks (CEO briefings) → Claude Opus 4.6 ($15/1M).',
+    specs: 'Per-tenant API keys with spending caps + fallback routing. Prompt caching: 90% discount on repeat system prompts (Claude) and 75% (OpenAI). At ~4,500 customers, switch to direct Anthropic/OpenAI volume discounts for 15-20% savings.',
   },
   {
     name: 'NATS JetStream',
@@ -194,7 +194,7 @@ const backendStack: StackComponent[] = [
     icon: Zap,
     color: '#dc382d',
     role: 'Cache + Job Queue Backing Store',
-    details: 'Two roles: (1) L2 distributed cache — weather data, frequently accessed configs, and OpenRouter response caching. (2) BullMQ backing store — all scheduled jobs, cron timers, and retry queues live in Redis. Node.js LRU serves as L1 in-process cache for hot data.',
+    details: 'Two roles: (1) L2 distributed cache — weather data, frequently accessed configs, and LiteLLM response caching. (2) BullMQ backing store — all scheduled jobs, cron timers, and retry queues live in Redis. Node.js LRU serves as L1 in-process cache for hot data.',
     specs: 'Starting: managed Redis (Upstash free tier). At 100 customers: dedicated Redis on VPS. Daily backups. BullMQ features: repeatable jobs (daily briefings), delayed jobs (follow-up reminders), retry with exponential backoff (3 attempts).',
   },
   {
@@ -210,16 +210,16 @@ const backendStack: StackComponent[] = [
     icon: Globe,
     color: '#fff',
     role: 'Frontend Hosting',
-    details: 'Hosts the Next.js 14 dashboard (App Router) that customers use to interact with their agents. Handles auth flows (next-auth + Supabase Auth), the approval queue UI, CEO portal, and agent status displays. Connects to the VPS backend via HTTPS (REST + WebSocket).',
+    details: 'Hosts the Next.js 15 dashboard (App Router) that customers use to interact with their agents. Handles auth flows (better-auth with Organization plugin), the approval queue UI, CEO portal, and agent status displays. Connects to the VPS backend via HTTPS (REST + WebSocket).',
     specs: 'Vercel Pro: $20/mo (scales to Team at $150/mo for 1,000+ customers). SSR for initial page load, client-side hydration for interactive elements. WebSocket connection to VPS for real-time agent status and briefing push notifications.',
   },
   {
-    name: 'next-auth + Supabase Auth',
+    name: 'better-auth (Organization plugin)',
     icon: KeyRound,
     color: '#14b8a6',
     role: 'Authentication & Session Management',
-    details: 'Multi-tenant authentication. Customer signs up → creates a tenant → invites employees → assigns roles. JWT tokens carry tenant_id and role claims. OAuth adapters for customer tool connections (Google, QuickBooks, HubSpot). Session management with secure HTTP-only cookies.',
-    specs: 'Supabase Auth adapter for next-auth. JWT payload: { sub, tenant_id, role, email }. Role-based middleware on every API route. OAuth 2.0 redirect flows managed server-side for integration connections.',
+    details: 'Built-in multi-tenant RBAC, team management, invitations — self-hosted, free. Customer signs up → creates a tenant → invites employees → assigns roles. JWT tokens carry tenant_id and role claims. OAuth adapters for customer tool connections (Google, QuickBooks, HubSpot). Session management with secure HTTP-only cookies.',
+    specs: 'better-auth Organization plugin. JWT payload: { sub, tenant_id, role, email }. Role-based middleware on every API route. OAuth 2.0 redirect flows managed server-side for integration connections.',
   },
   {
     name: 'WebSocket (Real-Time)',
@@ -227,7 +227,7 @@ const backendStack: StackComponent[] = [
     color: '#f97316',
     role: 'Live Dashboard Updates',
     details: 'Pushes real-time updates from agents to the customer dashboard. When an agent completes a task (estimate built, briefing ready, escalation created), a WebSocket event fires to the connected browser — no polling needed.',
-    specs: 'Supabase Real-Time subscriptions for database changes + custom WebSocket from VPS for agent execution progress. Events: agent.status.changed, draft.created, escalation.created, briefing.ready. Scoped by tenant_id — customers only receive their own events.',
+    specs: 'Socket.io on Hono backend — NATS events → backend → Socket.io → client dashboards. No connection limits (vs Supabase Realtime\'s 500 cap). Events: agent.status.changed, draft.created, escalation.created, briefing.ready. Scoped by tenant_id — customers only receive their own events.',
   },
   {
     name: 'Prometheus + Grafana Cloud',
@@ -235,7 +235,7 @@ const backendStack: StackComponent[] = [
     color: '#e6522c',
     role: 'Monitoring & Alerting',
     details: 'Tracks platform health: agent execution times, error rates, API latency, queue depths, and per-tenant resource usage. Grafana dashboards for the engineering team. Alerts fire on anomalies (agent execution spikes, queue backup, high error rate).',
-    specs: 'Grafana Cloud free tier ($0/mo up to 100 customers). Prometheus scrapes Node.js metrics every 15 seconds. Key metrics: agent_execution_duration_seconds, openrouter_tokens_used, nats_messages_published, bullmq_queue_depth, supabase_query_duration.',
+    specs: 'Grafana Cloud free tier ($0/mo up to 100 customers). Prometheus scrapes Node.js metrics every 15 seconds. Key metrics: agent_execution_duration_seconds, litellm_tokens_used, nats_messages_published, bullmq_queue_depth, supabase_query_duration.',
   },
   {
     name: 'Pino → Grafana Loki',
@@ -251,7 +251,7 @@ const backendStack: StackComponent[] = [
     color: '#635bff',
     role: 'Billing & Metering',
     details: 'Handles SaaS billing: one-time setup fees ($5K-$20K), monthly recurring ($275-$750/mo), and usage-based overages (Enterprise tier). Customer portal for invoice history, payment method management, and plan upgrades.',
-    specs: 'Stripe Checkout for onboarding. Stripe Billing for recurring subscriptions. Usage records synced daily from OpenRouter spend tracking in Supabase. Webhook events for payment success/failure → NATS → Operations Controller (for customer accounts that use it).',
+    specs: 'Stripe Checkout for onboarding. Stripe Billing for recurring subscriptions. Usage records synced daily from LiteLLM spend tracking in Supabase. Webhook events for payment success/failure → NATS → Operations Controller (for customer accounts that use it).',
   },
 ];
 
@@ -309,7 +309,7 @@ export function InfrastructureView() {
                 </span>
               </div>
               <div className="flex flex-wrap items-center justify-center gap-2">
-                {['DigitalOcean VPS', 'NATS JetStream', 'Redis + BullMQ', 'Supabase (PostgreSQL + RLS)', 'OpenRouter', 'Vercel'].map((svc) => (
+                {['DigitalOcean VPS', 'NATS JetStream', 'Redis + BullMQ', 'Supabase (PostgreSQL + RLS)', 'LiteLLM', 'Vercel'].map((svc) => (
                   <span
                     key={svc}
                     className="text-[10px] px-2 py-0.5 rounded-full text-slate-300"

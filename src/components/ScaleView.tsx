@@ -16,7 +16,7 @@ import { Users, TrendingUp, DollarSign, Zap, Server, Brain, Wallet, PiggyBank, C
 // Vercel Pro: $20/mo per seat (vercel.com/pricing)
 // DigitalOcean: 4vCPU/8GB=$48, 8vCPU/16GB=$96 (digitalocean.com/pricing/droplets)
 // Supabase Pro: $25/mo, Team: $599/mo (supabase.com/pricing)
-// OpenRouter: GPT-4.1 Nano $0.10/$0.40, Haiku $1/$5, Sonnet $3/$15, Opus $15/$75 per 1M tokens
+// LiteLLM: GPT-4.1 Nano $0.10/$0.40, Haiku $1/$5, Sonnet $3/$15, Opus $15/$75 per 1M tokens
 // Grafana Cloud: free tier (10K series) — $0 until ~500 customers
 // Stripe: 2.9% + $0.30 per transaction (stripe.com/pricing)
 // SendGrid: free 100/day, Essentials $20/mo, Pro $90/mo (sendgrid.com/pricing)
@@ -303,7 +303,7 @@ export function ScaleView() {
                 { label: 'Vercel Pro', value: data.vercel, icon: Cloud, color: '#3b82f6', desc: 'Frontend hosting' },
                 { label: 'VPS (DigitalOcean)', value: data.vps, icon: Server, color: '#6366f1', desc: 'Agent backend + Redis + NATS' },
                 { label: 'Supabase Pro', value: data.supabase, icon: Database, color: '#22c55e', desc: 'PostgreSQL + Auth + RLS' },
-                { label: 'OpenRouter (AI)', value: data.openRouter, icon: Brain, color: '#a855f7', desc: 'Multi-model inference' },
+                { label: 'AI Compute (LiteLLM)', value: data.openRouter, icon: Brain, color: '#a855f7', desc: 'Multi-model inference' },
                 { label: 'Stripe', value: data.stripe, icon: CreditCard, color: '#635bff', desc: 'Payment processing (2.9% + $0.30)' },
                 { label: 'SendGrid', value: data.sendgrid, icon: Mail, color: '#1a82e2', desc: 'Transactional email delivery' },
                 { label: 'OpenWeatherMap', value: data.weather, icon: CloudSun, color: '#87ceeb', desc: 'Job site forecasts (free < 20 customers)' },
