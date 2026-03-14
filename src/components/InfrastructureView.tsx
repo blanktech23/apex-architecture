@@ -249,7 +249,7 @@ const backendStack: StackComponent[] = [
     icon: CreditCard,
     color: '#635bff',
     role: 'Billing & Metering',
-    details: 'Handles SaaS billing: one-time setup fees ($5K-$10K), monthly recurring ($200/mo), and usage-based overages (Enterprise tier). Customer portal for invoice history, payment method management, and plan upgrades.',
+    details: 'Handles SaaS billing: one-time setup fees ($5K-$20K), monthly recurring ($275-$750/mo), and usage-based overages (Enterprise tier). Customer portal for invoice history, payment method management, and plan upgrades.',
     specs: 'Stripe Checkout for onboarding. Stripe Billing for recurring subscriptions. Usage records synced daily from OpenRouter spend tracking in Supabase. Webhook events for payment success/failure → NATS → Operations Controller (for customer accounts that use it).',
   },
 ];

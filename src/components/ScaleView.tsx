@@ -4,13 +4,13 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Users, TrendingUp, DollarSign, Zap, Server, Brain, Wallet, PiggyBank, Cloud, Database, Activity } from 'lucide-react';
 
-// Pricing: all tiers = $200/mo recurring. Setup fees differ by tier.
-// Starter: $5,000 setup + $200/mo
-// Professional: $7,500 setup + $200/mo
-// Enterprise: $10,000 setup + $200/mo
+// Pricing tiers differ by both setup fee and monthly recurring.
+// Starter: $5,000 setup + $275/mo
+// Professional: $10,000 setup + $500/mo
+// Enterprise: $20,000 setup + $750/mo
 // Blended mix: 40% Starter, 40% Pro, 20% Enterprise
-// Blended setup: 0.4*5000 + 0.4*7500 + 0.2*10000 = $7,000 avg
-// Monthly per customer: $200
+// Blended setup: 0.4*5000 + 0.4*10000 + 0.2*20000 = $10,000 avg
+// Blended monthly: 0.4*275 + 0.4*500 + 0.2*750 = $460 avg
 //
 // Cost data from plan document Section 10:
 // | Component    | 10 Cust | 100 Cust | 1,000 Cust |
@@ -21,8 +21,8 @@ import { Users, TrendingUp, DollarSign, Zap, Server, Brain, Wallet, PiggyBank, C
 // | Monitoring   | $0      | $0       | $50        |
 // | TOTAL        | $262    | $1,621   | $15,559    |
 
-const MONTHLY_PER_CUSTOMER = 200;
-const BLENDED_SETUP = 7000;
+const MONTHLY_PER_CUSTOMER = 460;
+const BLENDED_SETUP = 10000;
 
 const scaleData = [
   {
@@ -108,7 +108,7 @@ export function ScaleView() {
               Platform Economics at Scale
             </h2>
             <p className="text-slate-400 text-xs sm:text-sm">
-              All tiers: $200/mo recurring. Setup fees: $5K / $7.5K / $10K (blended avg $7K)
+              Starter $275/mo | Pro $500/mo | Enterprise $750/mo. Setup fees: $5K / $10K / $20K (blended avg $10K)
             </p>
           </div>
 
@@ -149,19 +149,19 @@ export function ScaleView() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
               <div className="text-center">
                 <p className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider">One-Time Setup Fee</p>
-                <p className="text-lg sm:text-xl font-bold text-amber-400">$5K — $10K</p>
-                <p className="text-[10px] text-slate-600 mt-0.5">Starter $5K | Pro $7.5K | Enterprise $10K</p>
+                <p className="text-lg sm:text-xl font-bold text-amber-400">$5K — $20K</p>
+                <p className="text-[10px] text-slate-600 mt-0.5">Starter $5K | Pro $10K | Enterprise $20K</p>
               </div>
               <div className="text-center relative">
                 <span className="hidden sm:block absolute left-0 top-1/2 -translate-y-1/2 text-slate-600 text-lg">+</span>
                 <p className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider">Monthly Recurring</p>
-                <p className="text-lg sm:text-xl font-bold text-emerald-400">$200/mo</p>
-                <p className="text-[10px] text-slate-600 mt-0.5">Same across all tiers</p>
+                <p className="text-lg sm:text-xl font-bold text-emerald-400">$275 — $750/mo</p>
+                <p className="text-[10px] text-slate-600 mt-0.5">Starter $275 | Pro $500 | Enterprise $750</p>
               </div>
               <div className="text-center relative">
                 <span className="hidden sm:block absolute left-0 top-1/2 -translate-y-1/2 text-slate-600 text-lg">=</span>
                 <p className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider">Year 1 Per Customer</p>
-                <p className="text-lg sm:text-xl font-bold text-white">$7.4K — $12.4K</p>
+                <p className="text-lg sm:text-xl font-bold text-white">$8.3K — $29K</p>
                 <p className="text-[10px] text-slate-600 mt-0.5">Setup + 12 months recurring</p>
               </div>
             </div>
@@ -179,14 +179,14 @@ export function ScaleView() {
               {
                 label: 'One-Time Revenue',
                 value: formatCurrency(data.setupFees),
-                sub: `${data.customers} × $7K avg setup`,
+                sub: `${data.customers} × $10K avg setup`,
                 icon: Zap,
                 color: '#eab308',
               },
               {
                 label: 'Monthly Recurring',
                 value: formatCurrency(data.monthlyRevenue),
-                sub: `${data.customers} × $200/mo`,
+                sub: `${data.customers} × $460/mo avg`,
                 icon: TrendingUp,
                 color: '#22c55e',
               },
@@ -400,12 +400,12 @@ export function ScaleView() {
           {/* Pricing tiers reference */}
           <div className="mt-4 sm:mt-6 text-center">
             <p className="text-[10px] sm:text-[11px] text-slate-600 hidden sm:block">
-              Starter: $5K setup + $200/mo &nbsp;|&nbsp; Professional: $7.5K setup + $200/mo &nbsp;|&nbsp; Enterprise: $10K setup + $200/mo
+              Starter: $5K setup + $275/mo &nbsp;|&nbsp; Professional: $10K setup + $500/mo &nbsp;|&nbsp; Enterprise: $20K setup + $750/mo
             </p>
             <div className="sm:hidden space-y-0.5">
-              <p className="text-[10px] text-slate-600">Starter: $5K + $200/mo</p>
-              <p className="text-[10px] text-slate-600">Professional: $7.5K + $200/mo</p>
-              <p className="text-[10px] text-slate-600">Enterprise: $10K + $200/mo</p>
+              <p className="text-[10px] text-slate-600">Starter: $5K + $275/mo</p>
+              <p className="text-[10px] text-slate-600">Professional: $10K + $500/mo</p>
+              <p className="text-[10px] text-slate-600">Enterprise: $20K + $750/mo</p>
             </div>
           </div>
         </motion.div>
