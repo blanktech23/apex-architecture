@@ -20,10 +20,10 @@ export const integrations = [
     authMethod: 'API Key',
     dataFlow: 'Read + Write (with human approval)',
     infrastructure: {
-      connection: 'API calls routed through the shared cloud server (VPS) — the server acts as a secure middleman between agents and JobTread',
-      credentials: 'Each customer\'s JobTread API key is encrypted (AES-256) and stored in Supabase — never exposed to the frontend',
-      webhooks: 'JobTread sends real-time updates to a webhook endpoint on our server, which routes them to the right tenant\'s agents via NATS',
-      hosting: 'One centralized server handles all customers\' JobTread connections — not a separate server per customer',
+      connection: 'JobTread REST API calls routed through the shared DigitalOcean VPS. The server implements an IntegrationAdapter interface — a standardized wrapper that handles auth, retries, and rate limiting. Rate limits are undocumented by JobTread, so the adapter uses conservative backoff.',
+      credentials: 'Each customer\'s JobTread API key encrypted with AES-256-GCM and stored in the integrations table in Supabase. Keys are decrypted only at runtime on the VPS — never sent to the frontend or logged. Key rotation handled by the customer through the dashboard.',
+      webhooks: 'JobTread webhooks POST to the VPS at /webhooks/jobtread/:tenantId. The server validates the request, stores the raw payload in event_bus_log (full audit trail), then publishes to NATS JetStream at TENANT_{id}.webhook.jobtread.{event_type}. Connected agents subscribe to their relevant event types.',
+      hosting: 'Single multi-tenant VPS handles all customers\' JobTread connections. No per-customer servers or API proxies. Tenant isolation via NATS subject namespacing and Supabase RLS. JobTread offers only a trial free tier with limited support — they won\'t debug integration code.',
     },
   },
   {
@@ -47,10 +47,10 @@ export const integrations = [
     authMethod: 'OAuth 2.0',
     dataFlow: 'Read-only (enforced at app layer)',
     infrastructure: {
-      connection: 'OAuth 2.0 tokens managed on the shared VPS — tokens auto-refresh before expiry (QuickBooks tokens last 1 hour)',
-      credentials: 'OAuth refresh tokens encrypted (AES-256) in Supabase — expire after 100 days of non-use, customers are alerted to reconnect',
-      webhooks: 'QuickBooks sends payment and invoice updates via webhooks to our VPS, routed to tenant-specific agents through NATS',
-      hosting: 'One centralized server handles all customers\' QuickBooks connections — read-only access enforced at the application layer',
+      connection: 'QuickBooks Online REST + GraphQL API accessed via OAuth 2.0 from the shared VPS. The IntegrationAdapter wraps QB in a read-only interface — the QB API technically allows writes, but all write methods are blocked at the app layer per the architecture spec. Rate limit: 100 requests per 10 seconds per tenant.',
+      credentials: 'OAuth 2.0 flow: customer authorizes → access_token (1 hour TTL) + refresh_token (100 days of non-use expiry). Both encrypted with AES-256-GCM in the integrations table. The VPS auto-refreshes access tokens before expiry. Critical: if a customer doesn\'t use the system for 100 days, their refresh token dies — the platform alerts them to reconnect.',
+      webhooks: 'QB webhooks POST to /webhooks/quickbooks/:tenantId on the VPS. Signature validated, raw event stored in event_bus_log, then published to NATS at TENANT_{id}.webhook.quickbooks.{event_type} (invoice, payment, expense). The Operations Controller and Executive Navigator subscribe to these events.',
+      hosting: 'Single multi-tenant VPS — all customers share one server. QB read-only enforcement is an application-layer decision (not a QuickBooks permission setting). QB sandbox available for testing. At scale, QB is the most rate-limited integration (100 req/10s) — the adapter queues excess requests with BullMQ.',
     },
   },
   {
@@ -74,10 +74,10 @@ export const integrations = [
     authMethod: 'OAuth 2.0',
     dataFlow: 'Read (freebusy) + Write (create events)',
     infrastructure: {
-      connection: 'Google API calls made from the shared VPS using per-customer OAuth tokens — freebusy scope shows only busy/free, not event details',
-      credentials: 'OAuth tokens encrypted (AES-256) in Supabase and auto-refreshed by the server before expiry',
-      webhooks: 'Google Calendar push notifications alert the VPS when events change, routed to the Discovery Concierge via NATS',
-      hosting: 'One centralized server manages all customers\' calendar connections — each customer\'s data isolated by tenant ID',
+      connection: 'Google Calendar REST API via OAuth 2.0 from the shared VPS. Two scopes used: calendar.freebusy (read availability without seeing event titles — privacy by design) and calendar.events (create consultation events). Generous rate limits from Google. The freebusy scope is a deliberate privacy choice — agents never see what\'s on the customer\'s calendar, only when they\'re free.',
+      credentials: 'Per-customer Google OAuth tokens encrypted with AES-256-GCM in the integrations table. Access tokens auto-refreshed by the VPS before expiry. Google refresh tokens don\'t expire from non-use (unlike QuickBooks), so reconnection is rarely needed.',
+      webhooks: 'Google Calendar push notifications (via Pub/Sub) alert the VPS when events are created, modified, or deleted. Events published to NATS at TENANT_{id}.webhook.calendar.{event_type}. The Discovery Concierge subscribes to detect scheduling conflicts or cancellations.',
+      hosting: 'Single multi-tenant VPS manages all customers\' calendar connections. Tenant isolation via Supabase RLS and NATS subject namespacing. No per-customer calendar proxies. Conflict detection runs entirely on the VPS by comparing freebusy data across team members.',
     },
   },
   {
@@ -101,10 +101,10 @@ export const integrations = [
     authMethod: 'OAuth 2.0',
     dataFlow: 'Read + Write',
     infrastructure: {
-      connection: 'Google Drive API calls routed through the shared VPS — agents create folders and upload files on behalf of each customer',
-      credentials: 'Per-customer OAuth tokens encrypted (AES-256) in Supabase — one Shared Drive provisioned per customer on signup',
-      webhooks: 'Drive change notifications pushed to the VPS when files are added or modified externally',
-      hosting: 'One centralized server handles all customers\' Drive operations — file organization follows a standard template per industry',
+      connection: 'Google Drive REST API via OAuth 2.0 from the shared VPS. Rate limit: 10 requests per second per user. On customer signup, the system provisions a Shared Drive with the standard folder hierarchy: Project → Room → Category (Submittals, Cut Sheets, Warranties). Key gotcha: Shared Drives don\'t allow external sharing — all files stay within the customer\'s Google Workspace.',
+      credentials: 'Per-customer Google OAuth tokens encrypted with AES-256-GCM in the integrations table. Drive uses the same Google OAuth consent as Calendar — one authorization flow grants both scopes. Tokens auto-refreshed on the VPS.',
+      webhooks: 'Google Drive change notifications (Changes API with push channels) alert the VPS when files are added, modified, or deleted. Published to NATS at TENANT_{id}.webhook.drive.{change_type}. The Design Spec Assistant listens for new submittals; the Operations Controller watches for compliance document uploads.',
+      hosting: 'Single multi-tenant VPS handles all Drive operations. File organization enforced by the agent template — the "Construction Remodeling" template defines the folder structure. Agents create and organize files but never delete without human approval. Rate limiting handled by the IntegrationAdapter with per-tenant request queuing.',
     },
   },
   {
@@ -128,10 +128,10 @@ export const integrations = [
     authMethod: 'OAuth 2.0',
     dataFlow: 'Read + Write',
     infrastructure: {
-      connection: 'HubSpot API calls made from the shared VPS — each customer connects their own HubSpot account via OAuth',
-      credentials: 'OAuth tokens encrypted (AES-256) in Supabase with automatic refresh handling',
-      webhooks: 'HubSpot webhooks notify the VPS of new contacts and deal stage changes, routed to the Discovery Concierge via NATS',
-      hosting: 'One centralized server manages all customers\' CRM connections — HubSpot free tier is sufficient for most customers',
+      connection: 'HubSpot REST API via OAuth 2.0 from the shared VPS. Rate limit: 100 requests per 10 seconds per tenant. HubSpot free tier includes contact management, deal pipeline, and basic automation — sufficient for lead capture and pipeline tracking without paid upgrades.',
+      credentials: 'Per-customer HubSpot OAuth tokens encrypted with AES-256-GCM in the integrations table. HubSpot tokens auto-refresh via standard OAuth 2.0 flow managed on the VPS. Each customer connects their own HubSpot account — Apex never touches a shared CRM.',
+      webhooks: 'HubSpot webhooks POST to /webhooks/hubspot/:tenantId on the VPS. Events include contact.creation, deal.propertyChange, and deal.stageChange. Validated, logged to event_bus_log, and published to NATS at TENANT_{id}.webhook.crm.{event_type}. The Discovery Concierge subscribes to all CRM events for lead pipeline management.',
+      hosting: 'Single multi-tenant VPS — all customers share one server. HubSpot is the only integration where the free tier is the default recommendation. At scale, the 100 req/10s rate limit is shared across all agents accessing a single customer\'s HubSpot — the adapter coordinates request budgets.',
     },
   },
   {
@@ -155,10 +155,10 @@ export const integrations = [
     authMethod: 'API Key',
     dataFlow: 'Read-only',
     infrastructure: {
-      connection: 'OpenWeatherMap REST API called from the shared VPS — responses cached in Redis to stay within the 1K/day free tier',
-      credentials: 'Single platform-level API key (not per-customer) — weather data is public and doesn\'t require per-tenant auth',
-      webhooks: 'No webhooks — weather is polled on a schedule by BullMQ cron jobs for each active job site location',
-      hosting: 'One centralized server fetches weather for all customers\' job sites — cached results shared when sites are in the same area',
+      connection: 'OpenWeatherMap REST API called from the shared VPS. Rate limit: 60 requests per minute, 1,000 calls per day on the free tier. Responses cached in Redis (L2 distributed cache) with a 1-hour TTL — if two job sites are within 10 miles, they share the same cached forecast to conserve API calls. Node.js LRU serves as L1 in-process cache.',
+      credentials: 'Single platform-level API key — not per-customer. Weather data is public and doesn\'t require per-tenant authentication. This is the only integration that uses a shared credential rather than per-customer OAuth. The API key is stored as an environment variable on the VPS, not in Supabase.',
+      webhooks: 'No webhook support from OpenWeatherMap. Weather data is polled by BullMQ scheduled jobs — one job per active job site location, running every 6 hours. Severe weather alerts checked more frequently (hourly). All timestamps returned in UTC — the VPS converts to local timezone per job site before storing. Results published to NATS at TENANT_{id}.webhook.weather.forecast.',
+      hosting: 'Single multi-tenant VPS. Weather is the cheapest integration to operate — the free tier (1K calls/day) handles ~40 active job sites with 6-hour polling intervals. Redis caching means nearby sites don\'t consume extra API calls. If the free tier is exceeded, OpenWeatherMap paid plans start at $40/month for 100K calls/day.',
     },
   },
   {
@@ -182,10 +182,10 @@ export const integrations = [
     authMethod: 'OAuth 2.0 (Gmail) + API Key (SendGrid)',
     dataFlow: 'Read + Draft (never auto-send)',
     infrastructure: {
-      connection: 'Two-part system: Gmail API (outbound drafts via OAuth) + SendGrid Inbound Parse (incoming lead emails via webhook)',
-      credentials: 'Gmail OAuth tokens encrypted (AES-256) in Supabase per customer — SendGrid uses a platform-level API key with per-customer MX routing',
-      webhooks: 'SendGrid forwards inbound emails to a webhook on the VPS, parsed and routed to the right tenant\'s Discovery Concierge via NATS',
-      hosting: 'One centralized server handles all email routing — agents draft but never auto-send, enforced at the application layer',
+      connection: 'Two separate systems: (1) Gmail REST API via OAuth 2.0 for outbound draft creation — agents create drafts in the customer\'s Gmail, but never send directly. (2) SendGrid Inbound Parse for leads@ inbox — requires MX record configuration on the customer\'s domain to route leads@company.com to SendGrid. No single tool handles both inbound and outbound.',
+      credentials: 'Gmail: per-customer OAuth tokens encrypted with AES-256-GCM in the integrations table. Key gotcha — Gmail has no draft-only OAuth scope, so the app grants full gmail.compose but enforces draft-only behavior at the application layer. SendGrid: platform-level API key (not per-customer) with per-customer MX routing rules. SendGrid free tier: 100 emails/day.',
+      webhooks: 'SendGrid Inbound Parse POSTs parsed email payloads to /webhooks/sendgrid/:tenantId on the VPS. The server extracts sender, subject, and body, logs the raw event to event_bus_log, and publishes to NATS at TENANT_{id}.webhook.email.inbound. Full flow: leads@company.com → MX record → SendGrid → webhook → NATS → Discovery Concierge → draft response → drafts table → human approves → Gmail API sends.',
+      hosting: 'Single multi-tenant VPS handles all email routing. The "never auto-send" rule is enforced at the application layer — every outbound email goes through the drafts table and requires human approval in the Approval Queue before the Gmail API sends it. This is a non-negotiable architectural constraint, not a Gmail setting.',
     },
   },
 ];
