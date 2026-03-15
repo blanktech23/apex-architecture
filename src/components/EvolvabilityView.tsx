@@ -102,7 +102,7 @@ const futureTemplates: IndustryTemplate[] = [
       { name: 'Discovery Concierge', status: 'reused' },
       { name: 'Estimate Engine', status: 'reused' },
       { name: 'Equipment Spec Tracker', status: 'new' },
-      { name: 'Project Orchestrator', status: 'reused' },
+      { name: 'Service Route Optimizer', status: 'new' },
       { name: 'Operations Controller', status: 'reused' },
       { name: 'Executive Navigator', status: 'reused' },
       { name: 'Support Agent', status: 'reused' },
@@ -113,7 +113,7 @@ const futureTemplates: IndustryTemplate[] = [
       { name: 'Google Drive', status: 'same' },
       { name: 'Gmail', status: 'same' },
     ],
-    note: 'Swap Design Spec for Equipment Spec Tracker. Swap JobTread for ServiceTitan. 6 of 7 agents reused as-is.',
+    note: 'Equipment Spec Tracker replaces Design Spec, Service Route Optimizer replaces Project Orchestrator. Swap JobTread for ServiceTitan. 4 of 7 agents reused as-is.',
   },
   {
     name: 'Design-Build',
