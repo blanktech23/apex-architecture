@@ -402,10 +402,10 @@ export function InfrastructureView() {
           <div className="mb-10">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-4">
               <Shield className="w-4 h-4 text-emerald-400" />
-              6 Layers of Tenant Isolation
+              7 Layers of Tenant Isolation
             </h3>
             <p className="text-xs text-slate-400 mb-5">
-              Shared infrastructure doesn&apos;t mean shared data. Six independent mechanisms ensure
+              Shared infrastructure doesn&apos;t mean shared data. Seven independent mechanisms ensure
               no company can ever access another company&apos;s data, events, AI budget, or credentials.
             </p>
 
