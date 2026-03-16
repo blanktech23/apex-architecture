@@ -159,6 +159,7 @@ const coreToAgentLabels: Record<string, string> = {
   'estimate-engine': 'Cost data',
   'operations-controller': 'Financial ops',
   'executive-navigator': 'Intelligence feed',
+  'support-agent': 'Support queries',
 };
 
 const agentToIntegrationLabels: Record<string, string> = {
@@ -177,6 +178,9 @@ const agentToIntegrationLabels: Record<string, string> = {
   'operations-controller:drive': 'Compliance docs',
   'executive-navigator:jobtread': 'Portfolio data',
   'executive-navigator:quickbooks': 'Financial rollup',
+  'support-agent:email': 'Escalation alerts',
+  'support-agent:jobtread': 'Project diagnostics',
+  'support-agent:quickbooks': 'Billing context',
 };
 
 function buildEdges(): Edge[] {
@@ -231,7 +235,7 @@ function buildEdges(): Edge[] {
   });
 
   // Multiple agents connect to approval queue
-  ['discovery-concierge', 'operations-controller', 'estimate-engine'].forEach(
+  ['discovery-concierge', 'operations-controller', 'estimate-engine', 'support-agent'].forEach(
     (agentId) => {
       const agent = agents.find((a) => a.id === agentId);
       edges.push({
@@ -278,7 +282,7 @@ integrations.forEach((integration) => {
 
 // Human node → connected agents
 const humanAgentMap: Record<string, string[]> = {
-  'approval-queue': ['discovery-concierge', 'operations-controller', 'estimate-engine'],
+  'approval-queue': ['discovery-concierge', 'operations-controller', 'estimate-engine', 'support-agent'],
   'ceo-review': ['executive-navigator'],
 };
 

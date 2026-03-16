@@ -303,7 +303,7 @@ export function ScaleView() {
                 { label: 'Vercel Pro', value: data.vercel, icon: Cloud, color: '#3b82f6', desc: 'Frontend hosting' },
                 { label: 'VPS (DigitalOcean)', value: data.vps, icon: Server, color: '#6366f1', desc: 'Agent backend + Redis + NATS' },
                 { label: 'Supabase Pro', value: data.supabase, icon: Database, color: '#22c55e', desc: 'PostgreSQL + Auth + RLS' },
-                { label: 'AI Compute (LiteLLM)', value: data.aiCompute, icon: Brain, color: '#a855f7', desc: 'Multi-model inference' },
+                { label: 'AI Compute (LiteLLM)', value: data.aiCompute, icon: Brain, color: '#a855f7', desc: 'Multi-model inference (incl. support chat LLM costs ~$4.50/customer/mo)' },
                 { label: 'Stripe', value: data.stripe, icon: CreditCard, color: '#635bff', desc: 'Payment processing (2.9% + $0.30)' },
                 { label: 'SendGrid', value: data.sendgrid, icon: Mail, color: '#1a82e2', desc: 'Transactional email delivery' },
                 { label: 'OpenWeatherMap', value: data.weather, icon: CloudSun, color: '#87ceeb', desc: 'Job site forecasts (free < 20 customers)' },
@@ -355,6 +355,40 @@ export function ScaleView() {
                 </motion.span>
               </div>
             </div>
+          </div>
+
+          {/* Support Agent Economics */}
+          <div className="glass p-4 sm:p-6 mb-6" style={{ border: '1px solid rgba(168, 85, 247, 0.2)' }}>
+            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+              <Brain className="w-4 h-4 text-purple-400" />
+              Support Agent Economics
+            </h3>
+            <p className="text-[10px] sm:text-[11px] text-slate-500 mb-4">
+              Minimal incremental infra cost — reuses existing Supabase pgvector, BullMQ, and NATS.
+              New costs: embedding API (text-embedding-3-small at $0.02/1M tokens — negligible) and
+              chat LLM calls (~$4.50/customer/mo: Haiku $0.05/day + Sonnet $0.10/day), already included
+              in AI Compute above.
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+              {[
+                { label: 'AI Resolution Rate', value: '20–25%', sub: '35–45% after 6 months' },
+                { label: 'Target CSAT', value: '> 4.0/5.0', sub: 'Customer satisfaction score' },
+                { label: 'Containment Rate', value: '35–45%', sub: '% resolved without escalation' },
+                { label: 'First Response', value: '< 5s', sub: 'Average first response time' },
+              ].map((metric) => (
+                <div key={metric.label} className="text-center rounded-lg px-2 py-2.5"
+                  style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <p className="text-sm sm:text-base font-bold text-purple-400">{metric.value}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{metric.label}</p>
+                  <p className="text-[9px] text-slate-600 mt-0.5">{metric.sub}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] sm:text-[11px] text-slate-500 mt-4">
+              The Support Agent defers the need for a dedicated support hire. At 20–25% AI resolution,
+              founders handle ~2–4 escalated tickets/day through Year 1. A part-time Customer Success
+              hire ($35K/year) is added in Year 2 to absorb growing escalation volume.
+            </p>
           </div>
 
           {/* Revenue vs Cost bars */}

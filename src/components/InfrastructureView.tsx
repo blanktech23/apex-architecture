@@ -25,6 +25,8 @@ import {
   MonitorSmartphone,
   ChevronDown,
   ChevronUp,
+  Search,
+  Rocket,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { EvolvabilityView } from './EvolvabilityView';
@@ -171,7 +173,7 @@ const backendStack: StackComponent[] = [
     color: '#2496ed',
     role: 'Service Orchestration',
     details: 'Packages the entire backend into a single deployable unit: Node.js app server, Redis cache + job queue, and NATS event bus. One docker-compose up deploys the full stack. Architecture is VPS-agnostic — same compose file works on DigitalOcean, Hetzner, or any Linux server.',
-    specs: '3 containers: node (agent executor + API), redis (BullMQ + cache), nats (JetStream event bus). Health checks and auto-restart on failure. Volume mounts for persistent data.',
+    specs: '3 containers: node (agent executor + API), redis (BullMQ + cache), nats (JetStream event bus). Health probes: /health/live (basic liveness — process up), /health/ready (full readiness — DB + Redis + NATS connected), /health/startup (startup probe for slow-starting containers). Auto-restart on failure. Volume mounts for persistent data.',
   },
   {
     name: 'LiteLLM',
@@ -206,6 +208,14 @@ const backendStack: StackComponent[] = [
     specs: '$25/mo. Core tables: tenants, tenant_members, agent_templates, agents, agent_executions, event_bus_log, integrations, escalations, drafts. JSONB columns for flexible agent configs and outputs (no migrations needed for schema evolution). Migrations version-controlled.',
   },
   {
+    name: 'RAG Infrastructure (Support Agent)',
+    icon: Search,
+    color: '#ec4899',
+    role: 'Knowledge Base Retrieval',
+    details: 'Powers the Support Agent\'s knowledge base with hybrid search. Articles are chunked (512 tokens, 50-token overlap) and embedded via text-embedding-3-small, stored in Supabase using the pgvector extension for vector similarity search. Retrieval combines vector cosine similarity with BM25 keyword scoring via Reciprocal Rank Fusion for high-recall, high-precision results.',
+    specs: 'Tables: support_articles (source content), support_chunks (512-token chunks with pgvector embeddings), support_conversations (chat history with full threading). Embedding model: text-embedding-3-small ($0.02/1M tokens). Search: hybrid vector similarity + BM25 keyword via Reciprocal Rank Fusion. Confidence routing: >= 0.85 direct answer, 0.60-0.84 adds disclaimer, < 0.60 auto-escalates to human. RAGAS evaluation scores tracked in support_evaluations table.',
+  },
+  {
     name: 'Vercel',
     icon: Globe,
     color: '#fff',
@@ -222,12 +232,12 @@ const backendStack: StackComponent[] = [
     specs: 'better-auth Organization plugin. JWT payload: { sub, tenant_id, role, email }. Role-based middleware on every API route. OAuth 2.0 redirect flows managed server-side for integration connections.',
   },
   {
-    name: 'WebSocket (Real-Time)',
+    name: 'WebSocket + SSE (Real-Time)',
     icon: MonitorSmartphone,
     color: '#f97316',
     role: 'Live Dashboard Updates',
-    details: 'Pushes real-time updates from agents to the customer dashboard. When an agent completes a task (estimate built, briefing ready, escalation created), a WebSocket event fires to the connected browser — no polling needed.',
-    specs: 'Socket.io on Hono backend — NATS events → backend → Socket.io → client dashboards. No connection limits (vs Supabase Realtime\'s 500 cap). Events: agent.status.changed, draft.created, escalation.created, briefing.ready. Scoped by tenant_id — customers only receive their own events.',
+    details: 'Pushes real-time updates from agents to the customer dashboard. When an agent completes a task (estimate built, briefing ready, escalation created), a WebSocket event fires to the connected browser — no polling needed. SSE streams use a 15-second keepalive interval for Cloudflare compatibility (Cloudflare drops idle connections at 100s).',
+    specs: 'Socket.io on Hono backend — NATS events → backend → Socket.io → client dashboards. No connection limits (vs Supabase Realtime\'s 500 cap). Events: agent.status.changed, draft.created, escalation.created, briefing.ready. Scoped by tenant_id — customers only receive their own events. SSE keepalive: 15s ping for long-lived streams behind Cloudflare proxy. SSE drain: 30s grace period for active streams on shutdown.',
   },
   {
     name: 'Prometheus + Grafana Cloud',
@@ -238,12 +248,12 @@ const backendStack: StackComponent[] = [
     specs: 'Grafana Cloud free tier ($0/mo up to 100 customers). Prometheus scrapes Node.js metrics every 15 seconds. Key metrics: agent_execution_duration_seconds, litellm_tokens_used, nats_messages_published, bullmq_queue_depth, supabase_query_duration.',
   },
   {
-    name: 'Pino → Grafana Loki',
+    name: 'Pino → Grafana Alloy → Loki',
     icon: FileText,
     color: '#06b6d4',
     role: 'Structured Logging',
-    details: 'All agent activity logged as structured JSON — searchable by tenant_id, agent_name, execution_id, or error type. Pino is the fastest Node.js JSON logger. Logs shipped to Grafana Loki for centralized search and alerting.',
-    specs: 'Log format: { timestamp, tenant_id, agent_name, execution_id, level, message, duration_ms, tokens_used, model, cost_usd }. Retention: 30 days hot, 1 year cold storage. Log-based alerts: error rate > 5%, execution time > 60s, cost > $5/execution.',
+    details: 'All agent activity logged as structured JSON — searchable by tenant_id, agent_name, execution_id, or error type. Pino is the fastest Node.js JSON logger. Grafana Alloy (the successor to Promtail) ships logs to Grafana Loki for centralized search and alerting.',
+    specs: 'Log format: { timestamp, tenant_id, agent_name, execution_id, level, message, duration_ms, tokens_used, model, cost_usd }. Log shipping: Grafana Alloy sidecar collects Pino JSON output and pushes to Loki. Retention: 30 days hot, 1 year cold storage. Log-based alerts: error rate > 5%, execution time > 60s, cost > $5/execution.',
   },
   {
     name: 'Stripe',
@@ -252,6 +262,14 @@ const backendStack: StackComponent[] = [
     role: 'Billing & Metering',
     details: 'Handles SaaS billing: one-time setup fees ($5K-$20K), monthly recurring ($275-$750/mo), and usage-based overages (Enterprise tier). Customer portal for invoice history, payment method management, and plan upgrades.',
     specs: 'Stripe Checkout for onboarding. Stripe Billing for recurring subscriptions. Usage records synced daily from LiteLLM spend tracking in Supabase. Webhook events for payment success/failure → NATS → Operations Controller (for customer accounts that use it).',
+  },
+  {
+    name: 'Deployment Safety',
+    icon: Rocket,
+    color: '#10b981',
+    role: 'Zero-Downtime Deploys & Rollback',
+    details: 'Every deployment follows a strict safety protocol. BullMQ workers shut down gracefully before the HTTP server (worker.close() before server.close() in SIGTERM handler). Outgoing images are tagged as \'previous\' before the new image is pulled, enabling sub-90s rollbacks. Code canary: 10% of load balancer traffic routes to a secondary container for 15-minute observation before full cutover.',
+    specs: 'SIGTERM sequence: (1) stop accepting new BullMQ jobs, (2) drain active jobs (30s timeout), (3) drain active SSE streams (30s grace period), (4) close HTTP server, (5) exit. Rollback pre-pull: outgoing image tagged as \'previous\' before docker pull, enabling instant rollback with 90s SLA. Code canary: 10% LB traffic to secondary container, 15-min observation window — auto-rollback on error rate spike > 2x baseline.',
   },
 ];
 

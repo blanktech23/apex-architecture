@@ -31,6 +31,11 @@ import {
   Check,
   X,
   Plus,
+  Calendar,
+  Terminal,
+  FileText,
+  BarChart3,
+  FolderTree,
 } from 'lucide-react';
 
 // --- SECTION 1: Plugin Architecture ---
@@ -202,6 +207,99 @@ const whatYouCreate = [
   { label: 'Qualification criteria', detail: 'Lead scoring rules' },
 ];
 
+// --- SECTION 4: Build Timeline ---
+
+interface TimelinePhase {
+  id: string;
+  label: string;
+  weeks: string;
+  color: string;
+  items: string[];
+  note?: string;
+}
+
+const buildTimeline: TimelinePhase[] = [
+  {
+    id: 'wave-3a',
+    label: 'Wave 3a — Operational Agents',
+    weeks: 'Week 7-10',
+    color: '#6366f1',
+    items: [
+      'Discovery Concierge, Estimate Engine, Executive Navigator',
+      'pgvector infrastructure + embedding pipeline',
+      'Feature flags (per-tenant, per-agent)',
+      'Knowledge retrieval layer (hybrid search)',
+    ],
+  },
+  {
+    id: 'wave-3b',
+    label: 'Wave 3b — Support Agent',
+    weeks: 'Week 11-13',
+    color: '#a855f7',
+    items: [
+      'Support Agent build (confidence-gated routing)',
+      'KB content authoring (57-83 articles)',
+      'In-app chat widget',
+      'Content authoring admin panel',
+      'Support analytics dashboard',
+      'E2E tests for support flow',
+    ],
+    note: 'KB article authoring can begin as a parallel non-code workstream during Wave 2, decoupling content creation from code development.',
+  },
+  {
+    id: 'shadow',
+    label: 'Shadow Mode',
+    weeks: 'Week 13-14',
+    color: '#f97316',
+    items: [
+      'Overlaps with Wave 4 start',
+      'Real customer queries routed through Support Agent',
+      'RAGAS evaluation framework scoring responses',
+      'Human review of all auto-responses before send',
+    ],
+  },
+  {
+    id: 'wave-4',
+    label: 'Wave 4 — Polish & Go-Live',
+    weeks: 'Week 14-17',
+    color: '#22c55e',
+    items: [
+      'Customer onboarding flow',
+      'Dashboard polish + UX refinement',
+      'Production hardening + monitoring',
+      'Go-live with first customer',
+    ],
+  },
+  {
+    id: 'wave-5',
+    label: 'Wave 5 — Growth',
+    weeks: 'Week 18-24',
+    color: '#3b82f6',
+    items: [
+      'Growth features (referral, upsell triggers)',
+      'Multi-tenant hardening',
+      'Second industry template',
+      'Support Agent content iteration (target 35-45% resolution)',
+    ],
+  },
+];
+
+const supportAgentMetrics = {
+  launchTarget: '20-25%',
+  sixMonthTarget: '35-45%',
+  label: 'Automated Resolution Rate',
+};
+
+// --- SECTION 5: Developer Experience ---
+
+const devExperienceItems = [
+  { label: 'Local dev via Docker Compose', detail: 'All services run locally — API, workers, Redis, NATS, Postgres', icon: Terminal, color: '#22c55e' },
+  { label: '.env.example manifest', detail: 'Every required variable documented with descriptions and defaults', icon: FileText, color: '#3b82f6' },
+  { label: 'CI quality gates', detail: 'Lint, type-check, unit tests, build — all must pass before merge', icon: Check, color: '#a855f7' },
+  { label: 'Monorepo structure', detail: 'packages/shared, apps/api, apps/web — clear separation of concerns', icon: FolderTree, color: '#f97316' },
+  { label: 'Directory tree convention', detail: 'Documented folder structure with purpose annotations per directory', icon: BookOpen, color: '#6366f1' },
+];
+
 // --- COMPONENT ---
 
 function StatusBadge({ status }: { status: 'reused' | 'new' | 'reconfigured' | 'same' | 'swapped' }) {
@@ -226,6 +324,8 @@ function StatusBadge({ status }: { status: 'reused' | 'new' | 'reconfigured' | '
 export function EvolvabilityView({ inline }: { inline?: boolean }) {
   const [expandedSchema, setExpandedSchema] = useState(false);
   const [expandedRollouts, setExpandedRollouts] = useState(false);
+  const [expandedTimeline, setExpandedTimeline] = useState(false);
+  const [expandedDevEx, setExpandedDevEx] = useState(false);
 
   const content = (
     <>
@@ -703,6 +803,194 @@ export function EvolvabilityView({ inline }: { inline?: boolean }) {
                           <div>
                             <p className="text-[11px] font-semibold text-white">{item.title}</p>
                             <p className="text-[10px] text-slate-500 leading-relaxed mt-0.5">{item.description}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          </div>
+
+          {/* ============================================ */}
+          {/* SECTION 6: Build Timeline */}
+          {/* ============================================ */}
+          <div className="mb-3">
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.1 }}
+            >
+              <button
+                onClick={() => setExpandedTimeline(!expandedTimeline)}
+                className="w-full text-left rounded-xl p-3 sm:p-4 transition-all"
+                style={{
+                  background: expandedTimeline ? 'rgba(99, 102, 241, 0.05)' : 'rgba(255, 255, 255, 0.03)',
+                  border: `1px solid ${expandedTimeline ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.06)'}`,
+                }}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <Calendar className="w-4 h-4 text-indigo-400" />
+                    <div>
+                      <span className="text-xs font-semibold text-white">Build Timeline</span>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Wave 3a/3b split, Shadow Mode, and growth phases</p>
+                    </div>
+                  </div>
+                  {expandedTimeline ? (
+                    <ChevronUp className="w-4 h-4 text-slate-500 shrink-0 ml-2" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-slate-500 shrink-0 ml-2" />
+                  )}
+                </div>
+              </button>
+              <AnimatePresence>
+                {expandedTimeline && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="px-4 pb-4 pt-3 space-y-3">
+                      {buildTimeline.map((phase, i) => (
+                        <motion.div
+                          key={phase.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.05 * i }}
+                          className="rounded-lg p-3"
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.02)',
+                            border: `1px solid ${phase.color}20`,
+                          }}
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <span
+                              className="text-[9px] font-medium px-1.5 py-0.5 rounded-full uppercase tracking-wider"
+                              style={{ background: `${phase.color}18`, color: phase.color, border: `1px solid ${phase.color}30` }}
+                            >
+                              {phase.weeks}
+                            </span>
+                            <span className="text-[11px] font-semibold text-white">{phase.label}</span>
+                          </div>
+                          <div className="space-y-1 ml-1">
+                            {phase.items.map((item) => (
+                              <div key={item} className="flex items-start gap-2">
+                                <span className="text-[10px] mt-0.5" style={{ color: phase.color }}>&#8226;</span>
+                                <span className="text-[10px] text-slate-400 leading-relaxed">{item}</span>
+                              </div>
+                            ))}
+                          </div>
+                          {phase.note && (
+                            <div
+                              className="mt-2 rounded-md px-2.5 py-1.5"
+                              style={{ background: 'rgba(249, 115, 22, 0.06)', border: '1px solid rgba(249, 115, 22, 0.12)' }}
+                            >
+                              <p className="text-[9px] text-amber-400/80 leading-relaxed">
+                                <span className="font-semibold">Note:</span> {phase.note}
+                              </p>
+                            </div>
+                          )}
+                        </motion.div>
+                      ))}
+
+                      {/* Support Agent Resolution Rate Targets */}
+                      <div
+                        className="rounded-lg p-3"
+                        style={{
+                          background: 'rgba(168, 85, 247, 0.04)',
+                          border: '1px solid rgba(168, 85, 247, 0.15)',
+                        }}
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <BarChart3 className="w-3.5 h-3.5 text-purple-400" />
+                          <span className="text-[11px] font-semibold text-white">{supportAgentMetrics.label}</span>
+                        </div>
+                        <div className="flex gap-3">
+                          <div
+                            className="flex-1 rounded-md px-3 py-2 text-center"
+                            style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)' }}
+                          >
+                            <p className="text-[10px] text-slate-500 mb-0.5">At Launch</p>
+                            <p className="text-sm font-semibold text-purple-300">{supportAgentMetrics.launchTarget}</p>
+                          </div>
+                          <div
+                            className="flex-1 rounded-md px-3 py-2 text-center"
+                            style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)' }}
+                          >
+                            <p className="text-[10px] text-slate-500 mb-0.5">After 6 Months</p>
+                            <p className="text-sm font-semibold text-emerald-300">{supportAgentMetrics.sixMonthTarget}</p>
+                          </div>
+                        </div>
+                        <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">
+                          Resolution rate scales through KB content iteration — adding and refining articles based on real query patterns, not code changes.
+                        </p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          </div>
+
+          {/* ============================================ */}
+          {/* SECTION 7: Developer Experience */}
+          {/* ============================================ */}
+          <div className="mb-8">
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.15 }}
+            >
+              <button
+                onClick={() => setExpandedDevEx(!expandedDevEx)}
+                className="w-full text-left rounded-xl p-3 sm:p-4 transition-all"
+                style={{
+                  background: expandedDevEx ? 'rgba(34, 197, 94, 0.05)' : 'rgba(255, 255, 255, 0.03)',
+                  border: `1px solid ${expandedDevEx ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.06)'}`,
+                }}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <Terminal className="w-4 h-4 text-emerald-400" />
+                    <div>
+                      <span className="text-xs font-semibold text-white">Developer Experience</span>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Local dev, CI gates, monorepo conventions</p>
+                    </div>
+                  </div>
+                  {expandedDevEx ? (
+                    <ChevronUp className="w-4 h-4 text-slate-500 shrink-0 ml-2" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-slate-500 shrink-0 ml-2" />
+                  )}
+                </div>
+              </button>
+              <AnimatePresence>
+                {expandedDevEx && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="px-4 pb-4 pt-3 space-y-2.5">
+                      {devExperienceItems.map((item, i) => (
+                        <div
+                          key={item.label}
+                          className="flex items-start gap-2.5 rounded-lg px-3 py-2.5"
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.03)',
+                            border: '1px solid rgba(255, 255, 255, 0.06)',
+                          }}
+                        >
+                          <item.icon className="w-4 h-4 shrink-0 mt-0.5" style={{ color: item.color }} />
+                          <div>
+                            <p className="text-[11px] font-semibold text-white">{item.label}</p>
+                            <p className="text-[10px] text-slate-500 leading-relaxed mt-0.5">{item.detail}</p>
                           </div>
                         </div>
                       ))}

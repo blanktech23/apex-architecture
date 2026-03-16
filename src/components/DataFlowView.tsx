@@ -13,6 +13,7 @@ import {
   BarChart3,
   Shield,
   Crown,
+  MessageCircle,
   ArrowRight,
 } from 'lucide-react';
 
@@ -86,6 +87,16 @@ const steps = [
     description:
       'Every morning at 7 AM, the Navigator delivers a 3-minute briefing: project health, pipeline status, escalations needing attention, and the day\'s priorities.',
     integration: 'All Systems',
+  },
+  {
+    id: 8,
+    agent: 'Support Agent',
+    color: '#ec4899',
+    icon: MessageCircle,
+    title: 'Customer gets help',
+    description:
+      'A customer opens the in-app chat widget with a question about their project status. The Support Agent searches the knowledge base using hybrid search (vector + keyword), finds relevant articles, and responds with a confidence-scored answer. If confidence is below 60%, it auto-escalates to a human with full context.',
+    integration: 'Knowledge Base + Email',
   },
 ];
 
