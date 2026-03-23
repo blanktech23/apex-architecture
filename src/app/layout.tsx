@@ -5,13 +5,13 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Apex Intelligence Mind Map',
+  title: 'Kiptra AI Mind Map',
   description:
-    'Interactive architecture map of the Apex Intelligence AI agent platform for construction businesses. Seven specialized agents, seven integrations, one unified system.',
+    'Interactive architecture map of the Kiptra AI AI agent platform for construction businesses. Seven specialized agents, seven integrations, one unified system.',
   openGraph: {
-    title: 'Apex Intelligence Mind Map',
+    title: 'Kiptra AI Mind Map',
     description:
-      'Interactive architecture map of the Apex Intelligence AI agent platform for construction businesses.',
+      'Interactive architecture map of the Kiptra AI AI agent platform for construction businesses.',
     type: 'website',
   },
 };

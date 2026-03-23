@@ -71,7 +71,7 @@ function buildNodes(activeTab: TabId): Node[] {
     id: 'core',
     type: 'core',
     position: { x: CENTER_X - 110, y: CENTER_Y - 55 },
-    data: { label: 'Apex Intelligence' },
+    data: { label: 'Kiptra AI' },
     draggable: true,
   });
 

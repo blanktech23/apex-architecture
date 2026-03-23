@@ -24,7 +24,7 @@ export function AgentsListView({ onSelect, inline }: AgentsListViewProps) {
       >
         <h2 className="text-xl font-semibold text-white mb-1">AI Agents</h2>
         <p className="text-sm text-slate-500">
-          7 specialized agents powering Apex Intelligence
+          7 specialized agents powering Kiptra AI
         </p>
       </motion.div>
 

@@ -37,7 +37,7 @@ function CoreNodeInner(_props: NodeProps) {
           </div>
         </div>
         <h2 className="text-lg font-semibold text-white tracking-tight">
-          Apex Intelligence
+          Kiptra AI
         </h2>
         <p className="text-xs text-slate-400 mt-1">AI Agent Platform</p>
       </div>

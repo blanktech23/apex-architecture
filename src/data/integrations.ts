@@ -129,7 +129,7 @@ export const integrations = [
     dataFlow: 'Read + Write',
     infrastructure: {
       connection: 'HubSpot REST API via OAuth 2.0 from the shared VPS. Rate limit: 100 requests per 10 seconds per tenant. HubSpot free tier includes contact management, deal pipeline, and basic automation — sufficient for lead capture and pipeline tracking without paid upgrades.',
-      credentials: 'Per-customer HubSpot OAuth tokens encrypted with AES-256-GCM in the integrations table. HubSpot tokens auto-refresh via standard OAuth 2.0 flow managed on the VPS. Each customer connects their own HubSpot account — Apex never touches a shared CRM.',
+      credentials: 'Per-customer HubSpot OAuth tokens encrypted with AES-256-GCM in the integrations table. HubSpot tokens auto-refresh via standard OAuth 2.0 flow managed on the VPS. Each customer connects their own HubSpot account — Kiptra never touches a shared CRM.',
       webhooks: 'HubSpot webhooks POST to /webhooks/hubspot/:tenantId on the VPS. Events include contact.creation, deal.propertyChange, and deal.stageChange. Validated, logged to event_bus_log, and published to NATS at TENANT_{id}.webhook.crm.{event_type}. The Discovery Concierge subscribes to all CRM events for lead pipeline management.',
       hosting: 'Single multi-tenant VPS — all customers share one server. HubSpot is the only integration where the free tier is the default recommendation. At scale, the 100 req/10s rate limit is shared across all agents accessing a single customer\'s HubSpot — the adapter coordinates request budgets.',
     },

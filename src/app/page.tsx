@@ -37,7 +37,7 @@ export default function Home() {
             </div>
             <div>
               <h1 className="text-sm sm:text-base font-semibold text-white tracking-tight">
-                Apex Intelligence
+                Kiptra AI
               </h1>
               <p className="text-[10px] sm:text-[11px] text-slate-500">
                 Platform Architecture
@@ -81,7 +81,7 @@ export default function Home() {
       <footer className="shrink-0 border-t border-white/5 px-4 sm:px-6 py-2 sm:py-3">
         <div className="max-w-[1800px] mx-auto flex items-center justify-between">
           <p className="text-[10px] sm:text-[11px] text-slate-600">
-            Apex Intelligence &mdash; AI Agent Platform for Construction
+            Kiptra AI &mdash; AI Agent Platform for Construction
           </p>
           <p className="text-[10px] sm:text-[11px] text-slate-600 hidden sm:block">
             Click any agent or integration to explore details

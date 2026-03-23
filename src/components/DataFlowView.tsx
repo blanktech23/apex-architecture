@@ -134,7 +134,7 @@ export function DataFlowView() {
       >
         <div className="text-center mb-4 sm:mb-6">
           <h2 className="text-xl sm:text-2xl font-semibold text-white tracking-tight mb-2">
-            A Lead&apos;s Journey Through Apex
+            A Lead&apos;s Journey Through Kiptra
           </h2>
           <p className="text-slate-400 text-xs sm:text-sm">
             Follow a single lead from first contact to CEO briefing

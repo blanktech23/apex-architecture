@@ -60,7 +60,7 @@ const tenants: Tenant[] = [
     roles: ['Owner (solopreneur)'],
   },
   {
-    name: 'Apex Renovations',
+    name: 'Peak Renovations',
     tier: 'Professional',
     tierColor: '#6366f1',
     agents: 7,
