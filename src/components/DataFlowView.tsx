@@ -20,72 +20,72 @@ import {
 const steps = [
   {
     id: 1,
-    agent: 'Discovery Concierge',
+    agent: 'Leads Agent',
     color: '#3b82f6',
     icon: Search,
     title: 'New lead comes in',
     description:
-      'A homeowner emails asking about a kitchen renovation. The Discovery Concierge responds within 15 minutes, qualifies the lead, and checks it against the ideal client profile.',
+      'A homeowner emails asking about a kitchen renovation. The Leads Agent responds within 15 minutes, qualifies the lead, and checks it against the ideal client profile.',
     integration: 'Email + CRM',
   },
   {
     id: 2,
-    agent: 'Discovery Concierge',
+    agent: 'Leads Agent',
     color: '#3b82f6',
     icon: Calendar,
     title: 'Consultation scheduled',
     description:
-      'Lead is qualified. The Concierge schedules a consultation, sends a prep questionnaire, and updates the CRM with qualification notes.',
+      'Lead is qualified. The Leads Agent schedules a consultation, sends a prep questionnaire, and updates the CRM with qualification notes.',
     integration: 'Google Calendar',
   },
   {
     id: 3,
-    agent: 'Design Spec Assistant',
+    agent: 'Design Agent',
     color: '#a855f7',
     icon: Palette,
     title: 'Design phase begins',
     description:
-      'After the consultation, the Design Spec Assistant creates a selection register. Every material choice, finish, and fixture is tracked with client approvals.',
+      'After the consultation, the Design Agent creates a selection register. Every material choice, finish, and fixture is tracked with client approvals.',
     integration: 'JobTread + Google Drive',
   },
   {
     id: 4,
-    agent: 'Estimate Engine',
+    agent: 'Sales Agent',
     color: '#22c55e',
     icon: Calculator,
     title: 'Estimate built',
     description:
-      'The Estimate Engine pulls historical data from similar projects, generates a confidence-range estimate, and compares subcontractor bids. The budget is set.',
+      'The Sales Agent pulls historical data from similar projects, generates a confidence-range estimate, and compares subcontractor bids. The budget is set.',
     integration: 'JobTread + QuickBooks',
   },
   {
     id: 5,
-    agent: 'Project Orchestrator',
+    agent: 'Project Management Agent',
     color: '#f97316',
     icon: BarChart3,
     title: 'Construction monitored',
     description:
-      'Once the project kicks off, the Orchestrator tracks the schedule daily, monitors budget burn, coordinates subs, and flags issues before they become problems.',
+      'Once the project kicks off, the Project Management Agent tracks the schedule daily, monitors budget burn, coordinates subs, and flags issues before they become problems.',
     integration: 'JobTread + Weather API',
   },
   {
     id: 6,
-    agent: 'Operations Controller',
+    agent: 'Bookkeeping Agent',
     color: '#14b8a6',
     icon: Shield,
     title: 'Billing triggered',
     description:
-      'At each milestone, the Operations Controller prepares invoice drafts, checks subcontractor compliance, and monitors cash flow. Nothing goes out without human approval.',
+      'At each milestone, the Bookkeeping Agent prepares invoice drafts, checks subcontractor compliance, and monitors cash flow. Nothing goes out without human approval.',
     integration: 'QuickBooks',
   },
   {
     id: 7,
-    agent: 'Executive Navigator',
+    agent: 'CEO Agent',
     color: '#eab308',
     icon: Crown,
     title: 'CEO briefed',
     description:
-      'Every morning at 7 AM, the Navigator delivers a 3-minute briefing: project health, pipeline status, escalations needing attention, and the day\'s priorities.',
+      'Every morning at 7 AM, the CEO Agent delivers a 3-minute briefing: project health, pipeline status, escalations needing attention, and the day\'s priorities.',
     integration: 'All Systems',
   },
   {

@@ -34,7 +34,7 @@ const humanTouchpoints: Record<string, HumanTouchpoint> = {
       'Priority sorting: urgent items (overdue invoices, time-sensitive leads) surface first',
       'Audit trail: every approval/rejection logged with timestamp and user',
     ],
-    connectedAgents: ['discovery-concierge', 'operations-controller', 'estimate-engine'],
+    connectedAgents: ['leads-agent', 'bookkeeping-agent', 'sales-agent'],
     approvalTypes: [
       'Email drafts to leads and clients',
       'Purchase orders over threshold',
@@ -52,11 +52,11 @@ const humanTouchpoints: Record<string, HumanTouchpoint> = {
     details: [
       'Morning briefing: AI-generated daily summary of all business activity across agents',
       'Escalations: items that exceeded team member authority or triggered risk flags',
-      'Financial overview: cash flow, AR aging, margin analysis from Operations Controller',
-      'Strategic recommendations: the Executive Navigator surfaces patterns and opportunities',
+      'Financial overview: cash flow, AR aging, margin analysis from Bookkeeping Agent',
+      'Strategic recommendations: the CEO Agent surfaces patterns and opportunities',
       'Team activity log: see what your employees approved, rejected, or modified',
     ],
-    connectedAgents: ['executive-navigator'],
+    connectedAgents: ['ceo-agent'],
     approvalTypes: [
       'Large estimates (over configurable threshold)',
       'New vendor/subcontractor approvals',
@@ -64,7 +64,7 @@ const humanTouchpoints: Record<string, HumanTouchpoint> = {
       'Exception overrides flagged by agents',
       'Weekly/monthly financial sign-offs',
     ],
-    whyItMatters: 'As the business owner, you see everything but only act on what matters. The Executive Navigator filters noise so you focus on decisions that move the needle — not routine operations your team already handles.',
+    whyItMatters: 'As the business owner, you see everything but only act on what matters. The CEO Agent filters noise so you focus on decisions that move the needle — not routine operations your team already handles.',
   },
 };
 

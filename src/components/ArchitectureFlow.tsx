@@ -153,31 +153,31 @@ function buildNodes(activeTab: TabId): Node[] {
 
 // Edge label mappings for data flow descriptions
 const coreToAgentLabels: Record<string, string> = {
-  'discovery-concierge': 'Lead routing',
-  'design-spec-assistant': 'Design tasks',
-  'project-orchestrator': 'Project updates',
-  'estimate-engine': 'Cost data',
-  'operations-controller': 'Financial ops',
-  'executive-navigator': 'Intelligence feed',
+  'leads-agent': 'Lead routing',
+  'design-agent': 'Design tasks',
+  'project-management-agent': 'Project updates',
+  'sales-agent': 'Cost data',
+  'bookkeeping-agent': 'Financial ops',
+  'ceo-agent': 'Intelligence feed',
   'support-agent': 'Support queries',
 };
 
 const agentToIntegrationLabels: Record<string, string> = {
-  'discovery-concierge:crm': 'Lead records',
-  'discovery-concierge:email': 'Draft responses',
-  'discovery-concierge:calendar': 'Consultations',
-  'design-spec-assistant:jobtread': 'Selection specs',
-  'design-spec-assistant:drive': 'Submittals & docs',
-  'design-spec-assistant:email': 'PO drafts',
-  'project-orchestrator:jobtread': 'Schedule tracking',
-  'project-orchestrator:weather': 'Site forecasts',
-  'project-orchestrator:quickbooks': 'Budget monitoring',
-  'estimate-engine:jobtread': 'Estimate data',
-  'estimate-engine:quickbooks': 'Cost history',
-  'operations-controller:quickbooks': 'AR/AP tracking',
-  'operations-controller:drive': 'Compliance docs',
-  'executive-navigator:jobtread': 'Portfolio data',
-  'executive-navigator:quickbooks': 'Financial rollup',
+  'leads-agent:crm': 'Lead records',
+  'leads-agent:email': 'Draft responses',
+  'leads-agent:calendar': 'Consultations',
+  'design-agent:jobtread': 'Selection specs',
+  'design-agent:drive': 'Submittals & docs',
+  'design-agent:email': 'PO drafts',
+  'project-management-agent:jobtread': 'Schedule tracking',
+  'project-management-agent:weather': 'Site forecasts',
+  'project-management-agent:quickbooks': 'Budget monitoring',
+  'sales-agent:jobtread': 'Estimate data',
+  'sales-agent:quickbooks': 'Cost history',
+  'bookkeeping-agent:quickbooks': 'AR/AP tracking',
+  'bookkeeping-agent:drive': 'Compliance docs',
+  'ceo-agent:jobtread': 'Portfolio data',
+  'ceo-agent:quickbooks': 'Financial rollup',
   'support-agent:email': 'Escalation alerts',
   'support-agent:jobtread': 'Project diagnostics',
   'support-agent:quickbooks': 'Billing context',
@@ -223,7 +223,7 @@ function buildEdges(): Edge[] {
   // Human touchpoints
   edges.push({
     id: 'exec-nav-ceo',
-    source: 'executive-navigator',
+    source: 'ceo-agent',
     target: 'ceo-review',
     type: 'animated',
     data: {
@@ -235,7 +235,7 @@ function buildEdges(): Edge[] {
   });
 
   // Multiple agents connect to approval queue
-  ['discovery-concierge', 'operations-controller', 'estimate-engine', 'support-agent'].forEach(
+  ['leads-agent', 'bookkeeping-agent', 'sales-agent', 'support-agent'].forEach(
     (agentId) => {
       const agent = agents.find((a) => a.id === agentId);
       edges.push({
@@ -282,8 +282,8 @@ integrations.forEach((integration) => {
 
 // Human node → connected agents
 const humanAgentMap: Record<string, string[]> = {
-  'approval-queue': ['discovery-concierge', 'operations-controller', 'estimate-engine', 'support-agent'],
-  'ceo-review': ['executive-navigator'],
+  'approval-queue': ['leads-agent', 'bookkeeping-agent', 'sales-agent', 'support-agent'],
+  'ceo-review': ['ceo-agent'],
 };
 
 export function ArchitectureFlow({ activeTab, selectedId = null, selectedType = null, onSelect, onDeselect }: ArchitectureFlowProps) {

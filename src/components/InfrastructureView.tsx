@@ -110,7 +110,7 @@ const isolationLayers: IsolationLayer[] = [
     icon: Radio,
     color: '#3b82f6',
     what: 'Agent events (lead received, estimate complete, briefing ready) are routed only to the correct company\'s agents.',
-    how: 'NATS JetStream subjects are namespaced per tenant. Slate\'s Discovery Concierge subscribes to TENANT_slate.agent.discovery-concierge.* — it physically cannot receive events from another company\'s namespace.',
+    how: 'NATS JetStream subjects are namespaced per tenant. Slate\'s Leads Agent subscribes to TENANT_slate.agent.leads-agent.* — it physically cannot receive events from another company\'s namespace.',
     technical: 'Subject pattern: TENANT_{id}.agent.{agent_name}.{event_type} for agent events, TENANT_{id}.webhook.{service}.{event_type} for integration webhooks. NATS authorization rules prevent cross-tenant subscription.',
   },
   {
@@ -118,8 +118,8 @@ const isolationLayers: IsolationLayer[] = [
     icon: Cpu,
     color: '#a855f7',
     what: 'Each company has its own AI budget — a runaway agent at one company can\'t drain another company\'s allocation.',
-    how: 'Per-tenant LiteLLM API key with spending caps + fallback routing. Daily usage synced to the billing dashboard in Supabase. Circuit breaker: any single agent execution exceeding $5 is killed immediately.',
-    technical: 'LiteLLM per-key daily limit: hard cap at 2x expected spend → key disabled. Per-agent max_tokens: 4,096 standard, 8,192 complex. Loop detection: abort if same tool called 3x consecutively. Model cascade routes by complexity — not all requests use expensive models.',
+    how: 'Per-tenant Vercel AI Gateway API key with spending caps + fallback routing. Daily usage synced to the billing dashboard in Supabase. Circuit breaker: any single agent execution exceeding $5 is killed immediately.',
+    technical: 'Vercel AI Gateway per-key daily limit: hard cap at 2x expected spend → key disabled. Per-agent max_tokens: 4,096 standard, 8,192 complex. Loop detection: abort if same tool called 3x consecutively. Model cascade routes by complexity — not all requests use expensive models.',
   },
   {
     name: 'Secret Encryption',
@@ -134,8 +134,8 @@ const isolationLayers: IsolationLayer[] = [
     icon: Users,
     color: '#14b8a6',
     what: 'Within each company, employees only see agents and data relevant to their role. The CEO sees everything.',
-    how: 'RBAC via the tenant_members table: owner, admin, manager, designer, bookkeeper, viewer. Each role defines which agents are accessible. Executive Navigator outputs are CEO-only. Employee actions are logged.',
-    technical: 'Role hierarchy: Owner/CEO → full access + Executive Navigator. Admin → manage integrations + team. Manager/PM → Project Orchestrator + Estimate Engine + approve drafts. Designer → Design Spec Assistant only. Bookkeeper → Operations Controller only. Viewer → read-only dashboards.',
+    how: 'RBAC via the tenant_members table: owner, admin, manager, designer, bookkeeper, viewer. Each role defines which agents are accessible. CEO Agent outputs are CEO-only. Employee actions are logged.',
+    technical: 'Role hierarchy: Owner/CEO → full access + CEO Agent. Admin → manage integrations + team. Manager/PM → Project Management Agent + Sales Agent + approve drafts. Designer → Design Agent only. Bookkeeper → Bookkeeping Agent only. Viewer → read-only dashboards.',
   },
   {
     name: 'Feature Gating',
@@ -143,7 +143,7 @@ const isolationLayers: IsolationLayer[] = [
     color: '#eab308',
     what: 'Different tiers unlock different features. Starter gets 3 agents, Professional gets 7 (6 operational + Support Agent), Enterprise gets 7 + custom agents.',
     how: 'Per-tenant feature flags stored in the tenants table. The agent_templates system defines which agents are enabled per tier. Customers can\'t access agents outside their tier — enforcement at both API and UI levels.',
-    technical: 'Agent templates: Starter = Discovery Concierge + Estimate Engine + Project Orchestrator. Professional = all 7 agents. Enterprise = all 7 + custom agent development. Feature flags support gradual rollouts (10% → 50% → 100%) and per-tenant beta access.',
+    technical: 'Agent templates: Starter = Leads Agent + Sales Agent + Project Management Agent. Professional = all 7 agents. Enterprise = all 7 + custom agent development. Feature flags support gradual rollouts (10% → 50% → 100%) and per-tenant beta access.',
   },
 ];
 
@@ -164,7 +164,7 @@ const backendStack: StackComponent[] = [
     icon: Server,
     color: '#6366f1',
     role: 'Agent Backend Server',
-    details: 'The single shared server that runs all agent processes, handles webhook ingestion, and routes AI requests. Runs Docker Compose with Node.js, Redis, and NATS containers. All customers share this server.',
+    details: 'The single shared server that runs all agent processes, handles webhook ingestion, and routes AI requests. Runs Docker Compose with Node.js, Valkey, and NATS containers. All customers share this server.',
     specs: 'Starting: 8 vCPU / 16GB RAM ($96/mo). At 100 customers: dual-node ($250/mo). At 1,000: cluster ($1,500/mo). All tenant isolation is software-level — no per-customer VMs.',
   },
   {
@@ -172,15 +172,15 @@ const backendStack: StackComponent[] = [
     icon: Container,
     color: '#2496ed',
     role: 'Service Orchestration',
-    details: 'Packages the entire backend into a single deployable unit: Node.js app server, Redis cache + job queue, and NATS event bus. One docker-compose up deploys the full stack. Architecture is VPS-agnostic — same compose file works on DigitalOcean, Hetzner, or any Linux server.',
-    specs: '3 containers: node (agent executor + API), redis (BullMQ + cache), nats (JetStream event bus). Health probes: /health/live (basic liveness — process up), /health/ready (full readiness — DB + Redis + NATS connected), /health/startup (startup probe for slow-starting containers). Auto-restart on failure. Volume mounts for persistent data.',
+    details: 'Packages the entire backend into a single deployable unit: Node.js app server, Valkey cache + job queue, and NATS event bus. One docker-compose up deploys the full stack. Architecture is VPS-agnostic — same compose file works on DigitalOcean, Hetzner, or any Linux server.',
+    specs: '3 containers: node (agent executor + API), valkey (BullMQ + cache), nats (JetStream event bus). Health probes: /health/live (basic liveness — process up), /health/ready (full readiness — DB + Valkey + NATS connected), /health/startup (startup probe for slow-starting containers). Auto-restart on failure. Volume mounts for persistent data.',
   },
   {
-    name: 'LiteLLM',
+    name: 'Vercel AI Gateway',
     icon: Cpu,
     color: '#a855f7',
     role: 'AI Model Gateway',
-    details: 'Self-hosted, zero markup, 100+ providers, fallback routing. Routes AI requests to the optimal model based on task complexity. Simple tasks (lead scoring) → GPT-4.1 Nano ($0.10/1M tokens). Medium tasks (email drafts) → Claude Haiku 4.5 ($1/1M). Complex tasks (estimates, financial analysis) → Claude Sonnet 4.5 ($3/1M). Frontier tasks (CEO briefings) → Claude Opus 4.6 ($15/1M).',
+    details: 'Managed gateway with per-tenant API keys, spending caps, and fallback routing. Routes AI requests to the optimal model based on task complexity. Simple tasks (lead scoring) → GPT-4.1 Nano ($0.10/1M tokens). Medium tasks (email drafts) → Claude Haiku 4.5 ($1/1M). Complex tasks (estimates, financial analysis) → Claude Sonnet 4.6 ($3/1M). Frontier tasks (CEO briefings) → Claude Opus 4.6 ($15/1M).',
     specs: 'Per-tenant API keys with spending caps + fallback routing. Prompt caching: 90% discount on repeat system prompts (Claude) and 75% (OpenAI). At ~4,500 customers, switch to direct Anthropic/OpenAI volume discounts for 15-20% savings.',
   },
   {
@@ -192,12 +192,12 @@ const backendStack: StackComponent[] = [
     specs: '1M+ messages/sec throughput. Subject namespacing: TENANT_{id}.agent.{name}.{event} for agents, TENANT_{id}.webhook.{service}.{event_type} for integrations. JetStream provides message persistence and replay for audit trails.',
   },
   {
-    name: 'Redis',
+    name: 'Valkey',
     icon: Zap,
     color: '#dc382d',
     role: 'Cache + Job Queue Backing Store',
-    details: 'Two roles: (1) L2 distributed cache — weather data, frequently accessed configs, and LiteLLM response caching. (2) BullMQ backing store — all scheduled jobs, cron timers, and retry queues live in Redis. Node.js LRU serves as L1 in-process cache for hot data.',
-    specs: 'Starting: managed Redis (Upstash free tier). At 100 customers: dedicated Redis on VPS. Daily backups. BullMQ features: repeatable jobs (daily briefings), delayed jobs (follow-up reminders), retry with exponential backoff (3 attempts).',
+    details: 'Two roles: (1) L2 distributed cache — weather data, frequently accessed configs, and AI response caching. (2) BullMQ backing store — all scheduled jobs, cron timers, and retry queues live in Valkey. Node.js LRU serves as L1 in-process cache for hot data.',
+    specs: 'Starting: managed Valkey (Upstash free tier). At 100 customers: dedicated Valkey on VPS. Daily backups. BullMQ features: repeatable jobs (daily briefings), delayed jobs (follow-up reminders), retry with exponential backoff (3 attempts).',
   },
   {
     name: 'Supabase Pro',
@@ -220,7 +220,7 @@ const backendStack: StackComponent[] = [
     icon: Globe,
     color: '#fff',
     role: 'Frontend Hosting',
-    details: 'Hosts the Next.js 15 dashboard (App Router) that customers use to interact with their agents. Handles auth flows (better-auth with Organization plugin), the approval queue UI, CEO portal, and agent status displays. Connects to the VPS backend via HTTPS (REST + WebSocket).',
+    details: 'Hosts the Next.js 16 dashboard (App Router) that customers use to interact with their agents. Handles auth flows (better-auth with Organization plugin), the approval queue UI, CEO portal, Chat and CRM modules, and agent status displays. Connects to the VPS backend via HTTPS (REST + WebSocket).',
     specs: 'Vercel Pro: $20/mo (scales to Team at $150/mo for 1,000+ customers). SSR for initial page load, client-side hydration for interactive elements. WebSocket connection to VPS for real-time agent status and briefing push notifications.',
   },
   {
@@ -237,7 +237,7 @@ const backendStack: StackComponent[] = [
     color: '#f97316',
     role: 'Live Dashboard Updates',
     details: 'Pushes real-time updates from agents to the customer dashboard. When an agent completes a task (estimate built, briefing ready, escalation created), a WebSocket event fires to the connected browser — no polling needed. SSE streams use a 15-second keepalive interval for Cloudflare compatibility (Cloudflare drops idle connections at 100s).',
-    specs: 'Socket.io on Hono backend — NATS events → backend → Socket.io → client dashboards. No connection limits (vs Supabase Realtime\'s 500 cap). Events: agent.status.changed, draft.created, escalation.created, briefing.ready. Scoped by tenant_id — customers only receive their own events. SSE keepalive: 15s ping for long-lived streams behind Cloudflare proxy. SSE drain: 30s grace period for active streams on shutdown.',
+    specs: 'Socket.io on Hono backend (backed by Redis adapter for multi-instance) — NATS events → backend → Socket.io → client dashboards. No connection limits (vs Supabase Realtime\'s 500 cap). Events: agent.status.changed, draft.created, escalation.created, briefing.ready. Scoped by tenant_id — customers only receive their own events. SSE keepalive: 15s ping for long-lived streams behind Cloudflare proxy. SSE drain: 30s grace period for active streams on shutdown.',
   },
   {
     name: 'Prometheus + Grafana Cloud',
@@ -245,7 +245,7 @@ const backendStack: StackComponent[] = [
     color: '#e6522c',
     role: 'Monitoring & Alerting',
     details: 'Tracks platform health: agent execution times, error rates, API latency, queue depths, and per-tenant resource usage. Grafana dashboards for the engineering team. Alerts fire on anomalies (agent execution spikes, queue backup, high error rate).',
-    specs: 'Grafana Cloud free tier ($0/mo up to 100 customers). Prometheus scrapes Node.js metrics every 15 seconds. Key metrics: agent_execution_duration_seconds, litellm_tokens_used, nats_messages_published, bullmq_queue_depth, supabase_query_duration.',
+    specs: 'Grafana Cloud free tier ($0/mo up to 100 customers). Prometheus scrapes Node.js metrics every 15 seconds. Key metrics: agent_execution_duration_seconds, ai_gateway_tokens_used, nats_messages_published, bullmq_queue_depth, supabase_query_duration.',
   },
   {
     name: 'Pino → Grafana Alloy → Loki',
@@ -261,7 +261,7 @@ const backendStack: StackComponent[] = [
     color: '#635bff',
     role: 'Billing & Metering',
     details: 'Handles SaaS billing: one-time setup fees ($5K-$20K), monthly recurring ($275-$750/mo), and usage-based overages (Enterprise tier). Customer portal for invoice history, payment method management, and plan upgrades.',
-    specs: 'Stripe Checkout for onboarding. Stripe Billing for recurring subscriptions. Usage records synced daily from LiteLLM spend tracking in Supabase. Webhook events for payment success/failure → NATS → Operations Controller (for customer accounts that use it).',
+    specs: 'Stripe Checkout for onboarding. Stripe Billing for recurring subscriptions. Usage records synced daily from Vercel AI Gateway spend tracking in Supabase. Webhook events for payment success/failure → NATS → Bookkeeping Agent (for customer accounts that use it).',
   },
   {
     name: 'Deployment Safety',
@@ -327,7 +327,7 @@ export function InfrastructureView() {
                 </span>
               </div>
               <div className="flex flex-wrap items-center justify-center gap-2">
-                {['DigitalOcean VPS', 'NATS JetStream', 'Redis + BullMQ', 'Supabase (PostgreSQL + RLS)', 'LiteLLM', 'Vercel'].map((svc) => (
+                {['DigitalOcean VPS', 'NATS JetStream', 'Valkey + BullMQ', 'Supabase (PostgreSQL + RLS)', 'Vercel AI Gateway', 'Vercel'].map((svc) => (
                   <span
                     key={svc}
                     className="text-[10px] px-2 py-0.5 rounded-full text-slate-300"

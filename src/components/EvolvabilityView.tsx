@@ -48,7 +48,7 @@ interface PluginField {
 }
 
 const agentPluginFields: PluginField[] = [
-  { name: 'id', description: 'Unique identifier (e.g. "discovery-concierge")', color: '#6366f1', icon: Puzzle },
+  { name: 'id', description: 'Unique identifier (e.g. "leads-agent")', color: '#6366f1', icon: Puzzle },
   { name: 'name', description: 'Human-readable display name', color: '#6366f1', icon: BookOpen },
   { name: 'version', description: 'Semver version for template compatibility', color: '#6366f1', icon: GitBranch },
   { name: 'triggers', description: 'Events that activate this agent (e.g. "lead.received", "cron:daily")', color: '#22c55e', icon: Play },
@@ -89,12 +89,12 @@ interface IndustryTemplate {
 const currentTemplate = {
   name: 'Construction Remodeling',
   agents: [
-    'Discovery Concierge',
-    'Estimate Engine',
-    'Design Spec Assistant',
-    'Project Orchestrator',
-    'Operations Controller',
-    'Executive Navigator',
+    'Leads Agent',
+    'Sales Agent',
+    'Design Agent',
+    'Project Management Agent',
+    'Bookkeeping Agent',
+    'CEO Agent',
     'Support Agent',
   ],
 };
@@ -104,12 +104,12 @@ const futureTemplates: IndustryTemplate[] = [
     name: 'HVAC Service',
     color: '#3b82f6',
     agents: [
-      { name: 'Discovery Concierge', status: 'reused' },
-      { name: 'Estimate Engine', status: 'reused' },
+      { name: 'Leads Agent', status: 'reused' },
+      { name: 'Sales Agent', status: 'reused' },
       { name: 'Equipment Spec Tracker', status: 'new' },
       { name: 'Service Route Optimizer', status: 'new' },
-      { name: 'Operations Controller', status: 'reused' },
-      { name: 'Executive Navigator', status: 'reused' },
+      { name: 'Bookkeeping Agent', status: 'reused' },
+      { name: 'CEO Agent', status: 'reused' },
       { name: 'Support Agent', status: 'reused' },
     ],
     integrations: [
@@ -118,18 +118,18 @@ const futureTemplates: IndustryTemplate[] = [
       { name: 'Google Drive', status: 'same' },
       { name: 'Gmail', status: 'same' },
     ],
-    note: 'Equipment Spec Tracker replaces Design Spec, Service Route Optimizer replaces Project Orchestrator. Swap JobTread for ServiceTitan. 4 of 7 agents reused as-is.',
+    note: 'Equipment Spec Tracker replaces Design Agent, Service Route Optimizer replaces Project Management Agent. Swap JobTread for ServiceTitan. 4 of 7 agents reused as-is.',
   },
   {
     name: 'Design-Build',
     color: '#a855f7',
     agents: [
-      { name: 'Discovery Concierge', status: 'reconfigured' },
-      { name: 'Estimate Engine', status: 'reconfigured' },
-      { name: 'Design Spec Assistant', status: 'reconfigured' },
-      { name: 'Project Orchestrator', status: 'reconfigured' },
-      { name: 'Operations Controller', status: 'reconfigured' },
-      { name: 'Executive Navigator', status: 'reconfigured' },
+      { name: 'Leads Agent', status: 'reconfigured' },
+      { name: 'Sales Agent', status: 'reconfigured' },
+      { name: 'Design Agent', status: 'reconfigured' },
+      { name: 'Project Management Agent', status: 'reconfigured' },
+      { name: 'Bookkeeping Agent', status: 'reconfigured' },
+      { name: 'CEO Agent', status: 'reconfigured' },
       { name: 'Support Agent', status: 'reused' },
     ],
     integrations: [
@@ -144,11 +144,11 @@ const futureTemplates: IndustryTemplate[] = [
     name: 'Landscaping',
     color: '#22c55e',
     agents: [
-      { name: 'Discovery Concierge', status: 'reused' },
-      { name: 'Estimate Engine', status: 'reused' },
+      { name: 'Leads Agent', status: 'reused' },
+      { name: 'Sales Agent', status: 'reused' },
       { name: 'Seasonal Planning', status: 'new' },
-      { name: 'Project Orchestrator', status: 'reused' },
-      { name: 'Executive Navigator', status: 'reused' },
+      { name: 'Project Management Agent', status: 'reused' },
+      { name: 'CEO Agent', status: 'reused' },
       { name: 'Support Agent', status: 'reused' },
     ],
     integrations: [
@@ -157,18 +157,18 @@ const futureTemplates: IndustryTemplate[] = [
       { name: 'Google Drive', status: 'same' },
       { name: 'Gmail', status: 'same' },
     ],
-    note: 'Reuse 4 agents, add Seasonal Planning, drop Design Spec + Operations Controller. Swap JobTread for LMN.',
+    note: 'Reuse 4 agents, add Seasonal Planning, drop Design Agent + Bookkeeping Agent. Swap JobTread for LMN.',
   },
   {
     name: 'General Contracting',
     color: '#eab308',
     agents: [
-      { name: 'Discovery Concierge', status: 'reused' },
-      { name: 'Estimate Engine', status: 'reused' },
-      { name: 'Design Spec Assistant', status: 'reused' },
-      { name: 'Project Orchestrator', status: 'reused' },
-      { name: 'Operations Controller', status: 'reused' },
-      { name: 'Executive Navigator', status: 'reused' },
+      { name: 'Leads Agent', status: 'reused' },
+      { name: 'Sales Agent', status: 'reused' },
+      { name: 'Design Agent', status: 'reused' },
+      { name: 'Project Management Agent', status: 'reused' },
+      { name: 'Bookkeeping Agent', status: 'reused' },
+      { name: 'CEO Agent', status: 'reused' },
       { name: 'Support Agent', status: 'reused' },
       { name: 'Permit Tracker', status: 'new' },
     ],
@@ -188,9 +188,9 @@ const futureTemplates: IndustryTemplate[] = [
 const staysSame = [
   { label: 'VPS + Docker', icon: Layers },
   { label: 'NATS event bus', icon: Cable },
-  { label: 'Redis + BullMQ', icon: Database },
+  { label: 'Valkey + BullMQ', icon: Database },
   { label: 'Supabase + RLS', icon: Shield },
-  { label: 'LiteLLM', icon: Bot },
+  { label: 'Vercel AI Gateway', icon: Bot },
   { label: 'Vercel dashboard', icon: LayoutTemplate },
   { label: 'Billing (Stripe)', icon: Plug },
   { label: 'Auth (better-auth)', icon: KeyRound },
@@ -225,7 +225,7 @@ const buildTimeline: TimelinePhase[] = [
     weeks: 'Week 7-10',
     color: '#6366f1',
     items: [
-      'Discovery Concierge, Estimate Engine, Executive Navigator',
+      'Leads Agent, Sales Agent, CEO Agent',
       'pgvector infrastructure + embedding pipeline',
       'Feature flags (per-tenant, per-agent)',
       'Knowledge retrieval layer (hybrid search)',
@@ -293,7 +293,7 @@ const supportAgentMetrics = {
 // --- SECTION 5: Developer Experience ---
 
 const devExperienceItems = [
-  { label: 'Local dev via Docker Compose', detail: 'All services run locally — API, workers, Redis, NATS, Postgres', icon: Terminal, color: '#22c55e' },
+  { label: 'Local dev via Docker Compose', detail: 'All services run locally — API, workers, Valkey, NATS, Postgres', icon: Terminal, color: '#22c55e' },
   { label: '.env.example manifest', detail: 'Every required variable documented with descriptions and defaults', icon: FileText, color: '#3b82f6' },
   { label: 'CI quality gates', detail: 'Lint, type-check, unit tests, build — all must pass before merge', icon: Check, color: '#a855f7' },
   { label: 'Monorepo structure', detail: 'packages/shared, apps/api, apps/web — clear separation of concerns', icon: FolderTree, color: '#f97316' },
@@ -692,8 +692,8 @@ export function EvolvabilityView({ inline }: { inline?: boolean }) {
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         {[
-                          { agent: 'Estimate Engine', stores: 'Bid comparisons, line items, vendor pricing, margin calculations', color: '#22c55e' },
-                          { agent: 'Design Spec Assistant', stores: 'Material selections, finish schedules, product links, room assignments', color: '#6366f1' },
+                          { agent: 'Sales Agent', stores: 'Bid comparisons, line items, vendor pricing, margin calculations', color: '#22c55e' },
+                          { agent: 'Design Agent', stores: 'Material selections, finish schedules, product links, room assignments', color: '#6366f1' },
                           { agent: 'HVAC Equipment Tracker', stores: 'Unit specs, tonnage, SEER ratings, warranty terms, install requirements', color: '#3b82f6' },
                         ].map((example) => (
                           <div
