@@ -1,0 +1,290 @@
+---
+title: "9. Build Order (Revised --- 34--38 Weeks to Production (Realistic))"
+slug: "build-order"
+section: "09"
+---
+
+Timeline: 26--28 Weeks (Optimistic) / 34--38 Weeks (Realistic)
+
+
+The original 26--28 week estimate assumes zero rework, no integration delays, and maximum parallelism. Based on industry benchmarks for solo/duo developer teams building distributed systems, a 1.5--2x calendar time overrun is standard. The wave structure below reflects the 26--28 week optimistic schedule; add 30--40% buffer for realistic planning.
+
+
+The original 14-week plan prioritized speed over production-readiness. This revised plan adds CI/CD, testing, security hardening, and monitoring from Day 1 --- and launches with 2--3 agents instead of 7 to ensure quality. Remaining agents are built post-launch. Every successful construction SaaS (Procore, Buildertrend) started by solving ONE problem well. Additional weeks allocated for Supabase RLS optimization (Wave 1), Stripe integration complexity (Wave 2), and risky third-party integrations in Wave 5 (JobTread Pave, QuickBooks OAuth).
+
+
+Timeline Risk
+
+
+The 26--28 week build order assumes two full-time developers with no context-switching. Historical data on projects of this complexity suggests 1.5--2x calendar time overrun is common. The wave structure is designed so each wave ships independently usable functionality --- if timelines slip, Wave 3 (first demo) remains the hard gate for sales activity.
+
+
+### Wave 0: Architecture Mind Map (Complete)
+
+
+- **Standalone interactive mind map** --- own repo + own Vercel deployment
+
+
+- Deployed at `kiptra-architecture.vercel.app`
+
+- Beautiful visual for non-technical stakeholders (Adam, TJ, investors)
+
+- Shows agents, integrations, data flows, scale model, cost analysis
+
+
+### Wave 1: Foundation + DevOps (Week 1--5)
+
+
+- Next.js 16 app scaffolding (shadcn/ui, Tailwind, better-auth with Organization plugin)
+
+- Supabase schema + RLS policies (optimized: indexed tenant_id, initPlan pattern, adversarial tests). Include `feature_flags JSONB DEFAULT '{}'` column on `tenants` table for per-tenant agent activation control (referenced in Wave 3). Include `industry_vertical TEXT NOT NULL DEFAULT 'kitchen_bath'` and `tenant_type TEXT NOT NULL DEFAULT 'contractor'` columns with CHECK constraints (Section 6b) --- added now with defaults to avoid data migration later; no UI until Wave 4.
+
+- Dual VPS setup (2x DigitalOcean droplets + Load Balancer, Docker Compose: Hono backend, NATS JetStream; Valkey is DigitalOcean Managed Valkey, external)
+
+- Tenant + team member signup/auth flow with RBAC (owner, admin, manager, designer, bookkeeper, viewer --- full 6-role set from Section 5)
+
+- **CI/CD pipeline:** GitHub Actions --- lint, type-check, test, build on every PR
+
+- **Monitoring:** Sentry (error tracking, manual Hono middleware --- see MON-06), UptimeRobot (uptime), Pino + Grafana Alloy + Loki (structured logging --- Alloy replaces deprecated Promtail as the log shipping agent, see MON-02). Deploy Grafana Loki self-hosted on VPS (not Grafana Cloud free tier) to meet 90-day hot + 1-year cold log retention requirement from Day 1. Budget ~1.5GB RAM for the monitoring stack (MON-05).
+
+- **Security headers:** HSTS, CSP, X-Frame-Options, CORS allowlist, rate limiting on auth endpoints
+
+- **Cloudflare:** Pro ($20/mo) WAF + DDoS protection in front of dual VPS
+
+- **Environments:** Local dev (Docker Compose), staging (Supabase branch + staging VPS), production (dual VPS + LB)
+
+- **DigitalOcean Spaces:** Object storage bucket setup (avatars, backups, data exports) with IAM credentials and CORS configuration. Bucket policy: private by default, presigned URLs for client uploads. Required for Wave 4 data export and customer-facing file storage.
+
+- **Audit logging:** All data access logged with tenant_id, user_id, timestamp, action. **Audit identity model:** User-triggered actions log actual `user_id`. System-triggered actions (cron, webhook) log a system identity plus `trigger_source` (e.g., `system:cron:daily-briefing`). Chain-triggered actions (agent A triggers agent B) log the originating agent ID and the `context_ref` from the execution chain.
+
+- **Canonical domain model (*PRIORITY --- build alongside or immediately after Supabase schema*):** Define TypeScript interfaces in `src/domain/` (Project, Estimate, EstimateLine, Task, Contact, Invoice, Payment, Document). Prerequisite for all agent and adapter code. This must be completed before any Wave 2 work begins --- agent tool definitions, integration adapters, and the anti-corruption layer all depend on these types.
+
+- **Data sourcing (parallel track --- starts Wave 1):** Begin sourcing Estimate Engine pricing data immediately. Adam/Slate to compile material pricing from 3+ suppliers (target: 500 materials). This is a non-code workstream that runs in parallel with engineering and must be complete before Wave 3a Sales Agent go-live.
+
+- **API versioning:** Implement from Day 1: URL prefix `/api/v1/` for all REST endpoints. Webhook payloads include a `version` field from first delivery. Near-zero effort at build time but prevents breaking-change management issues post-launch.
+
+- **API deprecation policy:** When a v1 endpoint is superseded by v2, the v1 endpoint must: (1) Return a `Deprecation` response header with the sunset date. (2) Log a `deprecated_endpoint_called` metric with `tenant_id` (to identify which customers still use it). (3) Continue functioning for a minimum of 90 days after the deprecation notice. (4) After 90 days, return HTTP 410 Gone with a migration guide URL. During the rolling deploy window where VPS nodes run different code versions, route signatures must be backward-compatible --- enforce via CI check that diffs the exported `AppType` across commits.
+
+
+Wave 1 Scope Note (SCALE-18)
+
+
+Wave 1 contains foundation, auth, DevOps, monitoring, and security across 10 items. Realistically 4--5 weeks for two developers. If compressed to 3 weeks, defer audit logging and Cloudflare WAF setup to early Wave 2.
+
+
+### Wave 2a: AI Gateway + Agent Executor (Week 6--7)
+
+
+Wave 2 Density Warning (SCALE-04)
+
+
+Wave 2 scope is the densest in the plan. Consider splitting into Wave 2a (AI gateway + agent executor framework, 2 weeks) and Wave 2b (Stripe + error patterns + observability, 2--3 weeks). Stripe webhook integration (idempotency, replay, event ordering, subscription state machine) is routinely underestimated.
+
+
+- Vercel AI Gateway configuration + AI SDK middleware (budgetEnforcement, costTracking, logging) + model routing via provider registry + **model escalation safety net** (see AI-26 below)
+
+- Agent executor framework (thorchh/agent-starter base + Vercel AI SDK (AI SDK v6) for tool calling, streaming, structured output) + **`AgentPluginFactory` registration API** (Section 6) + **13-event streaming protocol** (AI-25, Section 7b)
+
+- Agent template system (Slate "Construction Remodeling" = first template)
+
+- NATS event bus (pub/sub per tenant, subject namespacing) + BullMQ job queue. *Initial concurrency bounds (validated via Wave 2 load testing): Per-node worker concurrency: 10 concurrent jobs per priority level. Per-tenant concurrent job limit: 5 simultaneous agent executions. Priority mapping: escalations = high, user-triggered = medium, scheduled/cron = low.* **Write coordination:** With up to 5 concurrent agent executions per tenant, race conditions on shared state are possible. BullMQ does not deduplicate jobs by default. Mitigations: (1) Use deterministic jobId values scoped to `${tenantId}:${agentId}:${triggerType}:${windowId}` where windowId is a time-bucket (floor to 5-minute intervals for scheduled jobs) to prevent duplicate queuing. (2) Document the consistency model: dashboard data is eventually consistent with a bounded staleness of the last agent execution cycle. Display `last_updated` timestamps on dashboard panels. (3) For user-triggered executions, use a Valkey SET NX lock to prevent double-submission of the same agent for the same tenant within a 30-second window.
+
+> **Spec Amendment (CRITICAL) (Attack Audit 2026-03-22):** Every BullMQ queue MUST have `defaultJobOptions: { removeOnComplete: { count: 1000, age: 3600 }, removeOnFail: { count: 5000 } }`. Without this, Valkey memory grows linearly --- 4.5M jobs = ~10GB. This is the #1 BullMQ production incident. Apply to every `new Queue()` instantiation across agent queues, memory extraction queues, scheduled job queues, and data import queues.
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Enforce per-tenant limit via BullMQ `limiter: { max: 5, duration: 1000, groupKey: 'tenantId' }` on worker, OR Valkey-based semaphore checked before processing. The current "5 simultaneous" limit needs a concrete enforcement mechanism --- without one of these, the limit is aspirational, not enforced.
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Multi-tenant AI concurrency limits: Global concurrency limit: 50 concurrent agent executions per VPS node (100 total across dual VPS). Per-tier limits: Starter = 2 concurrent, Professional = 5 concurrent, Enterprise = 10 concurrent agent executions. When a tenant is at capacity, new agent triggers queue in BullMQ with estimated wait time pushed via Socket.io (`agent:queue_position` event with `{ position: number, estimatedWaitMs: number }`). Per-tenant storage quotas: Starter = 100MB (memories + embeddings + uploads), Professional = 1GB, Enterprise = 10GB. Quota enforcement: check before embedding generation and file upload. Quota exceeded -> `TENANT_QUOTA_EXCEEDED` error + in-app notification suggesting plan upgrade.
+
+
+
+### Wave 2b: Billing + Error Patterns + Observability (Week 8--10)
+
+
+- **Stripe Checkout + webhooks (ACH-preferred with card option):** Subscription creation with ACH and card payment methods (`payment_method_types: ['us_bank_account', 'card']`), Plaid instant bank verification, card surcharge logic (2.9% + $0.30, exempt in CT/MA), customer portal for payment method management. Stripe webhook signature verification + idempotency (event ID deduplication via `webhook_events` table). Helcim configured as backup processor.
+
+- **Error handling patterns:** Exponential backoff, circuit breakers, dead letter queues, idempotency keys
+
+- **Socket.io:** Real-time WebSocket layer --- NATS -> backend -> Socket.io -> client dashboards. *Note (XREF-17): Socket.io attaches to the Hono backend built in Wave 1. The Wave 1 backend ships without WebSocket support; real-time capability is added in Wave 2.*
+
+- **Outbox polling worker (Attack Audit 2026-03-22):** BullMQ cron job (every 5 seconds) that polls `outbox_events` for `status = 'pending'`, publishes to NATS, and marks as `'sent'` on ack. Implements retry with exponential backoff up to `max_retries`. Failed events surface in admin panel. Required for reliable event delivery --- without this worker, the outbox table is write-only.
+
+- **OpenTelemetry:** Distributed tracing across agent execution flows
+
+- **Integration tests:** RLS adversarial queries, API endpoint tests, webhook handler tests
+
+- **QuickBooks OAuth app submission (INT-18):** Submit QuickBooks OAuth app for Intuit production review (1--3 week approval process). Development uses sandbox; production access requires advance submission. Start early to avoid blocking Wave 5.
+
+- **Microsoft 365 OAuth integration (INT-19):** Microsoft Entra ID app registration, OAuth 2.0 + PKCE flow via `@azure/msal-node`, Microsoft Graph client setup (`@microsoft/microsoft-graph-client`). Implements `MicrosoftEmailProvider` (Mail.Send, Mail.Read) and `MicrosoftCalendarProvider` (Calendars.Read) behind the provider abstraction interfaces. Includes Microsoft Graph subscription management for webhook-based change notifications (mail + calendar), with BullMQ cron renewal every 2 days. Admin consent endpoint (`/adminconsent`) as fallback for organizations that disable user consent.
+
+- **Provider abstraction layer (INT-20):** `EmailProvider` and `CalendarProvider` interfaces with Google and Microsoft implementations. Factory resolves the correct provider from the tenant's `integrations` table at runtime. Agent code calls provider-agnostic methods; never Google or Microsoft APIs directly.
+
+- **CPP/MPN publisher verification enrollment (PRE-LAUNCH):** Start Microsoft Cloud Partner Program publisher verification --- 2--6 week lead time, free. Without this, Microsoft consent screen shows "unverified publisher" warning. Must complete before first customer onboarding.
+
+- **Baseline load testing (SCALE-10):** Test concurrent LLM calls through Vercel AI Gateway at 10/50/100 simultaneous executions. Measure AI Gateway response latency P50/P95/P99, Valkey connection pool exhaustion. This data is needed to set correct BullMQ concurrency limits before Wave 3 agents are built.
+
+- **Tenant isolation build items (XREF-24):** NATS per-tenant subject namespace setup, BullMQ shared priority queue configuration with tenant validation, Socket.io tenant room validation middleware, Valkey key prefix enforcement via `withTenantPrefix()` wrapper + CI lint rule (application-layer isolation; Valkey ACLs deferred to post-managed-Valkey phase)
+
+- **Envelope encryption service:** Implement `tenant_keys` table, DEK provisioning on tenant creation, AES-256-GCM encrypt/decrypt service for OAuth tokens. Required before any OAuth token is stored (Wave 5 integrations).
+
+- **SendGrid Inbound Parse (EMAIL-01):** MX record configuration, webhook endpoint for inbound email receipt, Haiku input classifier for content sanitization (strip signatures, detect spam/phishing). Prerequisite for Wave 3 Leads Agent email intake.
+
+- **XREF-24 expanded:** (a) BullMQ worker implementation with tenant context injection via `withTenantContext()` wrapper and per-tenant rate limiting, (b) Valkey key prefix enforcement wrapper + CI lint rule for unprefixed key access, (c) Integration test: submit jobs from two tenants simultaneously, verify tenant B's worker context never reads tenant A's data.
+
+
+### Wave 3a: First 3 Agents + Core Infrastructure (Week 11--14)
+
+
+- **Leads Agent** for Slate (CRM + email intake + lead scoring). First agent implemented using `AgentPluginFactory` pattern (Section 6) + TypeBox tool schemas (AI-27) + streaming event protocol (AI-25).
+
+- **Sales Agent** (highest-value agent --- directly saves customers money)
+
+- **Sales Agent knowledge base seeding (HARD GATE):** The Sales Agent MUST NOT go live until the knowledge base is seeded with verified pricing data. Minimum threshold: 500 materials with prices sourced from 3+ suppliers, validated against Slate's actual project data. Seeding is a Wave 3a prerequisite, not a parallel task --- the Sales Agent cannot be demonstrated or shipped without it. Without verified pricing data, the Sales Agent hallucinates material prices, which is the single highest-risk failure mode for the product (contractors will immediately lose trust if prices are wrong).
+
+- **CEO Agent** + CEO dashboard (Recharts) + morning briefing generation
+
+- Escalation queue UI + human-in-the-loop approval workflow
+
+- Agent execution logs + real-time status dashboard
+
+- **Feature flags:** Per-tenant agent activation control (JSONB column on tenants table, set up in Wave 1). Graduate to Unleash or PostHog post-100 tenants when non-engineer flag management is needed.
+
+- **Knowledge retrieval layer (AI-16):** Supabase `pgvector` extension for semantic search over project history and reference documents. Standard `retrieve(query, tenant_id, knowledge_base_type)` tool available to relevant agents. For structured data (price lists, material catalogs): PostgreSQL full-text search. Required for Sales Agent accuracy --- without retrieval, the agent hallucinates material prices. **RLS enforcement:** The pgvector embeddings table MUST have `tenant_id` column with RLS enabled. Vector similarity searches MUST use the same connection pool with `set_tenant_context()` as all other queries. Defense-in-depth: add explicit `WHERE tenant_id = current_setting('app.tenant_id', true)::uuid` to all vector search queries. Adversarial test: verify cross-tenant embedding retrieval returns zero results.
+
+- **Embedding pipeline (AI-16b):** OpenAI `text-embedding-3-small` ($0.02/1M tokens). Chunking: 512-token chunks with 50-token overlap. Embeddings generated on document write/update via BullMQ background job. Index: HNSW for = 80% human approval rate on shadow responses.
+
+- **RAGAS evaluation pipeline:** Automated evaluation of RAG quality using RAGAS framework, run during shadow mode. Minimum thresholds before go-live: faithfulness >= 0.90 (responses grounded in retrieved context), answer relevancy >= 0.85 (responses address the actual question), context precision >= 0.80 (retrieved chunks are relevant to the query). Evaluation runs against a curated test set of 100+ question-answer pairs covering all 5 KB categories.
+
+
+Parallel Workstream Note
+
+
+KB article authoring can begin as a parallel non-code workstream during Wave 2. Content authors (founders, domain experts) can draft articles in markdown while Wave 2 infrastructure is being built. This de-risks the Wave 3b Support Agent hard gate on KB content availability.
+
+
+Content Authoring Workstream (Parallel --- Starts Wave 1)
+
+
+Content authoring is a non-code parallel workstream that must begin during Wave 1 and run continuously. Without this content, multiple hard gates are blocked.
+
+
+- **Support KB articles:** 57--83 articles x 2--4 hrs each = 140--280 hrs of content creation. Covers platform features (~20), billing/subscription (~10), integrations/OAuth (~15), troubleshooting (~18), and onboarding (~15). Hard gate for Wave 3b Support Agent go-live.
+
+- **Estimate Engine pricing data:** 500 materials with prices sourced from 3+ suppliers, validated against Slate's actual project data. Owner: Adam/Slate. Hard gate for Wave 3a Sales Agent go-live.
+
+- **RAGAS test set:** 100+ question-answer pairs covering all 5 KB categories. Required for Wave 3b RAGAS evaluation pipeline before Support Agent go-live.
+
+- **Help Bot UI + Kiptra product KB (40--60 articles):** In-app help panel reusing Support Agent RAG infrastructure with a separate Kiptra-product-specific knowledge base. Haiku-only, ~$0.005/response. See Section 13m.
+
+
+### Wave 4: Hardening + First Customer (Week 18--21)
+
+
+- **Pre-launch verification suite (XREF-13, SCALE-22):** (1) Create 3 test tenants with different roles, (2) attempt all CRUD operations across tenant boundaries, (3) verify JWT claim extraction produces correct tenant_id, (4) verify spending limits block agent execution and produce alerts, (5) kill primary VPS during active agent execution and verify failover, (6) verify Socket.io reconnection re-validates room membership, (7) Stripe webhook lifecycle test, (8) AI Gateway fallback routing test, (9) prompt injection defense validation. Also: k6 at 10/50/100/500 concurrent users, agent execution under load.
+
+- **Security audit:** OWASP checklist, RLS policy review, penetration testing basics
+
+- **Spec Amendment (Attack Audit 2026-03-22):** Security testing schedule: Wave 3: OWASP ZAP baseline scan (automated, weekly via CI) against staging environment. Wave 4 pre-launch: manual penetration test by external security firm ($5K--$10K budget --- include in Wave 4 legal/compliance budget). Ongoing post-launch: quarterly DAST (Dynamic Application Security Testing) scans against staging. Pen test findings are P1 blockers --- no launch until all critical/high findings are remediated.
+
+- **Backup verification:** Test Supabase restore + dual-VPS Docker volume recovery
+
+- Customer onboarding flow (remote via Google Meet/Zoom, OAuth connection wizard). Email and calendar integration: customers choose "Connect your email --- Google or Microsoft?" and "Connect your calendar --- Google or Microsoft?"
+
+- **Industry/persona selection in onboarding wizard (Section 6b):** Two new onboarding screens (`/onboard/industry`, `/onboard/persona`). Template registry with `kb_contractor` as the only selectable template; dealer/rep/manufacturer options visible but disabled with "Coming Soon" badge. `POST /api/v1/tenants/apply-template` endpoint. Template application logic: set dashboard layout, enable agents, configure sidebar, initialize checklist and tour per template. Verification: V-35.
+
+- Admin panel basics (tenant management, usage dashboard, team invitations)
+
+- **Data retention policy:** Documented --- subscription duration + 90 days. *Note (XREF-19): Data retention policy is Wave 4 per this build order --- Section 9 is the source of truth for scheduling.*
+
+- **Incident response plan:** 1-page doc --- who is called, communication protocol, remediation
+
+- **Cyber liability insurance:** $1K--$3K/year, purchased before first customer
+
+- **ToS + Privacy Policy + customer DPA drafting:** Engage legal counsel ($3K--$5K). ToS: AI liability disclaimers, limitation of liability, SLA terms, data ownership, acceptable use. Privacy Policy: CCPA-compliant disclosure, cookie policy, third-party processor list. Customer-facing DPA template for B2B customers. All three documents must be published before first paying customer --- this is a hard launch gate.
+
+- **Contractor licensing review:** Legal review of top 10 target states' contractor licensing requirements as they relate to AI-generated estimates. Label all estimate outputs as "decision support --- requires licensed contractor review."
+
+- **Launch to first 3--5 paying customers (Slate + Tier A leads)**
+
+
+Wave 4 Integration Prerequisite (INT-22)
+
+
+**JobTread Pave GraphQL API adapter + anti-corruption layer:** Implement the JobTread Pave GraphQL adapter following the `IntegrationAdapter` interface (Section 3b). Includes GraphQL query builder, pagination handling, rate limit compliance (token bucket), and anti-corruption layer mapping JobTread domain objects to canonical domain model types (`Project`, `Task`, `Contact`). Prerequisite for Wave 5 Project Management Agent and any agent needing live project data from JobTread.
+
+
+### Wave 5: Remaining Agents + Scale (Week 22--28)
+
+
+*(Professional/Enterprise tier agents --- completes the 6-agent set. See Appendix A for tier-to-agent mapping.)*
+
+
+- **Design Agent** (Google Drive folder hierarchy, submittals/cut sheets)
+
+- **Project Management Agent** (JobTread schedule sync, weather API, drift detection)
+
+- **Bookkeeping Agent** (QuickBooks read-only integration, AR tracking, lien waivers)
+
+- Usage metering + per-tenant AI cost dashboards
+
+- Agent template builder (create templates for new industry verticals). *Note (XREF-26): The underlying template system (database rows + JSONB config) is built in Wave 2. This Wave 5 item is the admin UI for configuring templates without direct database access.*
+
+- Full multi-tenant admin panel + team management (invite employees, assign roles)
+
+- Referral program infrastructure
+
+- Performance optimization based on real usage data from Wave 4 customers
+
+
+**Key change from original plan:** Launch with 3 agents (Leads Agent, Sales Agent, CEO Agent) + Support Agent instead of building all 7 before first customer. This recovers 4 weeks for hardening and gets real customer feedback faster. Remaining agents (Design Agent, Project Management Agent, Bookkeeping Agent) ship in Wave 5 based on actual usage priorities.
+
+
+### Post-Launch Roadmap
+
+
+- **Month 5--6:** Batch onboarding optimization, Loom walkthrough library, self-serve onboarding option
+
+- **Month 7--9:** Second vertical template (Design-Build or HVAC), API versioning strategy
+
+- **Month 10--12:** SOC 2 readiness assessment (if enterprise deals demand it), direct API negotiations with Anthropic/OpenAI at volume
+
+- **Year 2:** Third vertical, second integration: Procore or Jobber adapter (multi-PM-tool support, consistent with Section 7a recommendation), horizontal scaling beyond dual-VPS to multi-node cluster
+
+- **Month 8--14 (parallel):** Business Operating System --- Phase 1 (core modules: scorecards, quarterly goals, weekly sync, org chart) ships Month 8--12; Phase 2 (advanced: issue tracker, knowledge base, VTO) ships Month 12--14. See Section 15.
+
+- **Month 10--16 (parallel):** Kitchen & Bath AI Design Tool --- 6-month build starting after core platform stabilizes. Three.js rendering pipeline, AI layout generation, manufacturer catalog integration. See Section 16.
+
+
+### Data Import & Export (Wave 4)
+
+
+Data Portability Requirement
+
+
+Data import and export are both Wave 4 deliverables. Import reduces onboarding friction for customers migrating from spreadsheets or other tools. Export is required for CCPA data portability compliance and builds customer trust ("your data is yours").
+
+
+#### Data Import
+
+
+- **CSV import adapter:** Support CSV import for projects, contacts, and estimates. Mapping UI allows the user to map CSV columns to canonical domain model fields (Section 3c / Wave 1 domain interfaces).
+
+- **Validation:** Pre-commit validation with error report --- show row-level errors (missing required fields, type mismatches, duplicate detection) before any data is written. User reviews and confirms before import executes.
+
+- **Historical backfill:** For JobTread customers, initial data sync via Pave API pulls historical projects, contacts, and estimates into the local data mirror (Section 7a Anti-Corruption Layer). This is part of the onboarding flow, not a separate import step.
+
+- **Implementation:** BullMQ background job for large imports (>100 rows). Progress indicator via Socket.io real-time updates. Rollback on critical failure (transactional import per batch).
+
+
+#### Data Export
+
+
+- **"Download all my data" button:** Available in account settings for Owner/Admin roles. Exports all tenant-scoped data as a ZIP archive containing JSON (machine-readable) + CSV (human-readable) files.
+
+- **Scope:** All data from tenant-scoped tables --- projects, contacts, estimates, agent execution history, conversation threads, drafts, escalations, audit logs.
+
+- **Implementation:** BullMQ background job assembles the archive, uploads to DO Spaces with a signed URL (24-hour expiration). User notified via email + in-app notification when export is ready. Rate limited to 1 export per 24 hours per tenant.
+
+- **CCPA compliance:** This export capability satisfies CCPA data portability requirements. Combined with the data deletion capability in the tenant offboarding flow (Section 5), this completes the CCPA data rights implementation.
+
+
+---

@@ -1,0 +1,3802 @@
+---
+title: "14. Developer Experience & Build Readiness"
+slug: "developer-experience"
+section: "14"
+---
+
+This section consolidates the monorepo structure, directory layout, and developer-facing conventions that complement the infrastructure defined in Section 12. These specifications ensure a new developer can clone the repository and be productive within a single session.
+
+
+### Monorepo Structure
+
+
+**Tooling:** pnpm workspaces + Turborepo for task orchestration and build caching.
+
+
+**Package structure:**
+
+
+- **`packages/frontend/`** --- Next.js 16 App Router (deployed to Vercel)
+
+- **`packages/backend/`** --- Hono API server + BullMQ workers + NATS subscribers (deployed to VPS via Docker)
+
+- **`packages/shared/`** --- Zod schemas, TypeScript types, domain model interfaces (consumed by both frontend and backend as a workspace dependency)
+
+- **`packages/config/`** --- Shared ESLint, TypeScript, and Prettier configurations
+
+- **`packages/editor/`** --- TipTap rich-text editor configuration, extensions, and wrapper components. Powers collaborative document editing (meeting recaps, SOPs, project notes) with real-time sync via Hocuspocus (consumed by frontend)
+
+
+**Build order:** `shared` -> `editor` + `backend` + `frontend` (parallel, editor and frontend co-build). TypeScript project references: each package has `composite: true`, root `tsconfig.json` has `references` array pointing to all packages. Turborepo pipeline: `build` depends on `^build` (shared builds first). The shared package exports via direct file imports (e.g., `@kiptra/shared/schemas/user`), NOT barrel exports.
+
+
+### Repository Directory Tree
+
+
+Directory
+kiptra-ai/
+&#9500;&#9472;&#9472; packages/
+&#9474; &#9500;&#9472;&#9472; frontend/ &#8212; Next.js 16 App Router
+&#9474; &#9474; &#9500;&#9472;&#9472; app/ &#8212; Route segments (dashboard/, customers/, projects/, approvals/, reports/, notifications/, bos/, settings/, onboard/, escalations/)
+&#9474; &#9474; &#9500;&#9472;&#9472; components/ &#8212; UI components (providers/, forms/, realtime/, charts/)
+&#9474; &#9474; &#9492;&#9472;&#9472; lib/ &#8212; Frontend utilities, hooks, API client (hcWithType)
+&#9474; &#9500;&#9472;&#9472; backend/ &#8212; Hono API + Workers
+&#9474; &#9474; &#9500;&#9472;&#9472; src/
+&#9474; &#9474; &#9474; &#9500;&#9472;&#9472; routes/ &#8212; Hono route handlers (v1/agents/, v1/tenants/, v1/customers/, v1/projects/, webhooks/)
+&#9474; &#9474; &#9474; &#9500;&#9472;&#9472; workers/ &#8212; BullMQ job processors (agent-executor, email-processor)
+&#9474; &#9474; &#9474; &#9500;&#9472;&#9472; agents/ &#8212; Agent implementations (discovery/, estimate/, navigator/)
+&#9474; &#9474; &#9474; &#9500;&#9472;&#9472; lib/
+&#9474; &#9474; &#9474; &#9474; &#9500;&#9472;&#9472; ai/ &#8212; AI SDK adapter layer (gateway, tools, prompt-cache)
+&#9474; &#9474; &#9474; &#9474; &#9500;&#9472;&#9472; integrations/ &#8212; IntegrationAdapter implementations (jobtread/, quickbooks/)
+&#9474; &#9474; &#9474; &#9474; &#9500;&#9472;&#9472; auth/ &#8212; better-auth server configuration
+&#9474; &#9474; &#9474; &#9474; &#9492;&#9472;&#9472; encryption/ &#8212; AES-256-GCM envelope encryption service
+&#9474; &#9474; &#9474; &#9500;&#9472;&#9472; middleware/ &#8212; Hono middleware (tenant-context, rate-limit, logging, cors)
+&#9474; &#9474; &#9474; &#9492;&#9472;&#9472; subscribers/ &#8212; NATS JetStream subscribers
+&#9474; &#9474; &#9500;&#9472;&#9472; test/
+&#9474; &#9474; &#9474; &#9492;&#9472;&#9472; integration/ &#8212; Integration tests (DB, NATS, BullMQ, external APIs)
+&#9474; &#9474; &#9492;&#9472;&#9472; Dockerfile &#8212; Multi-stage, tini, USER node
+&#9474; &#9500;&#9472;&#9472; editor/ &#8212; TipTap rich-text editor package
+&#9474; &#9474; &#9500;&#9472;&#9472; src/ &#8212; Editor config, extensions, toolbar components
+&#9474; &#9474; &#9492;&#9472;&#9472; package.json &#8212; TipTap dependencies isolated from frontend
+&#9474; &#9492;&#9472;&#9472; shared/ &#8212; Cross-package types and schemas
+&#9474; &#9500;&#9472;&#9472; schemas/ &#8212; Zod schemas (user.ts, tenant.ts, agent.ts, estimate.ts)
+&#9474; &#9500;&#9472;&#9472; domain/ &#8212; Domain model interfaces (Project, Estimate, Contact)
+&#9474; &#9500;&#9472;&#9472; types/ &#8212; Shared TypeScript types
+&#9474; &#9492;&#9472;&#9472; package.json &#8212; Must include "exports" field for subpath imports
+&#9500;&#9472;&#9472; supabase/ &#8212; Supabase migrations, seed data, RLS policies
+&#9500;&#9472;&#9472; docker-compose.yml &#8212; Production Compose
+&#9500;&#9472;&#9472; docker-compose.local.yml &#8212; Local dev Compose
+&#9500;&#9472;&#9472; turbo.json &#8212; Turborepo pipeline config
+&#9500;&#9472;&#9472; .env.example &#8212; Environment variable manifest
+&#9500;&#9472;&#9472; .husky/ &#8212; Git hooks (pre-commit: lint-staged)
+&#9500;&#9472;&#9472; docs/
+&#9474; &#9500;&#9472;&#9472; adr/ &#8212; Architecture Decision Records (see ADR template below)
+&#9474; &#9492;&#9472;&#9472; runbooks/ &#8212; Operational runbooks
+&#9492;&#9472;&#9472; .github/workflows/ &#8212; CI/CD pipeline definitions
+```
+
+
+### Testing Conventions
+
+
+- **Unit tests:** Co-located with source files as `*.test.ts` (e.g., `src/routes/agents.ts` -> `src/routes/agents.test.ts`). Run via `vitest`.
+
+- **Integration tests:** Located in `packages/backend/test/integration/`. These test real database connections, NATS pub/sub, BullMQ job processing, and external API contracts. Run via `vitest --project integration` with a test Docker Compose stack.
+
+- **E2E tests:** Located in `packages/frontend/e2e/`. Playwright tests against the running application. Run via `pnpm --filter frontend test:e2e`.
+
+- **Coverage target:** 80% line coverage minimum (enforced by CI). Coverage reports generated by Vitest and uploaded to Codecov.
+
+
+### Git Workflow & Commit Conventions
+
+
+- **Branching strategy:** Trunk-based development with short-lived feature branches. All branches merge to `main` via pull request. Branch naming: `feat/`, `fix/`, `chore/`, `docs/` prefixes.
+
+- **Commit convention:** Conventional Commits enforced by commitlint. Format: `type(scope): description`. Types: `feat`, `fix`, `chore`, `docs`, `test`, `refactor`, `perf`, `ci`. Scopes: `frontend`, `backend`, `shared`, `editor`, `infra`. This enables future automated semantic versioning via release-please.
+
+- **Pre-commit hooks:** Husky + lint-staged. On every commit: ESLint (fix mode) + Prettier (write mode) + TypeScript type-check (`tsc --noEmit`) on staged files only. Hook runs in `pnpm install` -> `cp .env.example .env.local` -> `pnpm dev` -> productive in under 1 hour.
+
+
+### ADR (Architecture Decision Record) Template
+
+
+All significant architectural decisions are recorded in `docs/adr/` using the following format:
+
+
+Markdown
+# ADR-NNN: [Title]
+
+#### Status
+[Proposed | Accepted | Deprecated | Superseded by ADR-NNN]
+
+#### Context
+What is the issue that we are seeing that motivates this decision?
+
+#### Decision
+What is the change that we are proposing and/or doing?
+
+#### Consequences
+What becomes easier or more difficult because of this change?
+
+#### Alternatives Considered
+What other options were evaluated and why were they rejected?
+```
+
+
+File naming: `docs/adr/ADR-001-use-hono-over-express.md`. ADRs are never deleted --- deprecated decisions are marked as such with a pointer to the superseding ADR.
+
+
+### Cross-References to Section 12
+
+
+The following infrastructure concerns are defined in **Section 12 (Infrastructure, Security & DevOps)** and should not be duplicated here:
+
+
+- **CI/CD pipeline:** See Section 12 "CI/CD Pipeline (Wave 1, Day 1)" for the full lint -> type-check -> test -> build -> deploy pipeline.
+
+- **CI quality gates:** See Section 12 "CI Quality Gates" for ESLint rules, TypeScript strictness, coverage thresholds, and CI time targets.
+
+- **Staging environment:** See Section 12 for staging deployment strategy (secondary VPS as staging before production promotion).
+
+- **Environment variable manifest:** See `.env.example` in the repository root. Section 12 defines which variables are required per environment (local, staging, production).
+
+
+### API Contracts & Domain Model (Complete Reference)
+
+
+Single source of truth for all TypeScript types, Zod schemas, API route contracts, WebSocket events, and NATS subject catalog. This file lives at `packages/shared/src/contracts/api-contracts.ts` and is consumed by both frontend (TanStack Query hooks) and backend (Hono route handlers).
+
+
+**Four parts:** (1) Canonical domain model --- Zod schemas for Tenant, User, Agent, Execution, Escalation, Draft, Integration, Support, Notification, and Billing entities. (2) API route definitions --- request/response schemas for all Hono endpoints. (3) WebSocket event catalog --- Socket.io event types for real-time dashboard updates. (4) NATS subject catalog --- JetStream subjects with publisher/consumer documentation.
+
+
+| Part | Content | Key Types | |
+
+
+| **Part 1** | Canonical Domain Model | `TenantSchema`, `UserSchema`, `AgentSchema`, `AgentExecutionSchema`, `EscalationSchema`, `DraftSchema`, `IntegrationSchema`, `SupportConversationSchema`, `NotificationSchema` | |
+
+| **Part 2** | API Route Definitions (Hono + Zod) | Tenants CRUD, Agents CRUD, Executions, Escalations, Drafts, Integrations, Support, Billing, Admin, Webhooks, Onboarding | |
+
+| **Part 3** | WebSocket Event Catalog (Socket.io) | `ServerToClientEvents`, `ClientToServerEvents` --- agent status, notifications, support chat, connection lifecycle | |
+
+| **Part 4** | NATS Subject Catalog (JetStream) | 27 subjects across Agent, Escalation, Draft, Billing, Integration, Notification, and System domains | |
+
+
+TypeScript
+/**
+ * ============================================================================
+ * KIPTRA AI — API CONTRACTS & DOMAIN MODEL
+ * ============================================================================
+ *
+ * Single source of truth for:
+ * Part 1: Canonical Domain Model (src/domain/)
+ * Part 2: API Route Definitions (Hono + Zod)
+ * Part 3: WebSocket Event Catalog (Socket.io)
+ * Part 4: NATS Subject Catalog (JetStream)
+ *
+ * All types use Zod for runtime validation and TypeScript inference.
+ * Follows plan_v3 specifications exactly.
+ *
+ * @module kiptra-api-contracts
+ * @version 0.1.0
+ * @date 2026-03-21
+ */
+
+import { z } from 'zod';
+
+// ============================================================================
+// PART 1: CANONICAL DOMAIN MODEL
+// ============================================================================
+// These are the shared types used across agents, integrations, and the API layer.
+// Each entity maps to a file in src/domain/.
+
+// ---------------------------------------------------------------------------
+// src/domain/tenant.ts
+// ---------------------------------------------------------------------------
+
+/** Pricing plan tiers — as const object, never enum (TS-03) */
+export const PlanTier = {
+ Starter: 'starter',
+ Professional: 'professional',
+ Enterprise: 'enterprise',
+} as const;
+export type PlanTier = (typeof PlanTier)[keyof typeof PlanTier];
+
+/** Billing lifecycle states with explicit state machine transitions */
+export const BillingStatus = {
+ Active: 'active',
+ PastDue: 'past_due',
+ Canceling: 'canceling',
+ Canceled: 'canceled',
+} as const;
+export type BillingStatus = (typeof BillingStatus)[keyof typeof BillingStatus];
+
+/** Valid billing state transitions (Section 7 webhook event ordering) */
+export const VALID_BILLING_TRANSITIONS: Record = {
+ active: ['past_due', 'canceling'],
+ past_due: ['active', 'canceled'],
+ canceling: ['canceled'],
+ canceled: [],
+};
+
+/** Onboarding step progression */
+export const OnboardingStep = {
+ Company: 'company',
+ Industry: 'industry',
+ Persona: 'persona',
+ Profile: 'profile',
+ Plan: 'plan',
+ Payment: 'payment',
+ Team: 'team',
+ Complete: 'complete',
+} as const;
+export type OnboardingStep = (typeof OnboardingStep)[keyof typeof OnboardingStep];
+
+/** Feature flags stored as JSONB on tenants table (Phase 1 implementation) */
+export const FeatureFlagSchema = z.record(z.string(), z.boolean()).default({});
+export type FeatureFlags = z.infer;
+
+export const TenantSchema = z.object({
+ /** UUID primary key */
+ id: z.string().uuid(),
+ /** Company/organization name */
+ name: z.string().min(1).max(255),
+ /** URL-safe tenant slug */
+ slug: z.string().min(1).max(63),
+ /** Industry vertical for template selection */
+ industry_vertical: z.enum(['kitchen_bath', 'hvac', 'general_construction', 'landscaping']).default('kitchen_bath'),
+ /** Tenant type — determines which template is applied (Section 6b) */
+ tenant_type: z.enum(['contractor', 'dealer', 'rep', 'manufacturer']).default('contractor'),
+ /** Company size category */
+ company_size: z.enum(['solo', 'small', 'medium', 'large']).default('small'),
+ /** Current pricing plan */
+ plan: z.nativeEnum(PlanTier),
+ /** Billing lifecycle state */
+ billing_status: z.nativeEnum(BillingStatus).default('active' as BillingStatus),
+ /** Stripe customer ID */
+ stripe_customer_id: z.string().nullable(),
+ /** Stripe subscription ID */
+ stripe_subscription_id: z.string().nullable(),
+ /** Current onboarding step */
+ onboarding_step: z.nativeEnum(OnboardingStep).default('company' as OnboardingStep),
+ /** Whether onboarding is complete */
+ onboarding_completed: z.boolean().default(false),
+ /** Per-tenant feature flags (Phase 1: JSONB column) */
+ feature_flags: FeatureFlagSchema,
+ /** IANA timezone identifier (e.g., 'America/New_York') — required, no default */
+ timezone: z.string().min(1),
+ created_at: z.string().datetime(),
+ updated_at: z.string().datetime(),
+});
+export type Tenant = z.infer;
+
+// ---------------------------------------------------------------------------
+// src/domain/user.ts
+// ---------------------------------------------------------------------------
+
+/** RBAC roles from Section 5 — 6-role hierarchy */
+export const TenantRole = {
+ Owner: 'owner',
+ Admin: 'admin',
+ Manager: 'manager',
+ Designer: 'designer',
+ Bookkeeper: 'bookkeeper',
+ Viewer: 'viewer',
+} as const;
+export type TenantRole = (typeof TenantRole)[keyof typeof TenantRole];
+
+/** Role-based access scopes for agent visibility */
+export const ROLE_AGENT_ACCESS: Record = {
+ owner: ['*'], // All agents + CEO Agent
+ admin: ['*'], // All agents except CEO Agent outputs
+ manager: ['project_orchestrator', 'estimate_engine', 'discovery_concierge'],
+ designer: ['design_spec_assistant'],
+ bookkeeper: ['operations_controller'],
+ viewer: [], // Read-only dashboards, no agent interaction
+};
+
+export const UserSchema = z.object({
+ /** UUID primary key (managed by better-auth) */
+ id: z.string().uuid(),
+ /** User's email address */
+ email: z.string().email(),
+ /** Display name */
+ name: z.string().min(1).max(255),
+ /** URL to avatar image */
+ avatar_url: z.string().url().nullable(),
+ /** Whether MFA is enabled */
+ mfa_enabled: z.boolean().default(false),
+ /** Email verified status */
+ email_verified: z.boolean().default(false),
+ created_at: z.string().datetime(),
+ updated_at: z.string().datetime(),
+});
+export type User = z.infer;
+
+export const TenantMemberSchema = z.object({
+ /** UUID primary key */
+ id: z.string().uuid(),
+ /** Foreign key to tenants.id */
+ tenant_id: z.string().uuid(),
+ /** Foreign key to users.id */
+ user_id: z.string().uuid(),
+ /** RBAC role within the tenant */
+ role: z.nativeEnum(TenantRole),
+ /** Whether the member is active */
+ is_active: z.boolean().default(true),
+ /** Whether member has completed their onboarding */
+ onboarding_completed: z.boolean().default(false),
+ created_at: z.string().datetime(),
+ updated_at: z.string().datetime(),
+});
+export type TenantMember = z.infer;
+
+// ---------------------------------------------------------------------------
+// src/domain/agent.ts
+// ---------------------------------------------------------------------------
+
+/** Agent type identifiers — the 7 agents (6 operational + 1 support) */
+export const AgentType = {
+ DiscoveryConcierge: 'discovery_concierge',
+ DesignSpecAssistant: 'design_spec_assistant',
+ ProjectOrchestrator: 'project_orchestrator',
+ EstimateEngine: 'estimate_engine',
+ OperationsController: 'operations_controller',
+ ExecutiveNavigator: 'executive_navigator',
+ SupportAgent: 'support_agent',
+} as const;
+export type AgentType = (typeof AgentType)[keyof typeof AgentType];
+
+/** Per-agent step limits (AI SDK v6 stopWhen values, +2 for structured output) */
+export const AGENT_STEP_LIMITS: Record = {
+ discovery_concierge: 7,
+ design_spec_assistant: 10,
+ project_orchestrator: 12,
+ estimate_engine: 17,
+ operations_controller: 10,
+ executive_navigator: 12,
+ support_agent: 7,
+};
+
+/** Per-agent max_tokens output limits (AI-07) */
+export const AGENT_MAX_TOKENS: Record = {
+ discovery_concierge: 2048,
+ design_spec_assistant: 4096,
+ project_orchestrator: 4096,
+ estimate_engine: 8192,
+ operations_controller: 4096,
+ executive_navigator: 4096,
+ support_agent: 512,
+};
+
+/** Trigger configuration for agent activation */
+export const TriggerTypeSchema = z.enum([
+ 'manual', // User-initiated via dashboard
+ 'scheduled', // BullMQ cron (e.g., daily briefings)
+ 'webhook', // External integration webhook
+ 'event', // NATS inter-agent event
+ 'email', // Inbound email via SendGrid
+]);
+export type TriggerType = z.infer;
+
+export const TriggerConfigSchema = z.object({
+ type: TriggerTypeSchema,
+ /** Cron expression for scheduled triggers */
+ cron: z.string().optional(),
+ /** NATS subject pattern for event triggers */
+ subject: z.string().optional(),
+ /** Webhook service name */
+ webhook_service: z.string().optional(),
+});
+export type TriggerConfig = z.infer;
+
+export const AgentSchema = z.object({
+ /** UUID primary key */
+ id: z.string().uuid(),
+ /** Foreign key to tenants.id */
+ tenant_id: z.string().uuid(),
+ /** Agent type identifier */
+ agent_type: z.nativeEnum(AgentType),
+ /** Display name (customizable per tenant) */
+ name: z.string().min(1).max(255),
+ /** Agent lifecycle status (matches DDL 3-state CHECK constraint) */
+ status: z.enum(['active', 'paused', 'disabled']).default('active'),
+ /** Agent configuration (JSONB — prompt, tools, model routing, etc.) */
+ agent_config: z.record(z.unknown()).default({}),
+ /** Prompt version identifier */
+ prompt_version: z.number().int().default(1),
+ /** SHA-256 hash of current prompt */
+ prompt_hash: z.string().optional(),
+ /** Trigger configurations for this agent instance */
+ triggers: z.array(TriggerConfigSchema).default([]),
+ /** Tool permission set — tools this agent can invoke */
+ permissions: z.array(z.string()).default([]),
+ created_at: z.string().datetime(),
+ updated_at: z.string().datetime(),
+});
+export type Agent = z.infer;
+
+/** Platform-scoped agent template (shared across tenants) */
+export const AgentTemplateSchema = z.object({
+ id: z.string().uuid(),
+ /** Template name (e.g., 'Construction Remodeling') */
+ name: z.string(),
+ /** Industry vertical */
+ vertical: z.string(),
+ /** Semantic version */
+ version: z.string(),
+ /** Agent configurations included in this template */
+ agents: z.array(z.object({
+ agent_type: z.nativeEnum(AgentType),
+ default_config: z.record(z.unknown()),
+ default_triggers: z.array(TriggerConfigSchema),
+ default_permissions: z.array(z.string()),
+ })),
+ /** Whether this is the active version */
+ is_active: z.boolean().default(true),
+ created_at: z.string().datetime(),
+});
+export type AgentTemplate = z.infer;
+
+// ---------------------------------------------------------------------------
+// src/domain/execution.ts
+// ---------------------------------------------------------------------------
+
+/** Agent execution state machine (AI-19) — 10 explicit states */
+export const ExecutionStatus = {
+ Queued: 'QUEUED',
+ Running: 'RUNNING',
+ Completed: 'COMPLETED',
+ Failed: 'FAILED',
+ TimedOut: 'TIMED_OUT',
+ AwaitingApproval: 'AWAITING_APPROVAL',
+ Rejected: 'REJECTED',
+ Cancelled: 'CANCELLED',
+ DeadLetter: 'DEAD_LETTER',
+ BillingPaused: 'BILLING_PAUSED',
+} as const;
+export type ExecutionStatus = (typeof ExecutionStatus)[keyof typeof ExecutionStatus];
+
+/** Valid execution state transitions */
+export const VALID_EXECUTION_TRANSITIONS: Record = {
+ QUEUED: ['RUNNING', 'CANCELLED', 'BILLING_PAUSED', 'DEAD_LETTER'],
+ RUNNING: ['COMPLETED', 'FAILED', 'TIMED_OUT', 'AWAITING_APPROVAL', 'DEAD_LETTER'],
+ COMPLETED: [],
+ FAILED: ['DEAD_LETTER'],
+ TIMED_OUT: ['DEAD_LETTER'],
+ AWAITING_APPROVAL: ['COMPLETED', 'REJECTED'],
+ REJECTED: [],
+ CANCELLED: [],
+ DEAD_LETTER: [],
+ BILLING_PAUSED: [],
+};
+
+/** Model usage tracking per execution step */
+export const ModelUsageSchema = z.object({
+ /** Step number in the execution */
+ step: z.number().int().nonneg(),
+ /** Model used (e.g., 'claude-sonnet-4-6') */
+ model: z.string(),
+ /** Input tokens consumed */
+ input_tokens: z.number().int().nonneg(),
+ /** Output tokens generated */
+ output_tokens: z.number().int().nonneg(),
+ /** Cache read tokens (Anthropic) */
+ cache_read_tokens: z.number().int().nonneg().default(0),
+ /** Cache write tokens (Anthropic) */
+ cache_write_tokens: z.number().int().nonneg().default(0),
+ /** Cost in USD for this step */
+ cost_usd: z.number().nonneg(),
+});
+export type ModelUsage = z.infer;
+
+/** Tool call record for audit trail */
+export const ToolCallRecordSchema = z.object({
+ /** Tool name */
+ tool_name: z.string(),
+ /** Step number */
+ step: z.number().int().nonneg(),
+ /** Input parameters */
+ input: z.record(z.unknown()),
+ /** Output result */
+ output: z.unknown(),
+ /** Duration in ms */
+ duration_ms: z.number().int().nonneg(),
+ /** Whether the tool call succeeded */
+ success: z.boolean(),
+});
+export type ToolCallRecord = z.infer;
+
+export const AgentExecutionSchema = z.object({
+ /** UUID primary key */
+ id: z.string().uuid(),
+ /** Foreign key to tenants.id */
+ tenant_id: z.string().uuid(),
+ /** Foreign key to agents.id */
+ agent_id: z.string().uuid(),
+ /** Agent type for quick filtering */
+ agent_type: z.nativeEnum(AgentType),
+ /** Current execution state */
+ status: z.nativeEnum(ExecutionStatus),
+ /** What triggered this execution */
+ trigger_type: TriggerTypeSchema,
+ /** Source identifier for the trigger (e.g., user_id, cron name, webhook service) */
+ trigger_source: z.string(),
+ /** Input data for the execution (JSONB) */
+ input: z.record(z.unknown()).default({}),
+ /** Final output of the execution (JSONB) */
+ output: z.record(z.unknown()).nullable().default(null),
+ /** Tool call history for audit trail */
+ tool_call_history: z.array(ToolCallRecordSchema).default([]),
+ /** Model usage per step */
+ model_usage: z.array(ModelUsageSchema).default([]),
+ /** Total cost in USD */
+ total_cost_usd: z.number().nonneg().default(0),
+ /** Total input tokens across all steps */
+ total_input_tokens: z.number().int().nonneg().default(0),
+ /** Total output tokens across all steps */
+ total_output_tokens: z.number().int().nonneg().default(0),
+ /** Number of steps executed */
+ step_count: z.number().int().nonneg().default(0),
+ /** Error message if failed */
+ error_message: z.string().nullable().default(null),
+ /** Error code for categorization */
+ error_code: z.string().nullable().default(null),
+ /** BullMQ job ID for cross-system correlation */
+ bullmq_job_id: z.string().nullable().default(null),
+ /** NATS message ID for cross-system correlation */
+ nats_message_id: z.string().nullable().default(null),
+ /** Reference to parent execution (for inter-agent chains) */
+ parent_execution_id: z.string().uuid().nullable().default(null),
+ /** Execution start time */
+ started_at: z.string().datetime().nullable().default(null),
+ /** Execution completion time */
+ completed_at: z.string().datetime().nullable().default(null),
+ created_at: z.string().datetime(),
+ updated_at: z.string().datetime(),
+});
+export type AgentExecution = z.infer;
+
+// ---------------------------------------------------------------------------
+// src/domain/escalation.ts
+// ---------------------------------------------------------------------------
+
+/** Escalation severity levels */
+export const EscalationSeverity = {
+ P1: 'P1',
+ P2: 'P2',
+ P3: 'P3',
+ P4: 'P4',
+} as const;
+export type EscalationSeverity = (typeof EscalationSeverity)[keyof typeof EscalationSeverity];
+
+/** Escalation status */
+export const EscalationStatus = {
+ Pending: 'pending',
+ Approved: 'approved',
+ Rejected: 'rejected',
+ Modified: 'modified',
+ Expired: 'expired',
+} as const;
+export type EscalationStatus = (typeof EscalationStatus)[keyof typeof EscalationStatus];
+
+/** What type of action the escalation gates */
+export const EscalationActionType = {
+ SendEmail: 'send_email',
+ CreateEstimate: 'create_estimate',
+ CreateRecord: 'create_record',
+ ModifySchedule: 'modify_schedule',
+ FinancialAction: 'financial_action',
+ SystemAction: 'system_action',
+} as const;
+export type EscalationActionType = (typeof EscalationActionType)[keyof typeof EscalationActionType];
+
+export const EscalationSchema = z.object({
+ /** UUID primary key */
+ id: z.string().uuid(),
+ /** Foreign key to tenants.id */
+ tenant_id: z.string().uuid(),
+ /** Foreign key to agent_executions.id */
+ execution_id: z.string().uuid(),
+ /** Which agent generated this escalation */
+ agent_type: z.nativeEnum(AgentType),
+ /** What type of action is being escalated */
+ action_type: z.nativeEnum(EscalationActionType),
+ /** Severity level */
+ severity: z.nativeEnum(EscalationSeverity),
+ /** Current status */
+ status: z.nativeEnum(EscalationStatus),
+ /** Human-readable title */
+ title: z.string().min(1).max(500),
+ /** Detailed description of what the agent wants to do */
+ description: z.string(),
+ /** The proposed action payload (JSONB — e.g., email content, estimate data) */
+ proposed_action: z.record(z.unknown()),
+ /** Modified action payload if user edited before approving */
+ modified_action: z.record(z.unknown()).nullable().default(null),
+ /** Why the agent triggered escalation */
+ escalation_reason: z.string(),
+ /** Diagnostic context from the agent */
+ diagnostic_context: z.record(z.unknown()).default({}),
+ /** Who resolved this escalation */
+ resolved_by: z.string().uuid().nullable().default(null),
+ /** Resolution notes */
+ resolution_notes: z.string().nullable().default(null),
+ /** When the escalation was resolved */
+ resolved_at: z.string().datetime().nullable().default(null),
+ /** Expiration time for auto-expire */
+ expires_at: z.string().datetime().nullable().default(null),
+ created_at: z.string().datetime(),
+ updated_at: z.string().datetime(),
+});
+export type Escalation = z.infer;
+
+// ---------------------------------------------------------------------------
+// src/domain/draft.ts
+// ---------------------------------------------------------------------------
+
+/** Draft status — human-in-the-loop approval */
+export const DraftStatus = {
+ Pending: 'pending',
+ Approved: 'approved',
+ Rejected: 'rejected',
+ Modified: 'modified',
+ SendFailed: 'send_failed',
+} as const;
+export type DraftStatus = (typeof DraftStatus)[keyof typeof DraftStatus];
+
+/** Draft content types */
+export const DraftContentType = {
+ Email: 'email',
+ Estimate: 'estimate',
+ Report: 'report',
+ PurchaseOrder: 'purchase_order',
+ LienWaiver: 'lien_waiver',
+ MorningBriefing: 'morning_briefing',
+ ChangeOrder: 'change_order',
+} as const;
+export type DraftContentType = (typeof DraftContentType)[keyof typeof DraftContentType];
+
+export const DraftSchema = z.object({
+ /** UUID primary key */
+ id: z.string().uuid(),
+ /** Foreign key to tenants.id */
+ tenant_id: z.string().uuid(),
+ /** Foreign key to agent_executions.id */
+ execution_id: z.string().uuid(),
+ /** Which agent generated this draft */
+ agent_type: z.nativeEnum(AgentType),
+ /** Content type */
+ content_type: z.nativeEnum(DraftContentType),
+ /** Current status */
+ status: z.nativeEnum(DraftStatus),
+ /** Human-readable title */
+ title: z.string().min(1).max(500),
+ /** The draft content (JSONB — structure depends on content_type) */
+ content: z.record(z.unknown()),
+ /** Modified content if user edited before approving */
+ modified_content: z.record(z.unknown()).nullable().default(null),
+ /** Diff between original and modified content (for agent quality tracking) */
+ modification_diff: z.record(z.unknown()).nullable().default(null),
+ /** Who reviewed this draft */
+ reviewed_by: z.string().uuid().nullable().default(null),
+ /** Review notes */
+ review_notes: z.string().nullable().default(null),
+ /** When the draft was reviewed */
+ reviewed_at: z.string().datetime().nullable().default(null),
+ created_at: z.string().datetime(),
+ updated_at: z.string().datetime(),
+});
+export type Draft = z.infer;
+
+// ---------------------------------------------------------------------------
+// src/domain/integration.ts
+// ---------------------------------------------------------------------------
+
+/** Supported integration services */
+export const IntegrationService = {
+ JobTread: 'jobtread',
+ QuickBooks: 'quickbooks',
+ GoogleCalendar: 'google_calendar',
+ GoogleDrive: 'google_drive',
+ Gmail: 'gmail',
+ OutlookEmail: 'outlook_email',
+ OutlookCalendar: 'outlook_calendar',
+ SendGrid: 'sendgrid',
+ Stripe: 'stripe',
+ HubSpot: 'hubspot',
+ OpenWeatherMap: 'openweathermap',
+} as const;
+export type IntegrationService = (typeof IntegrationService)[keyof typeof IntegrationService];
+
+/** OAuth/API key auth methods */
+export const AuthMethod = {
+ OAuth2: 'oauth2',
+ ApiKey: 'api_key',
+} as const;
+export type AuthMethod = (typeof AuthMethod)[keyof typeof AuthMethod];
+
+/** Integration connection status */
+export const IntegrationStatus = {
+ Connected: 'connected',
+ Disconnected: 'disconnected',
+ Error: 'error',
+ Expired: 'expired',
+ Refreshing: 'refreshing',
+} as const;
+export type IntegrationStatus = (typeof IntegrationStatus)[keyof typeof IntegrationStatus];
+
+export const IntegrationSchema = z.object({
+ /** UUID primary key */
+ id: z.string().uuid(),
+ /** Foreign key to tenants.id */
+ tenant_id: z.string().uuid(),
+ /** Integration service identifier */
+ service: z.nativeEnum(IntegrationService),
+ /** Authentication method */
+ auth_method: z.nativeEnum(AuthMethod),
+ /** Connection status */
+ status: z.nativeEnum(IntegrationStatus),
+ /**
+ * Encrypted OAuth/API credentials (AES-256-GCM envelope encryption).
+ * Format: key_version (2B) || iv (12B) || ciphertext || auth_tag (16B), base64-encoded.
+ * NEVER exposed via API responses.
+ */
+ encrypted_credentials: z.string(),
+ /** Encryption key version for KEK rotation */
+ key_version: z.number().int(),
+ /** When the access token expires */
+ access_token_expires_at: z.string().datetime().nullable(),
+ /** When the refresh token was obtained (QB rotation tracking — INT-02) */
+ refresh_token_obtained_at: z.string().datetime().nullable(),
+ /** Last successful data sync timestamp */
+ last_sync_at: z.string().datetime().nullable(),
+ /** Last sync error message */
+ last_sync_error: z.string().nullable().default(null),
+ /** Webhook token for inbound webhooks (cryptographic random hex) */
+ webhook_token: z.string().nullable().default(null),
+ /** Integration-specific configuration (JSONB) */
+ config: z.record(z.unknown()).default({}),
+ /** Service-specific scopes granted */
+ scopes: z.array(z.string()).default([]),
+ created_at: z.string().datetime(),
+ updated_at: z.string().datetime(),
+});
+export type Integration = z.infer;
+
+// ---------------------------------------------------------------------------
+// src/domain/project.ts — Canonical domain model (from JobTread ACL)
+// ---------------------------------------------------------------------------
+
+/** Project status in the canonical model */
+export const ProjectStatus = {
+ Lead: 'lead',
+ Proposed: 'proposed',
+ Active: 'active',
+ OnHold: 'on_hold',
+ Completed: 'completed',
+ Cancelled: 'cancelled',
+} as const;
+export type ProjectStatus = (typeof ProjectStatus)[keyof typeof ProjectStatus];
+
+export const ProjectSchema = z.object({
+ /** UUID primary key (internal, not JobTread ID) */
+ id: z.string().uuid(),
+ /** Foreign key to tenants.id */
+ tenant_id: z.string().uuid(),
+ /** External system ID (e.g., JobTread project ID) for sync */
+ external_id: z.string().nullable().default(null),
+ /** Source integration */
+ source: z.nativeEnum(IntegrationService).nullable().default(null),
+ /** Project name */
+ name: z.string().min(1).max(500),
+ /** Project status */
+ status: z.nativeEnum(ProjectStatus),
+ /** Project description */
+ description: z.string().default(''),
+ /** Foreign key to contacts.id (primary client) */
+ client_id: z.string().uuid().nullable(),
+ /** Project address */
+ address: z.object({
+ street: z.string().default(''),
+ city: z.string().default(''),
+ state: z.string().default(''),
+ zip: z.string().default(''),
+ }).default({}),
+ /** Estimated start date */
+ start_date: z.string().datetime().nullable().default(null),
+ /** Estimated end date */
+ end_date: z.string().datetime().nullable().default(null),
+ /** Actual start date */
+ actual_start_date: z.string().datetime().nullable().default(null),
+ /** Actual end date */
+ actual_end_date: z.string().datetime().nullable().default(null),
+ /** Contract value in cents */
+ contract_value_cents: z.number().int().nonneg().default(0),
+ /** Total billed in cents */
+ total_billed_cents: z.number().int().nonneg().default(0),
+ /** Project-specific metadata (JSONB) */
+ metadata: z.record(z.unknown()).default({}),
+ /** Last synced from external source */
+ last_synced_at: z.string().datetime().nullable().default(null),
+ created_at: z.string().datetime(),
+ updated_at: z.string().datetime(),
+});
+export type Project = z.infer;
+
+/** Task within a project (schedule items) */
+export const TaskSchema = z.object({
+ id: z.string().uuid(),
+ tenant_id: z.string().uuid(),
+ project_id: z.string().uuid(),
+ external_id: z.string().nullable().default(null),
+ name: z.string().min(1).max(500),
+ description: z.string().default(''),
+ status: z.enum(['pending', 'in_progress', 'completed', 'cancelled']),
+ assigned_to: z.string().uuid().nullable().default(null),
+ start_date: z.string().datetime().nullable().default(null),
+ due_date: z.string().datetime().nullable().default(null),
+ completed_at: z.string().datetime().nullable().default(null),
+ sort_order: z.number().int().default(0),
+ /** Parent task for subtask hierarchies */
+ parent_task_id: z.string().uuid().nullable().default(null),
+ metadata: z.record(z.unknown()).default({}),
+ last_synced_at: z.string().datetime().nullable().default(null),
+ created_at: z.string().datetime(),
+ updated_at: z.string().datetime(),
+});
+export type Task = z.infer;
+
+/** Document reference (Google Drive, attachments) */
+export const DocumentSchema = z.object({
+ id: z.string().uuid(),
+ tenant_id: z.string().uuid(),
+ project_id: z.string().uuid().nullable(),
+ /** Document type classification */
+ doc_type: z.enum(['submittal', 'cut_sheet', 'warranty', 'photo', 'contract', 'permit', 'other']),
+ name: z.string().min(1).max(500),
+ /** MIME type */
+ mime_type: z.string(),
+ /** File size in bytes */
+ size_bytes: z.number().int().nonneg(),
+ /** Storage URL (Google Drive link or DO Spaces URL) */
+ storage_url: z.string().url(),
+ /** External system document ID */
+ external_id: z.string().nullable().default(null),
+ metadata: z.record(z.unknown()).default({}),
+ created_at: z.string().datetime(),
+ updated_at: z.string().datetime(),
+});
+export type Document = z.infer;
+
+// ---------------------------------------------------------------------------
+// src/domain/estimate.ts
+// ---------------------------------------------------------------------------
+
+export const EstimateLineSchema = z.object({
+ /** UUID primary key */
+ id: z.string().uuid(),
+ /** Category (e.g., 'Cabinets', 'Labor', 'Electrical') */
+ category: z.string(),
+ /** Line item description */
+ description: z.string(),
+ /** Quantity */
+ quantity: z.number().nonneg(),
+ /** Unit of measure */
+ unit: z.string().default('each'),
+ /** Unit price in cents */
+ unit_price_cents: z.number().int(),
+ /** Line total in cents (quantity * unit_price_cents) */
+ total_cents: z.number().int(),
+ /** Material SKU if applicable */
+ sku: z.string().nullable().default(null),
+ /** Supplier/vendor name */
+ supplier: z.string().nullable().default(null),
+ /** Notes for this line item */
+ notes: z.string().default(''),
+ /** Sort order within the estimate */
+ sort_order: z.number().int().default(0),
+});
+export type EstimateLine = z.infer;
+
+export const EstimateSchema = z.object({
+ id: z.string().uuid(),
+ tenant_id: z.string().uuid(),
+ project_id: z.string().uuid(),
+ external_id: z.string().nullable().default(null),
+ /** Estimate name/title */
+ name: z.string().min(1).max(500),
+ /** Status of this estimate */
+ status: z.enum(['draft', 'sent', 'approved', 'rejected', 'revised']),
+ /** Version number for revisions */
+ version: z.number().int().default(1),
+ /** Line items */
+ line_items: z.array(EstimateLineSchema).default([]),
+ /** Subtotal in cents (sum of line totals) */
+ subtotal_cents: z.number().int(),
+ /** Tax amount in cents */
+ tax_cents: z.number().int().default(0),
+ /** Discount in cents */
+ discount_cents: z.number().int().default(0),
+ /** Grand total in cents */
+ total_cents: z.number().int(),
+ /** Markup percentage applied */
+ markup_percent: z.number().nonneg().default(0),
+ /** Notes/terms */
+ notes: z.string().default(''),
+ /** Valid until date */
+ valid_until: z.string().datetime().nullable().default(null),
+ /** Who approved this estimate */
+ approved_by: z.string().uuid().nullable().default(null),
+ approved_at: z.string().datetime().nullable().default(null),
+ metadata: z.record(z.unknown()).default({}),
+ last_synced_at: z.string().datetime().nullable().default(null),
+ created_at: z.string().datetime(),
+ updated_at: z.string().datetime(),
+});
+export type Estimate = z.infer;
+
+/** Change order stub (Phase 1 extensibility — Section 3c) */
+export const ChangeOrderSchema = z.object({
+ id: z.string().uuid(),
+ tenant_id: z.string().uuid(),
+ project_id: z.string().uuid(),
+ /** Reference to original estimate */
+ estimate_id: z.string().uuid(),
+ /** Change order description */
+ description: z.string(),
+ /** Status */
+ status: z.enum(['draft', 'pending_approval', 'approved', 'rejected']),
+ /** Additional cost in cents (can be negative for deductions) */
+ amount_cents: z.number().int(),
+ /** Who requested the change */
+ requested_by: z.string().nullable().default(null),
+ approved_by: z.string().uuid().nullable().default(null),
+ approved_at: z.string().datetime().nullable().default(null),
+ created_at: z.string().datetime(),
+ updated_at: z.string().datetime(),
+});
+export type ChangeOrder = z.infer;
+
+// ---------------------------------------------------------------------------
+// src/domain/contact.ts
+// ---------------------------------------------------------------------------
+
+/** Lead scoring tiers from Leads Agent */
+export const LeadScore = {
+ Hot: 'hot',
+ Warm: 'warm',
+ Cold: 'cold',
+ Disqualified: 'disqualified',
+} as const;
+export type LeadScore = (typeof LeadScore)[keyof typeof LeadScore];
+
+export const ContactSchema = z.object({
+ id: z.string().uuid(),
+ tenant_id: z.string().uuid(),
+ external_id: z.string().nullable().default(null),
+ source: z.nativeEnum(IntegrationService).nullable().default(null),
+ /** Contact type */
+ contact_type: z.enum(['lead', 'client', 'vendor', 'subcontractor', 'other']),
+ /** Full name */
+ name: z.string().min(1).max(255),
+ /** Email address */
+ email: z.string().email().nullable().default(null),
+ /** Phone number */
+ phone: z.string().nullable().default(null),
+ /** Company name */
+ company: z.string().nullable().default(null),
+ /** Address */
+ address: z.object({
+ street: z.string().default(''),
+ city: z.string().default(''),
+ state: z.string().default(''),
+ zip: z.string().default(''),
+ }).nullable().default(null),
+ /** Lead score (Leads Agent) */
+ lead_score: z.nativeEnum(LeadScore).nullable().default(null),
+ /** Lead source (e.g., 'email', 'referral', 'website') */
+ lead_source: z.string().nullable().default(null),
+ /** Notes */
+ notes: z.string().default(''),
+ /** Tags for categorization */
+ tags: z.array(z.string()).default([]),
+ metadata: z.record(z.unknown()).default({}),
+ last_synced_at: z.string().datetime().nullable().default(null),
+ created_at: z.string().datetime(),
+ updated_at: z.string().datetime(),
+});
+export type Contact = z.infer;
+
+// ---------------------------------------------------------------------------
+// src/domain/invoice.ts
+// ---------------------------------------------------------------------------
+
+export const PaymentSchema = z.object({
+ id: z.string().uuid(),
+ tenant_id: z.string().uuid(),
+ invoice_id: z.string().uuid(),
+ external_id: z.string().nullable().default(null),
+ /** Amount in cents */
+ amount_cents: z.number().int().nonneg(),
+ /** Payment method */
+ payment_method: z.enum(['check', 'credit_card', 'ach', 'cash', 'other']),
+ /** Payment reference number */
+ reference_number: z.string().nullable().default(null),
+ /** Payment date */
+ payment_date: z.string().datetime(),
+ metadata: z.record(z.unknown()).default({}),
+ created_at: z.string().datetime(),
+});
+export type Payment = z.infer;
+
+export const InvoiceSchema = z.object({
+ id: z.string().uuid(),
+ tenant_id: z.string().uuid(),
+ project_id: z.string().uuid(),
+ external_id: z.string().nullable().default(null),
+ source: z.nativeEnum(IntegrationService).nullable().default(null),
+ /** Invoice number */
+ invoice_number: z.string(),
+ /** Invoice status */
+ status: z.enum(['draft', 'sent', 'paid', 'partially_paid', 'overdue', 'voided']),
+ /** Invoice date */
+ invoice_date: z.string().datetime(),
+ /** Due date */
+ due_date: z.string().datetime(),
+ /** Subtotal in cents */
+ subtotal_cents: z.number().int().nonneg(),
+ /** Tax in cents */
+ tax_cents: z.number().int().nonneg().default(0),
+ /** Total in cents */
+ total_cents: z.number().int().nonneg(),
+ /** Amount paid in cents */
+ paid_cents: z.number().int().nonneg().default(0),
+ /** Balance due in cents */
+ balance_cents: z.number().int().nonneg(),
+ /** Line items (JSONB) */
+ line_items: z.array(z.record(z.unknown())).default([]),
+ /** Notes */
+ notes: z.string().default(''),
+ metadata: z.record(z.unknown()).default({}),
+ last_synced_at: z.string().datetime().nullable().default(null),
+ created_at: z.string().datetime(),
+ updated_at: z.string().datetime(),
+});
+export type Invoice = z.infer;
+
+/** Financial summary (read-only from QuickBooks) */
+export const FinancialSummarySchema = z.object({
+ /** Period start date */
+ period_start: z.string().datetime(),
+ /** Period end date */
+ period_end: z.string().datetime(),
+ /** Total revenue in cents */
+ revenue_cents: z.number().int(),
+ /** Total expenses in cents */
+ expenses_cents: z.number().int(),
+ /** Net income in cents */
+ net_income_cents: z.number().int(),
+ /** Accounts receivable balance in cents */
+ ar_balance_cents: z.number().int(),
+ /** Accounts payable balance in cents */
+ ap_balance_cents: z.number().int(),
+ /** Number of overdue invoices */
+ overdue_invoice_count: z.number().int().nonneg(),
+ /** Total overdue amount in cents */
+ overdue_amount_cents: z.number().int().nonneg(),
+});
+export type FinancialSummary = z.infer;
+
+// ---------------------------------------------------------------------------
+// src/domain/notification.ts
+// ---------------------------------------------------------------------------
+
+/** Notification channel preferences */
+export const NotificationChannel = {
+ InApp: 'in_app',
+ Email: 'email',
+ Slack: 'slack',
+} as const;
+export type NotificationChannel = (typeof NotificationChannel)[keyof typeof NotificationChannel];
+
+/** Notification types */
+export const NotificationType = {
+ EscalationCreated: 'escalation_created',
+ DraftReady: 'draft_ready',
+ AgentCompleted: 'agent_completed',
+ AgentFailed: 'agent_failed',
+ IntegrationExpiring: 'integration_expiring',
+ IntegrationDisconnected: 'integration_disconnected',
+ UsageLimitApproaching: 'usage_limit_approaching',
+ UsageLimitReached: 'usage_limit_reached',
+ TeamMemberInvited: 'team_member_invited',
+ TeamMemberJoined: 'team_member_joined',
+ BillingPaymentFailed: 'billing_payment_failed',
+ MorningBriefingReady: 'morning_briefing_ready',
+ SupportTicketCreated: 'support_ticket_created',
+ SystemAlert: 'system_alert',
+} as const;
+export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
+
+export const NotificationSchema = z.object({
+ id: z.string().uuid(),
+ tenant_id: z.string().uuid(),
+ /** Target user (null = broadcast to all tenant members with visibility) */
+ user_id: z.string().uuid().nullable(),
+ /** Notification type */
+ type: z.nativeEnum(NotificationType),
+ /** Title */
+ title: z.string().min(1).max(255),
+ /** Body content */
+ body: z.string(),
+ /** Whether the notification has been read */
+ is_read: z.boolean().default(false),
+ /** Action URL for click-through */
+ action_url: z.string().nullable().default(null),
+ /** Related entity ID (execution_id, escalation_id, etc.) */
+ related_entity_id: z.string().uuid().nullable().default(null),
+ /** Related entity type */
+ related_entity_type: z.string().nullable().default(null),
+ /** Channels this notification was delivered to */
+ delivered_via: z.array(z.nativeEnum(NotificationChannel)).default(['in_app']),
+ created_at: z.string().datetime(),
+ read_at: z.string().datetime().nullable().default(null),
+});
+export type Notification = z.infer;
+
+/** Per-user notification preferences */
+export const NotificationPreferencesSchema = z.object({
+ id: z.string().uuid(),
+ tenant_id: z.string().uuid(),
+ user_id: z.string().uuid(),
+ /** Per-type channel preferences */
+ preferences: z.record(
+ z.nativeEnum(NotificationType),
+ z.object({
+ in_app: z.boolean().default(true),
+ email: z.boolean().default(false),
+ slack: z.boolean().default(false),
+ }),
+ ),
+ /** Global mute (suppress all notifications) */
+ muted: z.boolean().default(false),
+ /** Quiet hours */
+ quiet_hours: z.object({
+ enabled: z.boolean().default(false),
+ start: z.string().default('22:00'),
+ end: z.string().default('07:00'),
+ }).default({}),
+ updated_at: z.string().datetime(),
+});
+export type NotificationPreferences = z.infer;
+
+// ---------------------------------------------------------------------------
+// Support conversation (src/domain/support.ts)
+// ---------------------------------------------------------------------------
+
+/** Support conversation sentiment */
+export const SupportSentiment = {
+ Positive: 'positive',
+ Neutral: 'neutral',
+ Frustrated: 'frustrated',
+ Angry: 'angry',
+} as const;
+export type SupportSentiment = (typeof SupportSentiment)[keyof typeof SupportSentiment];
+
+export const SupportMessageSchema = z.object({
+ id: z.string().uuid(),
+ conversation_id: z.string().uuid(),
+ /** Message sender role */
+ role: z.enum(['user', 'agent', 'system']),
+ /** Message content (markdown supported) */
+ content: z.string(),
+ /** KB sources cited in this message */
+ sources: z.array(z.object({
+ article_id: z.string().uuid(),
+ article_title: z.string(),
+ confidence_score: z.number().min(0).max(1),
+ chunk_text: z.string(),
+ })).default([]),
+ /** Confidence score of the agent response */
+ confidence_score: z.number().min(0).max(1).nullable().default(null),
+ created_at: z.string().datetime(),
+});
+export type SupportMessage = z.infer;
+
+export const SupportConversationSchema = z.object({
+ id: z.string().uuid(),
+ tenant_id: z.string().uuid(),
+ user_id: z.string().uuid(),
+ /** Conversation status */
+ status: z.enum(['active', 'resolved', 'escalated', 'archived']),
+ /** Detected sentiment */
+ sentiment: z.nativeEnum(SupportSentiment).default('neutral' as SupportSentiment),
+ /** Whether the user rated this conversation */
+ csat_rating: z.number().int().min(1).max(5).nullable().default(null),
+ /** Customer effort score (1-7) */
+ ces_score: z.number().int().min(1).max(7).nullable().default(null),
+ /** Number of messages in the conversation */
+ message_count: z.number().int().nonneg().default(0),
+ /** Whether the conversation was resolved without human escalation */
+ resolved_autonomously: z.boolean().default(false),
+ /** Escalation ticket ID if escalated */
+ escalation_ticket_id: z.string().nullable().default(null),
+ /** User's current route when conversation started */
+ context_route: z.string().nullable().default(null),
+ /** Topic tags */
+ topic_tags: z.array(z.string()).default([]),
+ /** Messages (loaded separately via relationship) */
+ messages: z.array(SupportMessageSchema).optional(),
+ created_at: z.string().datetime(),
+ updated_at: z.string().datetime(),
+});
+export type SupportConversation = z.infer;
+
+// ---------------------------------------------------------------------------
+// Shared types used across domain entities
+// ---------------------------------------------------------------------------
+
+/** Cursor-based pagination (Section 13 UX conventions) */
+export const PaginationParamsSchema = z.object({
+ /** Cursor for pagination (opaque string, typically base64-encoded ID) */
+ cursor: z.string().optional(),
+ /** Number of items per page */
+ limit: z.number().int().min(1).max(100).default(25),
+ /** Sort direction */
+ sort_order: z.enum(['asc', 'desc']).default('desc'),
+ /** Sort field */
+ sort_by: z.string().optional(),
+});
+export type PaginationParams = z.infer;
+
+export const PaginatedResponseSchema = (itemSchema: T) =>
+ z.object({
+ items: z.array(itemSchema),
+ /** Next page cursor (null if no more pages) */
+ next_cursor: z.string().nullable(),
+ /** Previous page cursor */
+ prev_cursor: z.string().nullable(),
+ /** Total count of items matching the query */
+ total_count: z.number().int().nonneg(),
+ /** Whether there are more items */
+ has_more: z.boolean(),
+ });
+
+/** Standard API error response (RFC 7807 Problem Details) */
+export const ApiErrorSchema = z.object({
+ /** Error type URI */
+ type: z.string().url().default('about:blank'),
+ /** HTTP status code */
+ status: z.number().int(),
+ /** Short summary */
+ title: z.string(),
+ /** Detailed explanation */
+ detail: z.string(),
+ /** Request-specific instance identifier */
+ instance: z.string().optional(),
+ /** Machine-readable error code */
+ code: z.string().optional(),
+ /** Field-level validation errors */
+ errors: z.array(z.object({
+ field: z.string(),
+ message: z.string(),
+ code: z.string(),
+ })).optional(),
+});
+export type ApiError = z.infer;
+
+/** Tenant daily usage aggregation */
+export const TenantUsageDailySchema = z.object({
+ id: z.string().uuid(),
+ tenant_id: z.string().uuid(),
+ /** Date (YYYY-MM-DD) */
+ date: z.string(),
+ /** Total agent executions */
+ execution_count: z.number().int().nonneg().default(0),
+ /** Total AI API calls */
+ api_call_count: z.number().int().nonneg().default(0),
+ /** Total input tokens */
+ input_tokens: z.number().int().nonneg().default(0),
+ /** Total output tokens */
+ output_tokens: z.number().int().nonneg().default(0),
+ /** Total AI cost in USD */
+ total_cost_usd: z.number().nonneg().default(0),
+ /** Per-agent breakdown (JSONB) */
+ agent_breakdown: z.record(z.nativeEnum(AgentType), z.object({
+ execution_count: z.number().int().nonneg(),
+ api_call_count: z.number().int().nonneg(),
+ cost_usd: z.number().nonneg(),
+ })).default({}),
+ created_at: z.string().datetime(),
+});
+export type TenantUsageDaily = z.infer;
+
+/** Webhook event for deduplication */
+export const WebhookEventSchema = z.object({
+ id: z.string().uuid(),
+ tenant_id: z.string().uuid(),
+ /** External service name */
+ service: z.string(),
+ /** External event ID for deduplication */
+ external_event_id: z.string(),
+ /** Event type */
+ event_type: z.string(),
+ /** Raw event payload */
+ payload: z.record(z.unknown()),
+ /** Stripe event created timestamp (for ordering — Section 7) */
+ stripe_event_created: z.number().int().nullable().default(null),
+ /** Whether this event has been processed */
+ processed: z.boolean().default(false),
+ created_at: z.string().datetime(),
+});
+export type WebhookEvent = z.infer;
+
+/** Event bus log entry for audit trail */
+export const EventBusLogSchema = z.object({
+ id: z.string().uuid(),
+ tenant_id: z.string().uuid(),
+ /** NATS subject */
+ subject: z.string(),
+ /** Event type */
+ event_type: z.string(),
+ /** Source agent */
+ source_agent: z.nativeEnum(AgentType).nullable(),
+ /** Target agent */
+ target_agent: z.nativeEnum(AgentType).nullable(),
+ /** Event payload */
+ payload: z.record(z.unknown()),
+ /** Reference to originating agent execution */
+ context_ref: z.string().uuid().nullable().default(null),
+ created_at: z.string().datetime(),
+});
+export type EventBusLog = z.infer;
+
+/** Calendar availability slot (from Google Calendar freebusy or Microsoft Graph findMeetingTimes) */
+export const AvailabilitySlotSchema = z.object({
+ start: z.string().datetime(),
+ end: z.string().datetime(),
+ is_available: z.boolean(),
+});
+export type AvailabilitySlot = z.infer;
+
+/** Plan tier configuration (stored in database, not code — Section 4) */
+export const PlanTierConfigSchema = z.object({
+ tier: z.nativeEnum(PlanTier),
+ /** Monthly price in cents */
+ monthly_price_cents: z.number().int().nonneg(),
+ /** Setup fee in cents */
+ setup_fee_cents: z.number().int().nonneg(),
+ /** Maximum number of operational agents */
+ max_agents: z.number().int().nonneg(),
+ /** Daily API call limit */
+ daily_call_limit: z.number().int().nonneg(),
+ /** Maximum team member seats */
+ max_seats: z.number().int().nonneg(),
+ /** Maximum integration count */
+ max_integrations: z.number().int().nonneg(),
+ /** Monthly AI spend cap in USD */
+ ai_spend_cap_usd: z.number().nonneg(),
+ /** Side-effecting actions per hour rate limit */
+ side_effect_actions_per_hour: z.number().int().nonneg(),
+ /** Whether overages are billed at cost (Enterprise) */
+ overage_billing: z.boolean().default(false),
+ /** Feature flags enabled for this tier */
+ features: z.record(z.string(), z.boolean()).default({}),
+});
+export type PlanTierConfig = z.infer;
+
+
+// ============================================================================
+// PART 2: API ROUTE DEFINITIONS
+// ============================================================================
+// All routes are prefixed with /api/v1/ (URL prefix versioning from Day 1).
+// Organized by domain. Each route specifies method, path, schemas, auth, and rate limit.
+
+// ---------------------------------------------------------------------------
+// Rate Limit Tiers (Section 5 + Section 12)
+// ---------------------------------------------------------------------------
+
+export const RateLimitTier = {
+ /** Auth endpoints: 5-10 req/min/IP */
+ Auth: 'auth',
+ /** Agent execution: 10 req/min/tenant */
+ AgentExecution: 'agent_execution',
+ /** Escalation approval: 30 req/min/user */
+ EscalationApproval: 'escalation_approval',
+ /** Standard authenticated: 100 req/min/user */
+ Standard: 'standard',
+ /** Webhook ingestion: unlimited (rate limiting via provider) */
+ Webhook: 'webhook',
+ /** Admin operations: 30 req/min/user */
+ Admin: 'admin',
+ /** Data export: 1 req/24h/tenant */
+ Export: 'export',
+} as const;
+export type RateLimitTier = (typeof RateLimitTier)[keyof typeof RateLimitTier];
+
+// ---------------------------------------------------------------------------
+// 1. Auth Routes — /api/v1/auth/*
+// ---------------------------------------------------------------------------
+// Handled by better-auth with Organization plugin. These define the contract
+// that better-auth exposes and the Hono middleware wraps.
+
+export const AuthRoutes = {
+ /** POST /api/v1/auth/login — Email/password login */
+ login: {
+ method: 'POST' as const,
+ path: '/api/v1/auth/login',
+ request: z.object({
+ email: z.string().email(),
+ password: z.string().min(8),
+ }),
+ response: z.object({
+ user: UserSchema.omit({ created_at: true, updated_at: true }),
+ session: z.object({
+ id: z.string(),
+ expires_at: z.string().datetime(),
+ }),
+ /** If MFA is required, redirect to /login/mfa */
+ requires_mfa: z.boolean(),
+ }),
+ auth: null,
+ rate_limit: 'auth' as RateLimitTier,
+ },
+
+ /** POST /api/v1/auth/login/mfa — TOTP verification */
+ loginMfa: {
+ method: 'POST' as const,
+ path: '/api/v1/auth/login/mfa',
+ request: z.object({
+ /** 6-digit TOTP code */
+ code: z.string().length(6),
+ /** Session ID from login response */
+ session_id: z.string(),
+ }),
+ response: z.object({
+ user: UserSchema.omit({ created_at: true, updated_at: true }),
+ session: z.object({
+ id: z.string(),
+ expires_at: z.string().datetime(),
+ }),
+ }),
+ auth: null,
+ rate_limit: 'auth' as RateLimitTier,
+ },
+
+ /** POST /api/v1/auth/signup — Owner registration (Phase 2: self-serve) */
+ signup: {
+ method: 'POST' as const,
+ path: '/api/v1/auth/signup',
+ request: z.object({
+ email: z.string().email(),
+ password: z.string().min(8).max(128),
+ name: z.string().min(1).max(255),
+ company_name: z.string().min(1).max(255),
+ }),
+ response: z.object({
+ user: UserSchema.omit({ created_at: true, updated_at: true }),
+ tenant: TenantSchema.pick({ id: true, name: true }),
+ }),
+ auth: null,
+ rate_limit: 'auth' as RateLimitTier,
+ },
+
+ /** POST /api/v1/auth/forgot-password — Request password reset */
+ forgotPassword: {
+ method: 'POST' as const,
+ path: '/api/v1/auth/forgot-password',
+ request: z.object({
+ email: z.string().email(),
+ }),
+ /** Always returns 200 regardless of whether email exists (enumeration prevention) */
+ response: z.object({
+ message: z.literal('If an account exists, a reset link has been sent.'),
+ }),
+ auth: null,
+ rate_limit: 'auth' as RateLimitTier,
+ },
+
+ /** POST /api/v1/auth/reset-password — Set new password with token */
+ resetPassword: {
+ method: 'POST' as const,
+ path: '/api/v1/auth/reset-password',
+ request: z.object({
+ token: z.string(),
+ password: z.string().min(8).max(128),
+ }),
+ /** Revokes all existing sessions on success */
+ response: z.object({
+ message: z.literal('Password updated. Please sign in.'),
+ }),
+ auth: null,
+ rate_limit: 'auth' as RateLimitTier,
+ },
+
+ /** POST /api/v1/auth/invite/accept — Accept team invitation */
+ acceptInvite: {
+ method: 'POST' as const,
+ path: '/api/v1/auth/invite/accept',
+ request: z.object({
+ token: z.string(),
+ }),
+ response: z.object({
+ tenant: TenantSchema.pick({ id: true, name: true }),
+ role: z.nativeEnum(TenantRole),
+ }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'auth' as RateLimitTier,
+ },
+
+ /** POST /api/v1/auth/invite/register — Register new account via invitation */
+ registerFromInvite: {
+ method: 'POST' as const,
+ path: '/api/v1/auth/invite/register',
+ request: z.object({
+ token: z.string(),
+ name: z.string().min(1).max(255),
+ password: z.string().min(8).max(128),
+ }),
+ response: z.object({
+ user: UserSchema.omit({ created_at: true, updated_at: true }),
+ tenant: TenantSchema.pick({ id: true, name: true }),
+ role: z.nativeEnum(TenantRole),
+ }),
+ auth: null,
+ rate_limit: 'auth' as RateLimitTier,
+ },
+
+ /** POST /api/v1/auth/mfa/setup — Enable MFA */
+ setupMfa: {
+ method: 'POST' as const,
+ path: '/api/v1/auth/mfa/setup',
+ request: z.object({}),
+ response: z.object({
+ /** TOTP secret for QR code generation */
+ secret: z.string(),
+ /** QR code data URI */
+ qr_code: z.string(),
+ /** Recovery codes (shown once) */
+ recovery_codes: z.array(z.string()),
+ }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/auth/mfa/verify — Verify and activate MFA */
+ verifyMfa: {
+ method: 'POST' as const,
+ path: '/api/v1/auth/mfa/verify',
+ request: z.object({
+ code: z.string().length(6),
+ }),
+ response: z.object({
+ mfa_enabled: z.literal(true),
+ }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** DELETE /api/v1/auth/session — Logout (revoke current session) */
+ logout: {
+ method: 'DELETE' as const,
+ path: '/api/v1/auth/session',
+ request: z.object({}),
+ response: z.object({ message: z.literal('Logged out.') }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/auth/session — Get current session info */
+ getSession: {
+ method: 'GET' as const,
+ path: '/api/v1/auth/session',
+ request: z.object({}),
+ response: z.object({
+ user: UserSchema.omit({ created_at: true, updated_at: true }),
+ tenant: TenantSchema.pick({ id: true, name: true, plan: true }),
+ role: z.nativeEnum(TenantRole),
+ }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// 2. Tenant Routes — /api/v1/tenants/*
+// ---------------------------------------------------------------------------
+
+export const TenantRoutes = {
+ /** GET /api/v1/tenants/current — Get current tenant details */
+ getCurrent: {
+ method: 'GET' as const,
+ path: '/api/v1/tenants/current',
+ request: z.object({}),
+ response: TenantSchema,
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** PATCH /api/v1/tenants/current — Update tenant settings */
+ updateCurrent: {
+ method: 'PATCH' as const,
+ path: '/api/v1/tenants/current',
+ request: z.object({
+ name: z.string().min(1).max(255).optional(),
+ timezone: z.string().optional(),
+ industry_vertical: z.string().optional(),
+ company_size: z.enum(['solo', 'small', 'medium', 'large']).optional(),
+ }),
+ response: TenantSchema,
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/tenants/current/feature-flags — Get feature flags */
+ getFeatureFlags: {
+ method: 'GET' as const,
+ path: '/api/v1/tenants/current/feature-flags',
+ request: z.object({}),
+ response: FeatureFlagSchema,
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/tenants/current/usage — Get usage summary */
+ getUsage: {
+ method: 'GET' as const,
+ path: '/api/v1/tenants/current/usage',
+ query: z.object({
+ /** Period: 'today', 'week', 'month', 'custom' */
+ period: z.enum(['today', 'week', 'month', 'custom']).default('month'),
+ start_date: z.string().optional(),
+ end_date: z.string().optional(),
+ }),
+ response: z.object({
+ period: z.object({ start: z.string(), end: z.string() }),
+ total_executions: z.number().int(),
+ total_api_calls: z.number().int(),
+ total_cost_usd: z.number(),
+ daily_breakdown: z.array(TenantUsageDailySchema),
+ agent_breakdown: z.record(z.nativeEnum(AgentType), z.object({
+ execution_count: z.number().int(),
+ cost_usd: z.number(),
+ })),
+ plan_limits: z.object({
+ daily_call_limit: z.number().int(),
+ daily_calls_used: z.number().int(),
+ monthly_ai_spend_cap_usd: z.number(),
+ monthly_ai_spend_used_usd: z.number(),
+ }),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/tenants/current/export — Request data export (CCPA) */
+ requestExport: {
+ method: 'POST' as const,
+ path: '/api/v1/tenants/current/export',
+ request: z.object({}),
+ response: z.object({
+ /** Export job ID */
+ export_id: z.string().uuid(),
+ /** Estimated completion time */
+ estimated_at: z.string().datetime(),
+ message: z.literal('Export queued. You will be notified when ready.'),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'export' as RateLimitTier,
+ },
+
+ /** POST /api/v1/tenants/current/onboarding — Update onboarding progress */
+ updateOnboarding: {
+ method: 'POST' as const,
+ path: '/api/v1/tenants/current/onboarding',
+ request: z.object({
+ step: z.nativeEnum(OnboardingStep),
+ data: z.record(z.unknown()).optional(),
+ }),
+ response: z.object({
+ current_step: z.nativeEnum(OnboardingStep),
+ completed: z.boolean(),
+ }),
+ auth: ['owner'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// 3. Agent Routes — /api/v1/agents/*
+// ---------------------------------------------------------------------------
+
+export const AgentRoutes = {
+ /** GET /api/v1/agents — List agents for current tenant */
+ list: {
+ method: 'GET' as const,
+ path: '/api/v1/agents',
+ query: z.object({
+ /** Filter by active status */
+ is_active: z.coerce.boolean().optional(),
+ }),
+ response: z.object({
+ agents: z.array(AgentSchema),
+ }),
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/agents/:agentId — Get agent detail */
+ getById: {
+ method: 'GET' as const,
+ path: '/api/v1/agents/:agentId',
+ response: AgentSchema,
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/agents/:agentId/execute — Trigger agent execution (manual) */
+ triggerExecution: {
+ method: 'POST' as const,
+ path: '/api/v1/agents/:agentId/execute',
+ request: z.object({
+ /** Input parameters for the execution (agent-type-specific) */
+ input: z.record(z.unknown()).default({}),
+ /** Priority override */
+ priority: z.enum(['high', 'medium', 'low']).default('medium'),
+ }),
+ response: z.object({
+ /** Execution ID for tracking */
+ execution_id: z.string().uuid(),
+ /** BullMQ job ID */
+ job_id: z.string(),
+ status: z.literal('QUEUED'),
+ message: z.literal('Agent execution queued.'),
+ }),
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'agent_execution' as RateLimitTier,
+ },
+
+ /** PATCH /api/v1/agents/:agentId — Update agent configuration */
+ update: {
+ method: 'PATCH' as const,
+ path: '/api/v1/agents/:agentId',
+ request: z.object({
+ is_active: z.boolean().optional(),
+ name: z.string().min(1).max(255).optional(),
+ agent_config: z.record(z.unknown()).optional(),
+ triggers: z.array(TriggerConfigSchema).optional(),
+ }),
+ response: AgentSchema,
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/agents/:agentId/status — Get real-time agent status */
+ getStatus: {
+ method: 'GET' as const,
+ path: '/api/v1/agents/:agentId/status',
+ response: z.object({
+ agent_id: z.string().uuid(),
+ is_active: z.boolean(),
+ /** Current execution (if running) */
+ current_execution: AgentExecutionSchema.pick({
+ id: true,
+ status: true,
+ step_count: true,
+ started_at: true,
+ }).nullable(),
+ /** Last completed execution */
+ last_execution: AgentExecutionSchema.pick({
+ id: true,
+ status: true,
+ completed_at: true,
+ total_cost_usd: true,
+ }).nullable(),
+ /** Executions today */
+ executions_today: z.number().int().nonneg(),
+ /** Quality metrics */
+ approval_rate_7d: z.number().min(0).max(1).nullable(),
+ escalation_rate_7d: z.number().min(0).max(1).nullable(),
+ }),
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/agents/:agentId/execute/stream — SSE stream for agent execution */
+ streamExecution: {
+ method: 'GET' as const,
+ path: '/api/v1/agents/:agentId/execute/stream',
+ query: z.object({
+ execution_id: z.string().uuid(),
+ }),
+ /** Server-Sent Events stream. Headers: X-Accel-Buffering: no (CF-01) */
+ response: z.object({
+ /** Stream of execution step events (SSE) */
+ event_type: z.enum(['step_start', 'step_complete', 'tool_call', 'token', 'complete', 'error']),
+ data: z.record(z.unknown()),
+ }),
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// 4. Execution Routes — /api/v1/executions/*
+// ---------------------------------------------------------------------------
+
+export const ExecutionRoutes = {
+ /** GET /api/v1/executions — List executions with filters */
+ list: {
+ method: 'GET' as const,
+ path: '/api/v1/executions',
+ query: PaginationParamsSchema.extend({
+ /** Filter by agent type */
+ agent_type: z.nativeEnum(AgentType).optional(),
+ /** Filter by status */
+ status: z.nativeEnum(ExecutionStatus).optional(),
+ /** Filter by trigger type */
+ trigger_type: TriggerTypeSchema.optional(),
+ /** Date range start */
+ from: z.string().datetime().optional(),
+ /** Date range end */
+ to: z.string().datetime().optional(),
+ }),
+ response: PaginatedResponseSchema(AgentExecutionSchema),
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/executions/:executionId — Get execution detail */
+ getById: {
+ method: 'GET' as const,
+ path: '/api/v1/executions/:executionId',
+ response: AgentExecutionSchema,
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/executions/:executionId/cancel — Cancel a queued execution */
+ cancel: {
+ method: 'POST' as const,
+ path: '/api/v1/executions/:executionId/cancel',
+ request: z.object({}),
+ response: z.object({
+ execution_id: z.string().uuid(),
+ status: z.literal('CANCELLED'),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/executions/:executionId/retry — Retry a failed execution */
+ retry: {
+ method: 'POST' as const,
+ path: '/api/v1/executions/:executionId/retry',
+ request: z.object({}),
+ response: z.object({
+ /** New execution ID */
+ execution_id: z.string().uuid(),
+ /** New BullMQ job ID */
+ job_id: z.string(),
+ status: z.literal('QUEUED'),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'agent_execution' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// 5. Escalation Routes — /api/v1/escalations/*
+// ---------------------------------------------------------------------------
+
+export const EscalationRoutes = {
+ /** GET /api/v1/escalations — List escalations (prioritized queue) */
+ list: {
+ method: 'GET' as const,
+ path: '/api/v1/escalations',
+ query: PaginationParamsSchema.extend({
+ status: z.nativeEnum(EscalationStatus).optional(),
+ severity: z.nativeEnum(EscalationSeverity).optional(),
+ agent_type: z.nativeEnum(AgentType).optional(),
+ }),
+ response: PaginatedResponseSchema(EscalationSchema),
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/escalations/:escalationId — Get escalation detail */
+ getById: {
+ method: 'GET' as const,
+ path: '/api/v1/escalations/:escalationId',
+ response: EscalationSchema,
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/escalations/:escalationId/approve — Approve escalation */
+ approve: {
+ method: 'POST' as const,
+ path: '/api/v1/escalations/:escalationId/approve',
+ request: z.object({
+ notes: z.string().optional(),
+ }),
+ response: z.object({
+ escalation_id: z.string().uuid(),
+ status: z.literal('approved'),
+ /** Execution ID of the follow-up action */
+ action_execution_id: z.string().uuid().optional(),
+ }),
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'escalation_approval' as RateLimitTier,
+ },
+
+ /** POST /api/v1/escalations/:escalationId/reject — Reject escalation */
+ reject: {
+ method: 'POST' as const,
+ path: '/api/v1/escalations/:escalationId/reject',
+ request: z.object({
+ reason: z.string().min(1),
+ }),
+ response: z.object({
+ escalation_id: z.string().uuid(),
+ status: z.literal('rejected'),
+ }),
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'escalation_approval' as RateLimitTier,
+ },
+
+ /** POST /api/v1/escalations/:escalationId/modify — Modify and approve */
+ modify: {
+ method: 'POST' as const,
+ path: '/api/v1/escalations/:escalationId/modify',
+ request: z.object({
+ /** Modified action payload */
+ modified_action: z.record(z.unknown()),
+ notes: z.string().optional(),
+ }),
+ response: z.object({
+ escalation_id: z.string().uuid(),
+ status: z.literal('modified'),
+ action_execution_id: z.string().uuid().optional(),
+ }),
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'escalation_approval' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// 6. Draft Routes — /api/v1/drafts/*
+// ---------------------------------------------------------------------------
+
+export const DraftRoutes = {
+ /** GET /api/v1/drafts — List pending drafts */
+ list: {
+ method: 'GET' as const,
+ path: '/api/v1/drafts',
+ query: PaginationParamsSchema.extend({
+ status: z.nativeEnum(DraftStatus).optional(),
+ content_type: z.nativeEnum(DraftContentType).optional(),
+ agent_type: z.nativeEnum(AgentType).optional(),
+ }),
+ response: PaginatedResponseSchema(DraftSchema),
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/drafts/:draftId — Get draft detail */
+ getById: {
+ method: 'GET' as const,
+ path: '/api/v1/drafts/:draftId',
+ response: DraftSchema,
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/drafts/:draftId/approve — Approve a draft */
+ approve: {
+ method: 'POST' as const,
+ path: '/api/v1/drafts/:draftId/approve',
+ request: z.object({
+ notes: z.string().optional(),
+ }),
+ response: z.object({
+ draft_id: z.string().uuid(),
+ status: z.literal('approved'),
+ }),
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/drafts/:draftId/reject — Reject a draft */
+ reject: {
+ method: 'POST' as const,
+ path: '/api/v1/drafts/:draftId/reject',
+ request: z.object({
+ reason: z.string().min(1),
+ }),
+ response: z.object({
+ draft_id: z.string().uuid(),
+ status: z.literal('rejected'),
+ }),
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** PATCH /api/v1/drafts/:draftId — Edit a draft before approval */
+ edit: {
+ method: 'PATCH' as const,
+ path: '/api/v1/drafts/:draftId',
+ request: z.object({
+ /** Modified content */
+ content: z.record(z.unknown()),
+ }),
+ response: DraftSchema,
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// 7. Integration Routes — /api/v1/integrations/*
+// ---------------------------------------------------------------------------
+
+export const IntegrationRoutes = {
+ /** GET /api/v1/integrations — List connected integrations */
+ list: {
+ method: 'GET' as const,
+ path: '/api/v1/integrations',
+ response: z.object({
+ integrations: z.array(
+ IntegrationSchema.omit({ encrypted_credentials: true }),
+ ),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/integrations/:service/connect — Initiate OAuth flow or API key connection */
+ connect: {
+ method: 'POST' as const,
+ path: '/api/v1/integrations/:service/connect',
+ request: z.object({
+ /** For API key auth: the key value */
+ api_key: z.string().optional(),
+ /** OAuth redirect URI override */
+ redirect_uri: z.string().url().optional(),
+ }),
+ response: z.discriminatedUnion('type', [
+ z.object({
+ type: z.literal('oauth_redirect'),
+ /** URL to redirect the user to for OAuth consent */
+ redirect_url: z.string().url(),
+ }),
+ z.object({
+ type: z.literal('connected'),
+ integration: IntegrationSchema.omit({ encrypted_credentials: true }),
+ }),
+ ]),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/integrations/:service/callback — OAuth callback handler */
+ oauthCallback: {
+ method: 'GET' as const,
+ path: '/api/v1/integrations/:service/callback',
+ query: z.object({
+ code: z.string(),
+ state: z.string(),
+ }),
+ response: z.object({
+ integration: IntegrationSchema.omit({ encrypted_credentials: true }),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** DELETE /api/v1/integrations/:service/disconnect — Disconnect integration */
+ disconnect: {
+ method: 'DELETE' as const,
+ path: '/api/v1/integrations/:service/disconnect',
+ request: z.object({}),
+ response: z.object({
+ message: z.literal('Integration disconnected.'),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/integrations/:service/status — Get sync status */
+ getStatus: {
+ method: 'GET' as const,
+ path: '/api/v1/integrations/:service/status',
+ response: z.object({
+ service: z.nativeEnum(IntegrationService),
+ status: z.nativeEnum(IntegrationStatus),
+ last_sync_at: z.string().datetime().nullable(),
+ last_sync_error: z.string().nullable(),
+ /** Time until access token expires */
+ token_expires_in_seconds: z.number().int().nullable(),
+ /** Data sync details */
+ sync_details: z.object({
+ projects_synced: z.number().int().nonneg(),
+ contacts_synced: z.number().int().nonneg(),
+ last_full_sync: z.string().datetime().nullable(),
+ }).optional(),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/integrations/:service/sync — Force sync */
+ forceSync: {
+ method: 'POST' as const,
+ path: '/api/v1/integrations/:service/sync',
+ request: z.object({
+ /** What to sync */
+ scope: z.enum(['full', 'incremental']).default('incremental'),
+ }),
+ response: z.object({
+ sync_job_id: z.string().uuid(),
+ message: z.literal('Sync queued.'),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Webhook receiver routes (not authenticated via session — use service-specific verification)
+// ---------------------------------------------------------------------------
+
+export const WebhookRoutes = {
+ /** POST /webhooks/stripe/:webhookToken — Stripe webhook receiver */
+ stripe: {
+ method: 'POST' as const,
+ path: '/webhooks/stripe/:webhookToken',
+ /** Verified via stripe.webhooks.constructEvent(body, sig, secret) */
+ description: 'Stripe webhook. Signature verified via stripe-signature header.',
+ events: [
+ 'customer.subscription.created',
+ 'customer.subscription.updated',
+ 'customer.subscription.deleted',
+ 'invoice.payment_succeeded',
+ 'invoice.payment_failed',
+ 'customer.updated',
+ ],
+ },
+
+ /** POST /webhooks/sendgrid/:webhookToken — SendGrid Inbound Parse */
+ sendgrid: {
+ method: 'POST' as const,
+ path: '/webhooks/sendgrid/:webhookToken',
+ /** Verified via unguessable URL token + basic auth */
+ description: 'SendGrid Inbound Parse webhook. URL token auth + basic auth.',
+ },
+
+ /** POST /webhooks/jobtread/:webhookToken — JobTread webhook */
+ jobtread: {
+ method: 'POST' as const,
+ path: '/webhooks/jobtread/:webhookToken',
+ /** Verified via URL token + IP allowlisting */
+ description: 'JobTread webhook. URL token auth + IP allowlist.',
+ },
+
+ /** POST /webhooks/quickbooks/:webhookToken — QuickBooks webhook */
+ quickbooks: {
+ method: 'POST' as const,
+ path: '/webhooks/quickbooks/:webhookToken',
+ /** Verified via intuit-signature header HMAC-SHA256 */
+ description: 'QuickBooks webhook. HMAC-SHA256 via intuit-signature header.',
+ },
+
+ /** POST /webhooks/google/:webhookToken — Google Calendar webhook */
+ googleCalendar: {
+ method: 'POST' as const,
+ path: '/webhooks/google/:webhookToken',
+ /** Verified via X-Goog-Channel-Token matching */
+ description: 'Google Calendar webhook. X-Goog-Channel-Token verification.',
+ },
+
+ /** POST /webhooks/microsoft/:webhookToken — Microsoft Graph webhook (Outlook Email + Calendar) */
+ microsoftGraph: {
+ method: 'POST' as const,
+ path: '/webhooks/microsoft/:webhookToken',
+ /** Verified via clientState matching + validationToken echo on subscription creation */
+ description: 'Microsoft Graph subscription webhook. clientState verification. Handles both Outlook Email and Calendar change notifications. Must echo validationToken on subscription creation/renewal.',
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// 8. Support Routes — /api/v1/support/*
+// ---------------------------------------------------------------------------
+
+export const SupportRoutes = {
+ /** POST /api/v1/support/conversations — Create new support conversation */
+ createConversation: {
+ method: 'POST' as const,
+ path: '/api/v1/support/conversations',
+ request: z.object({
+ /** Initial message */
+ message: z.string().min(1).max(5000),
+ /** Current route for context injection */
+ context_route: z.string().optional(),
+ }),
+ response: z.object({
+ conversation: SupportConversationSchema,
+ /** First agent response */
+ agent_response: SupportMessageSchema,
+ }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/support/conversations/:conversationId/messages — Send message */
+ sendMessage: {
+ method: 'POST' as const,
+ path: '/api/v1/support/conversations/:conversationId/messages',
+ request: z.object({
+ message: z.string().min(1).max(5000),
+ }),
+ response: z.object({
+ user_message: SupportMessageSchema,
+ agent_response: SupportMessageSchema,
+ }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/support/conversations — List user's conversations */
+ listConversations: {
+ method: 'GET' as const,
+ path: '/api/v1/support/conversations',
+ query: PaginationParamsSchema.extend({
+ status: z.enum(['active', 'resolved', 'escalated', 'archived']).optional(),
+ }),
+ response: PaginatedResponseSchema(SupportConversationSchema),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/support/conversations/:conversationId — Get conversation with messages */
+ getConversation: {
+ method: 'GET' as const,
+ path: '/api/v1/support/conversations/:conversationId',
+ response: SupportConversationSchema.extend({
+ messages: z.array(SupportMessageSchema),
+ }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/support/conversations/:conversationId/rate — Rate conversation */
+ rateConversation: {
+ method: 'POST' as const,
+ path: '/api/v1/support/conversations/:conversationId/rate',
+ request: z.object({
+ /** CSAT: 1-5 */
+ csat_rating: z.number().int().min(1).max(5),
+ /** CES: 1-7 (optional) */
+ ces_score: z.number().int().min(1).max(7).optional(),
+ }),
+ response: z.object({
+ message: z.literal('Thank you for your feedback.'),
+ }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/support/analytics — Support analytics (admin) */
+ getAnalytics: {
+ method: 'GET' as const,
+ path: '/api/v1/support/analytics',
+ query: z.object({
+ period: z.enum(['week', 'month', 'quarter']).default('month'),
+ }),
+ response: z.object({
+ avg_csat: z.number().nullable(),
+ resolution_rate: z.number().min(0).max(1),
+ containment_rate: z.number().min(0).max(1),
+ avg_ces: z.number().nullable(),
+ avg_cost_per_resolution_usd: z.number(),
+ avg_response_time_ms: z.number(),
+ escalation_rate: z.number().min(0).max(1),
+ total_conversations: z.number().int(),
+ /** Top unanswered topics for content gap detection */
+ content_gaps: z.array(z.object({
+ topic: z.string(),
+ count: z.number().int(),
+ })),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// 8b. Help Bot Routes — /api/v1/help/*
+// ---------------------------------------------------------------------------
+
+export const HelpRoutes = {
+ /** POST /api/v1/help — Send a help query (streamed response via SSE) */
+ query: {
+ method: 'POST' as const,
+ path: '/api/v1/help',
+ request: z.object({
+  /** User's question */
+  message: z.string().min(1).max(2000),
+  /** Current route for context-aware suggestions */
+  route: z.string(),
+  /** User's role for RBAC-aware responses */
+  role: z.nativeEnum(TenantRole),
+ }),
+ response: z.object({
+  /** Streamed via SSE (AI SDK streamText) */
+  text: z.string(),
+  /** Optional deep links for actionable responses */
+  action_links: z.array(z.object({
+   label: z.string(),
+   href: z.string(),
+  })).optional(),
+  /** Conversation ID for feedback tracking */
+  conversation_id: z.string().uuid(),
+  message_id: z.string().uuid(),
+ }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/help/:messageId/feedback — Submit thumbs up/down */
+ feedback: {
+ method: 'POST' as const,
+ path: '/api/v1/help/:messageId/feedback',
+ request: z.object({
+  helpful: z.boolean(),
+ }),
+ response: z.object({
+  message: z.literal('Feedback recorded.'),
+ }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// 9. Notification Routes — /api/v1/notifications/*
+// ---------------------------------------------------------------------------
+
+export const NotificationRoutes = {
+ /** GET /api/v1/notifications — List notifications */
+ list: {
+ method: 'GET' as const,
+ path: '/api/v1/notifications',
+ query: PaginationParamsSchema.extend({
+ is_read: z.coerce.boolean().optional(),
+ type: z.nativeEnum(NotificationType).optional(),
+ }),
+ response: PaginatedResponseSchema(NotificationSchema),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/notifications/unread-count — Get unread count for badge */
+ getUnreadCount: {
+ method: 'GET' as const,
+ path: '/api/v1/notifications/unread-count',
+ response: z.object({
+ count: z.number().int().nonneg(),
+ }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** PATCH /api/v1/notifications/:notificationId/read — Mark as read */
+ markRead: {
+ method: 'PATCH' as const,
+ path: '/api/v1/notifications/:notificationId/read',
+ request: z.object({}),
+ response: z.object({ id: z.string().uuid(), is_read: z.literal(true) }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/notifications/mark-all-read — Mark all as read */
+ markAllRead: {
+ method: 'POST' as const,
+ path: '/api/v1/notifications/mark-all-read',
+ request: z.object({}),
+ response: z.object({ updated_count: z.number().int() }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/notifications/preferences — Get notification preferences */
+ getPreferences: {
+ method: 'GET' as const,
+ path: '/api/v1/notifications/preferences',
+ response: NotificationPreferencesSchema,
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** PUT /api/v1/notifications/preferences — Update notification preferences */
+ updatePreferences: {
+ method: 'PUT' as const,
+ path: '/api/v1/notifications/preferences',
+ request: NotificationPreferencesSchema.omit({ id: true, tenant_id: true, user_id: true, updated_at: true }),
+ response: NotificationPreferencesSchema,
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// 10. Admin Routes — /api/v1/admin/*
+// ---------------------------------------------------------------------------
+
+export const AdminRoutes = {
+ /** GET /api/v1/admin/tenants — List all tenants (platform admin) */
+ listTenants: {
+ method: 'GET' as const,
+ path: '/api/v1/admin/tenants',
+ query: PaginationParamsSchema.extend({
+ plan: z.nativeEnum(PlanTier).optional(),
+ billing_status: z.nativeEnum(BillingStatus).optional(),
+ search: z.string().optional(),
+ }),
+ response: PaginatedResponseSchema(TenantSchema),
+ auth: ['owner'] as TenantRole[], // Platform admin only
+ rate_limit: 'admin' as RateLimitTier,
+ },
+
+ /** GET /api/v1/admin/tenants/:tenantId — Get tenant detail */
+ getTenant: {
+ method: 'GET' as const,
+ path: '/api/v1/admin/tenants/:tenantId',
+ response: TenantSchema.extend({
+ member_count: z.number().int(),
+ active_agent_count: z.number().int(),
+ monthly_ai_spend_usd: z.number(),
+ }),
+ auth: ['owner'] as TenantRole[],
+ rate_limit: 'admin' as RateLimitTier,
+ },
+
+ /** GET /api/v1/admin/dashboard — Platform usage dashboard */
+ getDashboard: {
+ method: 'GET' as const,
+ path: '/api/v1/admin/dashboard',
+ response: z.object({
+ total_tenants: z.number().int(),
+ active_tenants: z.number().int(),
+ total_executions_today: z.number().int(),
+ total_ai_cost_today_usd: z.number(),
+ total_mrr_cents: z.number().int(),
+ /** System health */
+ system_health: z.object({
+ ai_gateway_healthy: z.boolean(),
+ nats_healthy: z.boolean(),
+ valkey_healthy: z.boolean(),
+ supabase_healthy: z.boolean(),
+ bullmq_dlq_depth: z.number().int(),
+ }),
+ }),
+ auth: ['owner'] as TenantRole[],
+ rate_limit: 'admin' as RateLimitTier,
+ },
+
+ /** PATCH /api/v1/admin/tenants/:tenantId/feature-flags — Update feature flags */
+ updateFeatureFlags: {
+ method: 'PATCH' as const,
+ path: '/api/v1/admin/tenants/:tenantId/feature-flags',
+ request: FeatureFlagSchema,
+ response: FeatureFlagSchema,
+ auth: ['owner'] as TenantRole[],
+ rate_limit: 'admin' as RateLimitTier,
+ },
+
+ /** GET /api/v1/admin/dlq — List dead letter queue jobs */
+ listDlq: {
+ method: 'GET' as const,
+ path: '/api/v1/admin/dlq',
+ query: PaginationParamsSchema,
+ response: PaginatedResponseSchema(z.object({
+ job_id: z.string(),
+ tenant_id: z.string().uuid(),
+ agent_type: z.nativeEnum(AgentType),
+ failed_reason: z.string(),
+ attempts: z.number().int(),
+ data: z.record(z.unknown()),
+ failed_at: z.string().datetime(),
+ })),
+ auth: ['owner'] as TenantRole[],
+ rate_limit: 'admin' as RateLimitTier,
+ },
+
+ /** POST /api/v1/admin/dlq/:jobId/retry — Retry a DLQ job */
+ retryDlqJob: {
+ method: 'POST' as const,
+ path: '/api/v1/admin/dlq/:jobId/retry',
+ request: z.object({}),
+ response: z.object({ new_job_id: z.string(), status: z.literal('QUEUED') }),
+ auth: ['owner'] as TenantRole[],
+ rate_limit: 'admin' as RateLimitTier,
+ },
+
+ /** DELETE /api/v1/admin/dlq/:jobId — Dismiss a DLQ job */
+ dismissDlqJob: {
+ method: 'DELETE' as const,
+ path: '/api/v1/admin/dlq/:jobId',
+ request: z.object({}),
+ response: z.object({ message: z.literal('Job dismissed.') }),
+ auth: ['owner'] as TenantRole[],
+ rate_limit: 'admin' as RateLimitTier,
+ },
+
+ /** GET /api/v1/admin/system/config — Get system configuration */
+ getSystemConfig: {
+ method: 'GET' as const,
+ path: '/api/v1/admin/system/config',
+ response: z.object({
+ ai_gateway_models: z.array(z.object({
+ model_name: z.string(),
+ provider: z.string(),
+ active: z.boolean(),
+ })),
+ plan_tiers: z.array(PlanTierConfigSchema),
+ }),
+ auth: ['owner'] as TenantRole[],
+ rate_limit: 'admin' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Team Management Routes — /api/v1/team/*
+// ---------------------------------------------------------------------------
+
+export const TeamRoutes = {
+ /** GET /api/v1/team/members — List team members */
+ listMembers: {
+ method: 'GET' as const,
+ path: '/api/v1/team/members',
+ query: PaginationParamsSchema.extend({
+ role: z.nativeEnum(TenantRole).optional(),
+ search: z.string().optional(),
+ }),
+ response: PaginatedResponseSchema(
+ TenantMemberSchema.extend({
+ user: UserSchema.pick({ name: true, email: true, avatar_url: true }),
+ }),
+ ),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/team/invite — Invite a team member */
+ invite: {
+ method: 'POST' as const,
+ path: '/api/v1/team/invite',
+ request: z.object({
+ email: z.string().email(),
+ role: z.nativeEnum(TenantRole),
+ message: z.string().optional(),
+ }),
+ response: z.object({
+ invitation_id: z.string().uuid(),
+ message: z.literal('Invitation sent.'),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** PATCH /api/v1/team/members/:memberId — Update member role */
+ updateMember: {
+ method: 'PATCH' as const,
+ path: '/api/v1/team/members/:memberId',
+ request: z.object({
+ role: z.nativeEnum(TenantRole).optional(),
+ is_active: z.boolean().optional(),
+ }),
+ response: TenantMemberSchema,
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** DELETE /api/v1/team/members/:memberId — Remove team member */
+ removeMember: {
+ method: 'DELETE' as const,
+ path: '/api/v1/team/members/:memberId',
+ /** Revokes all sessions for the removed user */
+ request: z.object({}),
+ response: z.object({ message: z.literal('Member removed.') }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// 11. Billing Routes — /api/v1/billing/*
+// ---------------------------------------------------------------------------
+
+export const BillingRoutes = {
+ /** GET /api/v1/billing/current — Get current plan and billing info */
+ getCurrent: {
+ method: 'GET' as const,
+ path: '/api/v1/billing/current',
+ response: z.object({
+ plan: z.nativeEnum(PlanTier),
+ billing_status: z.nativeEnum(BillingStatus),
+ /** Current billing period */
+ current_period: z.object({
+ start: z.string().datetime(),
+ end: z.string().datetime(),
+ }),
+ /** Monthly price in cents */
+ monthly_price_cents: z.number().int(),
+ /** Next invoice date */
+ next_invoice_date: z.string().datetime().nullable(),
+ /** Payment method info (masked) */
+ payment_method: z.object({
+ type: z.string(),
+ last4: z.string(),
+ exp_month: z.number().int(),
+ exp_year: z.number().int(),
+ }).nullable(),
+ /** Usage this billing period */
+ usage: z.object({
+ ai_spend_usd: z.number(),
+ ai_spend_cap_usd: z.number(),
+ api_calls_today: z.number().int(),
+ api_calls_limit: z.number().int(),
+ }),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/billing/invoices — List invoices */
+ listInvoices: {
+ method: 'GET' as const,
+ path: '/api/v1/billing/invoices',
+ query: PaginationParamsSchema,
+ response: PaginatedResponseSchema(z.object({
+ id: z.string(),
+ /** Invoice date */
+ date: z.string().datetime(),
+ /** Amount in cents */
+ amount_cents: z.number().int(),
+ /** Status */
+ status: z.enum(['paid', 'open', 'void', 'uncollectible']),
+ /** Stripe-hosted invoice URL */
+ invoice_url: z.string().url(),
+ /** PDF download URL */
+ pdf_url: z.string().url().nullable(),
+ })),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/billing/portal — Create Stripe customer portal session */
+ createPortalSession: {
+ method: 'POST' as const,
+ path: '/api/v1/billing/portal',
+ request: z.object({
+ return_url: z.string().url(),
+ }),
+ response: z.object({
+ portal_url: z.string().url(),
+ }),
+ auth: ['owner'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/billing/upgrade — Upgrade or downgrade plan */
+ changePlan: {
+ method: 'POST' as const,
+ path: '/api/v1/billing/change-plan',
+ request: z.object({
+ new_plan: z.nativeEnum(PlanTier),
+ }),
+ response: z.object({
+ plan: z.nativeEnum(PlanTier),
+ effective_at: z.string().datetime(),
+ message: z.string(),
+ }),
+ auth: ['owner'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/billing/usage — Detailed usage breakdown */
+ getUsageBreakdown: {
+ method: 'GET' as const,
+ path: '/api/v1/billing/usage',
+ query: z.object({
+ period: z.enum(['current', 'previous']).default('current'),
+ }),
+ response: z.object({
+ period: z.object({ start: z.string(), end: z.string() }),
+ total_cost_usd: z.number(),
+ per_agent: z.array(z.object({
+ agent_type: z.nativeEnum(AgentType),
+ execution_count: z.number().int(),
+ total_tokens: z.number().int(),
+ cost_usd: z.number(),
+ })),
+ daily: z.array(z.object({
+ date: z.string(),
+ cost_usd: z.number(),
+ execution_count: z.number().int(),
+ })),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Data Import Routes — /api/v1/import/*
+// ---------------------------------------------------------------------------
+
+export const ImportRoutes = {
+ /** POST /api/v1/import/csv — Upload CSV for import */
+ uploadCsv: {
+ method: 'POST' as const,
+ path: '/api/v1/import/csv',
+ request: z.object({
+ /** Entity type to import */
+ entity_type: z.enum(['projects', 'contacts', 'estimates']),
+ /** Column mapping: CSV header -> canonical field name */
+ column_mapping: z.record(z.string(), z.string()),
+ /** Whether to validate only (dry run) */
+ dry_run: z.boolean().default(true),
+ }),
+ /** Multipart form data with CSV file */
+ response: z.object({
+ /** Validation result */
+ valid_rows: z.number().int(),
+ invalid_rows: z.number().int(),
+ errors: z.array(z.object({
+ row: z.number().int(),
+ field: z.string(),
+ message: z.string(),
+ })),
+ /** Import job ID (if not dry_run) */
+ import_job_id: z.string().uuid().optional(),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/import/csv/:importJobId/confirm — Confirm and execute import */
+ confirmCsvImport: {
+ method: 'POST' as const,
+ path: '/api/v1/import/csv/:importJobId/confirm',
+ request: z.object({}),
+ response: z.object({
+ import_job_id: z.string().uuid(),
+ status: z.literal('processing'),
+ message: z.literal('Import started. Progress updates via Socket.io.'),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Profile & Settings Routes — /api/v1/profile/*
+// ---------------------------------------------------------------------------
+
+export const ProfileRoutes = {
+ /** GET /api/v1/profile — Get current user profile */
+ getProfile: {
+ method: 'GET' as const,
+ path: '/api/v1/profile',
+ response: UserSchema.extend({
+ role: z.nativeEnum(TenantRole),
+ tenant_name: z.string(),
+ }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** PATCH /api/v1/profile — Update profile */
+ updateProfile: {
+ method: 'PATCH' as const,
+ path: '/api/v1/profile',
+ request: z.object({
+ name: z.string().min(1).max(255).optional(),
+ avatar_url: z.string().url().nullable().optional(),
+ }),
+ response: UserSchema,
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/profile/change-password — Change password */
+ changePassword: {
+ method: 'POST' as const,
+ path: '/api/v1/profile/change-password',
+ request: z.object({
+ current_password: z.string(),
+ new_password: z.string().min(8).max(128),
+ }),
+ /** Revokes all sessions except current */
+ response: z.object({ message: z.literal('Password changed.') }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'auth' as RateLimitTier,
+ },
+
+ /** GET /api/v1/profile/sessions — List active sessions */
+ listSessions: {
+ method: 'GET' as const,
+ path: '/api/v1/profile/sessions',
+ response: z.object({
+ sessions: z.array(z.object({
+ id: z.string(),
+ ip_address: z.string(),
+ user_agent: z.string(),
+ created_at: z.string().datetime(),
+ is_current: z.boolean(),
+ })),
+ }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** DELETE /api/v1/profile/sessions/:sessionId — Revoke a session */
+ revokeSession: {
+ method: 'DELETE' as const,
+ path: '/api/v1/profile/sessions/:sessionId',
+ request: z.object({}),
+ response: z.object({ message: z.literal('Session revoked.') }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Health Check Routes (Section 12 — MON-03)
+// ---------------------------------------------------------------------------
+
+export const HealthRoutes = {
+ /** GET /health/live — Process liveness (Docker HEALTHCHECK + LB liveness) */
+ live: {
+ method: 'GET' as const,
+ path: '/health/live',
+ response: z.object({ status: z.literal('ok') }),
+ },
+
+ /** GET /health/ready — Readiness (LB readiness probe) */
+ ready: {
+ method: 'GET' as const,
+ path: '/health/ready',
+ response: z.object({
+ status: z.enum(['ok', 'degraded']),
+ checks: z.object({
+ database: z.enum(['ok', 'error']),
+ nats: z.enum(['ok', 'error']),
+ valkey: z.enum(['ok', 'error']),
+ ai_gateway: z.enum(['ok', 'error']),
+ socket_io: z.enum(['ok', 'error']),
+ kb_python: z.enum(['ok', 'unavailable']).optional(),
+ }),
+ }),
+ },
+
+ /** GET /health/startup — One-time startup check */
+ startup: {
+ method: 'GET' as const,
+ path: '/health/startup',
+ response: z.object({
+ status: z.enum(['ok', 'initializing']),
+ migrations_applied: z.boolean(),
+ nats_subjects_created: z.boolean(),
+ bullmq_workers_registered: z.boolean(),
+ }),
+ },
+
+ /** GET /metrics — Prometheus metrics scrape endpoint (MON-04) */
+ metrics: {
+ method: 'GET' as const,
+ path: '/metrics',
+ /** Returns Prometheus text format */
+ description: 'BullMQ queue metrics + custom app metrics in Prometheus exposition format.',
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Knowledge Base (Support Admin) Routes — /api/v1/kb/*
+// ---------------------------------------------------------------------------
+
+export const KnowledgeBaseRoutes = {
+ /** GET /api/v1/kb/articles — List KB articles */
+ listArticles: {
+ method: 'GET' as const,
+ path: '/api/v1/kb/articles',
+ query: PaginationParamsSchema.extend({
+ status: z.enum(['draft', 'published', 'archived']).optional(),
+ category: z.string().optional(),
+ search: z.string().optional(),
+ }),
+ response: PaginatedResponseSchema(z.object({
+ id: z.string().uuid(),
+ title: z.string(),
+ category: z.string(),
+ status: z.enum(['draft', 'published', 'archived']),
+ version: z.number().int(),
+ updated_at: z.string().datetime(),
+ })),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/kb/articles — Create KB article */
+ createArticle: {
+ method: 'POST' as const,
+ path: '/api/v1/kb/articles',
+ request: z.object({
+ title: z.string().min(1).max(500),
+ content: z.string(),
+ category: z.string(),
+ tags: z.array(z.string()).default([]),
+ /** Publish immediately or save as draft */
+ status: z.enum(['draft', 'published']).default('draft'),
+ }),
+ response: z.object({
+ id: z.string().uuid(),
+ /** Embedding job ID (if published) */
+ embedding_job_id: z.string().uuid().optional(),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** PUT /api/v1/kb/articles/:articleId — Update KB article */
+ updateArticle: {
+ method: 'PUT' as const,
+ path: '/api/v1/kb/articles/:articleId',
+ request: z.object({
+ title: z.string().min(1).max(500).optional(),
+ content: z.string().optional(),
+ category: z.string().optional(),
+ tags: z.array(z.string()).optional(),
+ status: z.enum(['draft', 'published', 'archived']).optional(),
+ }),
+ response: z.object({
+ id: z.string().uuid(),
+ version: z.number().int(),
+ /** Diff-based re-embedding job ID */
+ embedding_job_id: z.string().uuid().optional(),
+ }),
+ auth: ['owner', 'admin'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Customer Routes — /api/v1/customers/*
+// ---------------------------------------------------------------------------
+
+export const CustomerRoutes = {
+ /** GET /api/v1/customers — List customers with search/filters */
+ list: {
+ method: 'GET' as const,
+ path: '/api/v1/customers',
+ query: PaginationParamsSchema.extend({
+ search: z.string().optional(),
+ source: z.enum(['quickbooks', 'jobtread', 'manual']).optional(),
+ }),
+ response: PaginatedResponseSchema(z.object({
+ id: z.string().uuid(),
+ name: z.string(),
+ email: z.string().email().nullable(),
+ phone: z.string().nullable(),
+ source: z.enum(['quickbooks', 'jobtread', 'manual']),
+ project_count: z.number().int(),
+ created_at: z.string().datetime(),
+ })),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/customers/:id — Customer detail */
+ get: {
+ method: 'GET' as const,
+ path: '/api/v1/customers/:id',
+ response: z.object({
+ id: z.string().uuid(),
+ name: z.string(),
+ email: z.string().email().nullable(),
+ phone: z.string().nullable(),
+ address: z.string().nullable(),
+ source: z.enum(['quickbooks', 'jobtread', 'manual']),
+ notes: z.string().nullable(),
+ projects: z.array(z.object({ id: z.string().uuid(), name: z.string(), status: z.string() })),
+ communication_history: z.array(z.object({ id: z.string().uuid(), type: z.string(), summary: z.string(), date: z.string().datetime() })),
+ }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/customers — Create customer */
+ create: {
+ method: 'POST' as const,
+ path: '/api/v1/customers',
+ request: z.object({
+ name: z.string().min(1).max(255),
+ email: z.string().email().optional(),
+ phone: z.string().optional(),
+ address: z.string().optional(),
+ notes: z.string().optional(),
+ }),
+ response: z.object({ id: z.string().uuid() }),
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** PUT /api/v1/customers/:id — Update customer */
+ update: {
+ method: 'PUT' as const,
+ path: '/api/v1/customers/:id',
+ request: z.object({
+ name: z.string().min(1).max(255).optional(),
+ email: z.string().email().optional(),
+ phone: z.string().optional(),
+ address: z.string().optional(),
+ notes: z.string().optional(),
+ }),
+ response: z.object({ id: z.string().uuid() }),
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Project Routes — /api/v1/projects/*
+// ---------------------------------------------------------------------------
+
+export const ProjectRoutes = {
+ /** GET /api/v1/projects — List projects with status/search filters */
+ list: {
+ method: 'GET' as const,
+ path: '/api/v1/projects',
+ query: PaginationParamsSchema.extend({
+ search: z.string().optional(),
+ status: z.enum(['active', 'completed', 'on_hold', 'cancelled']).optional(),
+ customer_id: z.string().uuid().optional(),
+ }),
+ response: PaginatedResponseSchema(z.object({
+ id: z.string().uuid(),
+ name: z.string(),
+ status: z.string(),
+ customer_name: z.string().nullable(),
+ budget: z.number().nullable(),
+ start_date: z.string().datetime().nullable(),
+ due_date: z.string().datetime().nullable(),
+ })),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** GET /api/v1/projects/:id — Project detail */
+ get: {
+ method: 'GET' as const,
+ path: '/api/v1/projects/:id',
+ response: z.object({
+ id: z.string().uuid(),
+ name: z.string(),
+ status: z.string(),
+ customer: z.object({ id: z.string().uuid(), name: z.string() }).nullable(),
+ budget: z.number().nullable(),
+ tasks: z.array(z.object({ id: z.string().uuid(), title: z.string(), status: z.string(), assignee_id: z.string().uuid().nullable() })),
+ documents: z.array(z.object({ id: z.string().uuid(), name: z.string(), url: z.string() })),
+ linked_estimates: z.array(z.object({ id: z.string().uuid(), total: z.number() })),
+ timeline: z.object({ start_date: z.string().datetime().nullable(), due_date: z.string().datetime().nullable() }),
+ }),
+ auth: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** POST /api/v1/projects — Create project */
+ create: {
+ method: 'POST' as const,
+ path: '/api/v1/projects',
+ request: z.object({
+ name: z.string().min(1).max(255),
+ customer_id: z.string().uuid().optional(),
+ budget: z.number().optional(),
+ start_date: z.string().datetime().optional(),
+ due_date: z.string().datetime().optional(),
+ source: z.enum(['manual', 'jobtread', 'kb_estimate']).default('manual'),
+ }),
+ response: z.object({ id: z.string().uuid() }),
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+
+ /** PUT /api/v1/projects/:id — Update project */
+ update: {
+ method: 'PUT' as const,
+ path: '/api/v1/projects/:id',
+ request: z.object({
+ name: z.string().min(1).max(255).optional(),
+ status: z.enum(['active', 'completed', 'on_hold', 'cancelled']).optional(),
+ budget: z.number().optional(),
+ start_date: z.string().datetime().optional(),
+ due_date: z.string().datetime().optional(),
+ }),
+ response: z.object({ id: z.string().uuid() }),
+ auth: ['owner', 'admin', 'manager'] as TenantRole[],
+ rate_limit: 'standard' as RateLimitTier,
+ },
+} as const;
+
+
+// ============================================================================
+// PART 3: WEBSOCKET EVENT CATALOG (Socket.io)
+// ============================================================================
+// Transport: WebSocket-only (no HTTP long-polling fallback — Section 3b).
+// Room naming: tenant:{tenantId}:{channel}
+// Server-initiated room joins only (validated against auth token).
+// Cross-node delivery via @socket.io/redis-adapter.
+
+// ---------------------------------------------------------------------------
+// Server -> Client Events
+// ---------------------------------------------------------------------------
+
+export const ServerEvents = {
+ /**
+ * Agent execution status update.
+ * Room: tenant:{tenantId}:dashboard
+ * Emitted on every execution state transition.
+ */
+ 'execution:status': z.object({
+ execution_id: z.string().uuid(),
+ agent_type: z.nativeEnum(AgentType),
+ status: z.nativeEnum(ExecutionStatus),
+ step_count: z.number().int().nonneg(),
+ /** Progress percentage (0-100) if deterministic */
+ progress: z.number().min(0).max(100).nullable(),
+ /** Error message if failed */
+ error: z.string().nullable(),
+ updated_at: z.string().datetime(),
+ }),
+
+ /**
+ * New escalation created (needs human attention).
+ * Room: tenant:{tenantId}:escalations
+ */
+ 'escalation:created': z.object({
+ escalation: EscalationSchema,
+ }),
+
+ /**
+ * Escalation resolved (by another user).
+ * Room: tenant:{tenantId}:escalations
+ */
+ 'escalation:resolved': z.object({
+ escalation_id: z.string().uuid(),
+ status: z.nativeEnum(EscalationStatus),
+ resolved_by: z.string().uuid(),
+ }),
+
+ /**
+ * New draft ready for review.
+ * Room: tenant:{tenantId}:dashboard
+ */
+ 'draft:created': z.object({
+ draft: DraftSchema,
+ }),
+
+ /**
+ * New notification.
+ * Room: tenant:{tenantId}:notifications:{userId}
+ */
+ 'notification:new': z.object({
+ notification: NotificationSchema,
+ }),
+
+ /**
+ * Notification badge count update.
+ * Room: tenant:{tenantId}:notifications:{userId}
+ */
+ 'notification:count': z.object({
+ unread_count: z.number().int().nonneg(),
+ }),
+
+ /**
+ * Agent streaming token (SSE alternative for non-SSE clients).
+ * Room: tenant:{tenantId}:agent:{agentType}
+ */
+ 'agent:token': z.object({
+ execution_id: z.string().uuid(),
+ agent_type: z.nativeEnum(AgentType),
+ /** Streamed text token */
+ token: z.string(),
+ /** Whether this is the final token */
+ is_final: z.boolean(),
+ }),
+
+ /**
+ * Agent tool call event (for real-time dashboard visualization).
+ * Room: tenant:{tenantId}:agent:{agentType}
+ */
+ 'agent:tool_call': z.object({
+ execution_id: z.string().uuid(),
+ agent_type: z.nativeEnum(AgentType),
+ tool_name: z.string(),
+ step: z.number().int(),
+ status: z.enum(['started', 'completed', 'failed']),
+ duration_ms: z.number().int().nonneg().optional(),
+ }),
+
+ /**
+ * Integration sync status update.
+ * Room: tenant:{tenantId}:integrations
+ */
+ 'integration:sync_status': z.object({
+ service: z.nativeEnum(IntegrationService),
+ status: z.nativeEnum(IntegrationStatus),
+ last_sync_at: z.string().datetime().nullable(),
+ error: z.string().nullable(),
+ }),
+
+ /**
+ * Integration health alert (proactive support).
+ * Room: tenant:{tenantId}:dashboard
+ */
+ 'integration:alert': z.object({
+ service: z.nativeEnum(IntegrationService),
+ alert_type: z.enum(['token_expiring', 'sync_failed', 'disconnected']),
+ message: z.string(),
+ action_url: z.string(),
+ }),
+
+ /**
+ * Support Agent typing indicator.
+ * Room: tenant:{tenantId}:support:{userId}
+ */
+ 'support:typing': z.object({
+ conversation_id: z.string().uuid(),
+ is_typing: z.boolean(),
+ }),
+
+ /**
+ * Support Agent message.
+ * Room: tenant:{tenantId}:support:{userId}
+ */
+ 'support:message': z.object({
+ conversation_id: z.string().uuid(),
+ message: SupportMessageSchema,
+ }),
+
+ /**
+ * CSV import progress update.
+ * Room: tenant:{tenantId}:imports
+ */
+ 'import:progress': z.object({
+ import_job_id: z.string().uuid(),
+ rows_processed: z.number().int(),
+ total_rows: z.number().int(),
+ errors: z.number().int(),
+ status: z.enum(['processing', 'completed', 'failed']),
+ }),
+
+ /**
+ * Session invalidation broadcast (logout, member removal, password change).
+ * Room: tenant:{tenantId}:sessions
+ */
+ 'session:invalidated': z.object({
+ reason: z.enum(['logout', 'member_removed', 'password_changed', 'role_changed']),
+ user_id: z.string().uuid(),
+ }),
+
+ /**
+ * Usage limit alert.
+ * Room: tenant:{tenantId}:dashboard
+ */
+ 'usage:alert': z.object({
+ alert_type: z.enum(['80_percent', '100_percent']),
+ current_usage: z.number(),
+ limit: z.number(),
+ resource: z.enum(['daily_api_calls', 'monthly_ai_spend']),
+ message: z.string(),
+ }),
+
+ /**
+ * Morning briefing ready notification (CEO only).
+ * Room: tenant:{tenantId}:executive
+ */
+ 'briefing:ready': z.object({
+ draft_id: z.string().uuid(),
+ title: z.string(),
+ summary: z.string(),
+ }),
+} as const;
+
+// ---------------------------------------------------------------------------
+// Client -> Server Events
+// ---------------------------------------------------------------------------
+
+export const ClientEvents = {
+ /**
+ * Subscribe to tenant rooms on connection.
+ * Server validates tenant_id against auth token before room join.
+ */
+ 'subscribe': z.object({
+ /** Channels to subscribe to */
+ channels: z.array(z.enum([
+ 'dashboard',
+ 'escalations',
+ 'integrations',
+ 'notifications',
+ 'support',
+ 'imports',
+ 'executive',
+ 'sessions',
+ ])),
+ }),
+
+ /**
+ * Unsubscribe from channels.
+ */
+ 'unsubscribe': z.object({
+ channels: z.array(z.string()),
+ }),
+
+ /**
+ * Mark notification as read (real-time sync across tabs).
+ */
+ 'notification:mark_read': z.object({
+ notification_id: z.string().uuid(),
+ }),
+
+ /**
+ * Support Agent: user is typing indicator.
+ */
+ 'support:user_typing': z.object({
+ conversation_id: z.string().uuid(),
+ is_typing: z.boolean(),
+ }),
+
+ /**
+ * Reconnection: send last-received event timestamp for replay.
+ */
+ 'reconnect:sync': z.object({
+ last_event_timestamp: z.string().datetime(),
+ }),
+
+ /**
+ * Heartbeat/ping (keep connection alive).
+ */
+ 'ping': z.object({
+ timestamp: z.number(),
+ }),
+} as const;
+
+
+// ============================================================================
+// PART 4: NATS SUBJECT CATALOG (JetStream)
+// ============================================================================
+// Canonical format: TENANT_{tenantId}.{domain}.{name}.{event}
+// All subjects built via buildSubject(tenantId, domain, name, event) helper.
+// CI lint rule rejects raw string subjects.
+// Single internal NATS user for backend services (per-tenant NKey deferred to post-100-tenant).
+
+// ---------------------------------------------------------------------------
+// Standard Inter-Agent Event Payload (AI-15)
+// ---------------------------------------------------------------------------
+
+export const NatsEventPayloadSchema = z.object({
+ /** Event type identifier */
+ event_type: z.string(),
+ /** Tenant context */
+ tenant_id: z.string().uuid(),
+ /** Which agent published this event */
+ source_agent: z.nativeEnum(AgentType).nullable(),
+ /** Intended receiving agent (null = broadcast) */
+ target_agent: z.nativeEnum(AgentType).nullable(),
+ /** Event-specific payload */
+ payload: z.record(z.unknown()),
+ /** Reference to originating agent execution for context lookup */
+ context_ref: z.string().uuid().nullable(),
+ /** W3C traceparent for distributed tracing */
+ trace_context: z.string().nullable().default(null),
+ /** Event timestamp (ISO 8601) */
+ timestamp: z.string().datetime(),
+});
+export type NatsEventPayload = z.infer;
+
+/**
+ * Complete NATS Subject Catalog.
+ *
+ * Format: TENANT_{tenantId}.{domain}.{name}.{event}
+ * Builder: buildSubject(tenantId, domain, name, event)
+ */
+export const NatsSubjects = {
+ // -------------------------------------------------------------------------
+ // Agent Execution Events
+ // -------------------------------------------------------------------------
+
+ /** Agent execution started */
+ AGENT_EXECUTION_STARTED: {
+ pattern: 'TENANT_{tenantId}.agent.{agentType}.execution.started',
+ publisher: 'Agent Executor (BullMQ Worker)',
+ consumers: ['Dashboard WebSocket Relay', 'Event Bus Logger'],
+ durability: 'JetStream' as const,
+ description: 'Published when an agent begins execution.',
+ },
+
+ /** Agent execution completed */
+ AGENT_EXECUTION_COMPLETED: {
+ pattern: 'TENANT_{tenantId}.agent.{agentType}.execution.completed',
+ publisher: 'Agent Executor (BullMQ Worker)',
+ consumers: ['Dashboard WebSocket Relay', 'Event Bus Logger', 'Inter-Agent Coordinator', 'Usage Tracker'],
+ durability: 'JetStream' as const,
+ description: 'Published when an agent execution completes successfully.',
+ },
+
+ /** Agent execution failed */
+ AGENT_EXECUTION_FAILED: {
+ pattern: 'TENANT_{tenantId}.agent.{agentType}.execution.failed',
+ publisher: 'Agent Executor (BullMQ Worker)',
+ consumers: ['Dashboard WebSocket Relay', 'Event Bus Logger', 'Proactive Support Monitor', 'DLQ Handler'],
+ durability: 'JetStream' as const,
+ description: 'Published on agent execution failure. Proactive Support monitors for failure streaks.',
+ },
+
+ /** Agent execution timed out */
+ AGENT_EXECUTION_TIMEOUT: {
+ pattern: 'TENANT_{tenantId}.agent.{agentType}.execution.timeout',
+ publisher: 'Agent Executor (BullMQ Worker)',
+ consumers: ['Dashboard WebSocket Relay', 'Event Bus Logger', 'DLQ Handler'],
+ durability: 'JetStream' as const,
+ description: 'Published when agent exceeds 300s wall-clock timeout.',
+ },
+
+ // -------------------------------------------------------------------------
+ // Inter-Agent Coordination (AI-15)
+ // -------------------------------------------------------------------------
+
+ /** Leads Agent qualified a new lead */
+ LEAD_QUALIFIED: {
+ pattern: 'TENANT_{tenantId}.agent.discovery_concierge.lead.qualified',
+ publisher: 'Leads Agent',
+ consumers: ['Sales Agent (if auto-estimate enabled)', 'CEO Agent (for daily briefing)'],
+ durability: 'JetStream' as const,
+ description: 'New lead scored as hot/warm by Leads Agent.',
+ },
+
+ /** Sales Agent completed an estimate */
+ ESTIMATE_COMPLETED: {
+ pattern: 'TENANT_{tenantId}.agent.estimate_engine.estimate.completed',
+ publisher: 'Sales Agent',
+ consumers: ['Project Management Agent', 'CEO Agent', 'Bookkeeping Agent'],
+ durability: 'JetStream' as const,
+ description: 'Estimate finalized. Includes context_ref to lookup estimate data.',
+ },
+
+ /** Project Management Agent detected schedule drift */
+ SCHEDULE_DRIFT_DETECTED: {
+ pattern: 'TENANT_{tenantId}.agent.project_orchestrator.schedule.drift',
+ publisher: 'Project Management Agent',
+ consumers: ['CEO Agent', 'Bookkeeping Agent'],
+ durability: 'JetStream' as const,
+ description: 'Schedule deviation exceeds threshold. May trigger escalation.',
+ },
+
+ /** Bookkeeping Agent flagged a financial anomaly */
+ FINANCIAL_ANOMALY: {
+ pattern: 'TENANT_{tenantId}.agent.operations_controller.financial.anomaly',
+ publisher: 'Bookkeeping Agent',
+ consumers: ['CEO Agent'],
+ durability: 'JetStream' as const,
+ description: 'AR overdue, budget overrun, or other financial flag.',
+ },
+
+ /** CEO Agent morning briefing generated */
+ BRIEFING_GENERATED: {
+ pattern: 'TENANT_{tenantId}.agent.executive_navigator.briefing.generated',
+ publisher: 'CEO Agent',
+ consumers: ['Dashboard WebSocket Relay (CEO notification)'],
+ durability: 'JetStream' as const,
+ description: 'Daily CEO morning briefing draft created.',
+ },
+
+ // -------------------------------------------------------------------------
+ // Escalation Events
+ // -------------------------------------------------------------------------
+
+ /** New escalation created by any agent */
+ ESCALATION_CREATED: {
+ pattern: 'TENANT_{tenantId}.escalation.created',
+ publisher: 'Any agent via escalate() method',
+ consumers: ['Dashboard WebSocket Relay', 'Notification Service', 'Event Bus Logger'],
+ durability: 'JetStream' as const,
+ description: 'Human-in-the-loop approval needed.',
+ },
+
+ /** Escalation resolved (approved, rejected, modified) */
+ ESCALATION_RESOLVED: {
+ pattern: 'TENANT_{tenantId}.escalation.resolved',
+ publisher: 'API Handler (escalation routes)',
+ consumers: ['Agent Executor (to execute approved action)', 'Dashboard WebSocket Relay', 'Event Bus Logger'],
+ durability: 'JetStream' as const,
+ description: 'Human resolved an escalation. If approved, triggers action execution.',
+ },
+
+ // -------------------------------------------------------------------------
+ // Draft Events
+ // -------------------------------------------------------------------------
+
+ /** New draft created for review */
+ DRAFT_CREATED: {
+ pattern: 'TENANT_{tenantId}.draft.created',
+ publisher: 'Any agent',
+ consumers: ['Dashboard WebSocket Relay', 'Notification Service'],
+ durability: 'JetStream' as const,
+ description: 'Agent-generated content ready for human review.',
+ },
+
+ /** Draft approved/rejected */
+ DRAFT_RESOLVED: {
+ pattern: 'TENANT_{tenantId}.draft.resolved',
+ publisher: 'API Handler (draft routes)',
+ consumers: ['Action Executor (send email, create record)', 'Event Bus Logger'],
+ durability: 'JetStream' as const,
+ description: 'Human approved or rejected a draft.',
+ },
+
+ // -------------------------------------------------------------------------
+ // Webhook Events (External -> Internal)
+ // -------------------------------------------------------------------------
+
+ /** Inbound webhook from any external service */
+ WEBHOOK_RECEIVED: {
+ pattern: 'TENANT_{tenantId}.webhook.{service}.{eventType}',
+ publisher: 'Webhook Handler (API routes)',
+ consumers: ['Relevant agent(s) based on service/event routing', 'Event Bus Logger'],
+ durability: 'JetStream' as const,
+ description: 'External webhook processed and published to NATS for agent consumption.',
+ },
+
+ /** Inbound email received via SendGrid */
+ EMAIL_INBOUND: {
+ pattern: 'TENANT_{tenantId}.webhook.sendgrid.email_inbound',
+ publisher: 'SendGrid Webhook Handler',
+ consumers: ['Leads Agent (lead processing)', 'Event Bus Logger'],
+ durability: 'JetStream' as const,
+ description: 'Inbound email parsed by SendGrid Inbound Parse.',
+ },
+
+ /** Stripe billing event */
+ BILLING_EVENT: {
+ pattern: 'TENANT_{tenantId}.webhook.stripe.{eventType}',
+ publisher: 'Stripe Webhook Handler',
+ consumers: ['Billing State Machine', 'Notification Service'],
+ durability: 'JetStream' as const,
+ description: 'Stripe subscription lifecycle events.',
+ },
+
+ /** JobTread data change */
+ JOBTREAD_SYNC: {
+ pattern: 'TENANT_{tenantId}.webhook.jobtread.{entityType}.{action}',
+ publisher: 'JobTread Webhook Handler / Polling Sync Job',
+ consumers: ['Project Management Agent', 'Sales Agent', 'Data Mirror Sync Service'],
+ durability: 'JetStream' as const,
+ description: 'JobTread project/task/contact data change events.',
+ },
+
+ /** QuickBooks financial data change */
+ QUICKBOOKS_SYNC: {
+ pattern: 'TENANT_{tenantId}.webhook.quickbooks.{entityType}.{action}',
+ publisher: 'QuickBooks Webhook Handler',
+ consumers: ['Bookkeeping Agent', 'CEO Agent'],
+ durability: 'JetStream' as const,
+ description: 'QuickBooks invoice/payment/account data changes.',
+ },
+
+ // -------------------------------------------------------------------------
+ // Integration Events
+ // -------------------------------------------------------------------------
+
+ /** Integration connected/disconnected */
+ INTEGRATION_STATUS_CHANGED: {
+ pattern: 'TENANT_{tenantId}.integration.{service}.status_changed',
+ publisher: 'Integration Service',
+ consumers: ['Dashboard WebSocket Relay', 'Notification Service'],
+ durability: 'JetStream' as const,
+ description: 'Integration connection status changed.',
+ },
+
+ /** OAuth token refreshed */
+ TOKEN_REFRESHED: {
+ pattern: 'TENANT_{tenantId}.integration.{service}.token_refreshed',
+ publisher: 'Token Refresh Background Job',
+ consumers: ['Event Bus Logger'],
+ durability: 'core' as const,
+ description: 'OAuth token successfully refreshed. Core NATS (no persistence needed).',
+ },
+
+ /** OAuth token refresh failed */
+ TOKEN_REFRESH_FAILED: {
+ pattern: 'TENANT_{tenantId}.integration.{service}.token_refresh_failed',
+ publisher: 'Token Refresh Background Job',
+ consumers: ['Notification Service', 'Proactive Support Monitor'],
+ durability: 'JetStream' as const,
+ description: 'OAuth token refresh failed. Alerts tenant to reconnect.',
+ },
+
+ // -------------------------------------------------------------------------
+ // Notification Events
+ // -------------------------------------------------------------------------
+
+ /** Notification dispatched (for cross-channel delivery) */
+ NOTIFICATION_DISPATCHED: {
+ pattern: 'TENANT_{tenantId}.notification.dispatched',
+ publisher: 'Notification Service',
+ consumers: ['Dashboard WebSocket Relay', 'Email Delivery Service', 'Slack Delivery Service'],
+ durability: 'JetStream' as const,
+ description: 'Notification created. Consumers deliver to configured channels.',
+ },
+
+ // -------------------------------------------------------------------------
+ // Support Events
+ // -------------------------------------------------------------------------
+
+ /** Support conversation created */
+ SUPPORT_CONVERSATION_CREATED: {
+ pattern: 'TENANT_{tenantId}.support.conversation.created',
+ publisher: 'Support API Handler',
+ consumers: ['Support Agent Executor', 'Event Bus Logger'],
+ durability: 'JetStream' as const,
+ description: 'New support conversation started by user.',
+ },
+
+ /** Support escalation to human */
+ SUPPORT_ESCALATED: {
+ pattern: 'TENANT_{tenantId}.support.conversation.escalated',
+ publisher: 'Support Agent',
+ consumers: ['Notification Service (founders)', 'Linear Ticket Creator'],
+ durability: 'JetStream' as const,
+ description: 'Support Agent escalated to human support.',
+ },
+
+ // -------------------------------------------------------------------------
+ // Spending & Usage Events
+ // -------------------------------------------------------------------------
+
+ /** Tenant spending threshold reached */
+ SPENDING_THRESHOLD: {
+ pattern: 'TENANT_{tenantId}.billing.spending.threshold',
+ publisher: 'AI SDK costTrackingMiddleware',
+ consumers: ['Notification Service', 'Rate Limiter'],
+ durability: 'JetStream' as const,
+ description: 'Tenant reached 80% or 100% of AI spending limit.',
+ },
+
+ /** Daily usage sync completed */
+ USAGE_SYNCED: {
+ pattern: 'TENANT_{tenantId}.billing.usage.synced',
+ publisher: 'Daily Usage Sync Cron Job',
+ consumers: ['Event Bus Logger'],
+ durability: 'core' as const,
+ description: 'Daily tenant usage aggregation completed.',
+ },
+
+ // -------------------------------------------------------------------------
+ // Tenant Lifecycle Events
+ // -------------------------------------------------------------------------
+
+ /** New tenant provisioned */
+ TENANT_PROVISIONED: {
+ pattern: 'SYSTEM.tenant.provisioned',
+ publisher: 'Tenant Provisioning Saga',
+ consumers: ['Welcome Email Service', 'Event Bus Logger'],
+ durability: 'JetStream' as const,
+ description: 'New tenant fully provisioned (DB, NATS namespace, Valkey prefix).',
+ },
+
+ /** Tenant offboarding started */
+ TENANT_OFFBOARDING: {
+ pattern: 'SYSTEM.tenant.offboarding',
+ publisher: 'Tenant Offboarding Service',
+ consumers: ['Data Export Job', 'Integration Cleanup Job', 'Event Bus Logger'],
+ durability: 'JetStream' as const,
+ description: 'Tenant churn. Triggers data export, integration cleanup, 90-day deletion queue.',
+ },
+
+ /** Member removed from tenant */
+ MEMBER_REMOVED: {
+ pattern: 'TENANT_{tenantId}.member.removed',
+ publisher: 'Team Management API',
+ consumers: ['WebSocket Server (force eviction)', 'Session Revocation Service'],
+ durability: 'JetStream' as const,
+ description: 'Member removed. Socket forcibly disconnected, sessions revoked.',
+ },
+
+ /** Member role changed */
+ MEMBER_ROLE_CHANGED: {
+ pattern: 'TENANT_{tenantId}.member.role_changed',
+ publisher: 'Team Management API',
+ consumers: ['WebSocket Server (room re-validation)', 'Session Revocation Service'],
+ durability: 'JetStream' as const,
+ description: 'Member role updated. Re-validate room access and permissions.',
+ },
+} as const;
+
+
+// ============================================================================
+// HELPER TYPES & UTILITIES
+// ============================================================================
+
+/**
+ * NATS subject builder — enforces canonical format.
+ * CI lint rule: all publish/subscribe calls MUST use this helper.
+ */
+export function buildSubject(
+ tenantId: string,
+ domain: string,
+ name: string,
+ event: string,
+): string {
+ return `TENANT_${tenantId}.${domain}.${name}.${event}`;
+}
+
+/**
+ * Parse a tenant room name and extract tenant ID.
+ * Room format: tenant:{tenantId}:{channel}
+ */
+export function parseTenantRoom(roomName: string): {
+ tenantId: string;
+ channel: string;
+} | null {
+ const match = roomName.match(/^tenant:([a-f0-9-]+):(.+)$/);
+ if (!match) return null;
+ return { tenantId: match[1], channel: match[2] };
+}
+
+/**
+ * BullMQ job ID builder — deterministic for deduplication (Section 9, Wave 2).
+ * Format: ${tenantId}:${agentId}:${triggerType}:${windowId}
+ */
+export function buildJobId(
+ tenantId: string,
+ agentId: string,
+ triggerType: TriggerType,
+ /** Time-bucket (floor to 5-minute intervals for scheduled jobs) */
+ windowId?: string,
+): string {
+ const window = windowId ?? Math.floor(Date.now() / 300_000).toString();
+ return `${tenantId}:${agentId}:${triggerType}:${window}`;
+}
+
+/**
+ * Hono RPC AppType export.
+ * Use hcWithType pattern to avoid IDE slowdown with large route trees (HONO-07).
+ */
+export type AppRoutes = {
+ auth: typeof AuthRoutes;
+ tenants: typeof TenantRoutes;
+ agents: typeof AgentRoutes;
+ executions: typeof ExecutionRoutes;
+ escalations: typeof EscalationRoutes;
+ drafts: typeof DraftRoutes;
+ integrations: typeof IntegrationRoutes;
+ support: typeof SupportRoutes;
+ notifications: typeof NotificationRoutes;
+ admin: typeof AdminRoutes;
+ team: typeof TeamRoutes;
+ billing: typeof BillingRoutes;
+ import: typeof ImportRoutes;
+ profile: typeof ProfileRoutes;
+ health: typeof HealthRoutes;
+ kb: typeof KnowledgeBaseRoutes;
+};
+
+```
+
+
+---

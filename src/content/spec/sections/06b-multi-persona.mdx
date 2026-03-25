@@ -1,0 +1,497 @@
+---
+title: "6b. Multi-Persona Architecture & Industry Template System"
+slug: "multi-persona"
+section: "06b"
+---
+
+> Full architecture details: see `kiptra-multi-persona-architecture.md` (893 lines). This section covers the engineering specification for industry/persona routing, template definitions, DDL, API routes, agent configuration per template, and build order integration.
+
+
+### Design Decision: Tenant Types, Not Roles
+
+Each business IS one persona type. A dealer is a dealer. A manufacturer is a manufacturer. They are separate companies, separate tenants, with cross-tenant interactions via a B2B network layer. This is NOT roles within a tenant --- it is a `tenant_type` column on the `tenants` table that determines which template is applied.
+
+**Why NOT roles within a tenant:** A dealer and a manufacturer are separate legal entities with separate billing, separate data, separate users. Mixing personas as roles creates an unmanageable RBAC matrix and muddled UX.
+
+**Why NOT separate apps:** The 4 personas share 60--70% of the same infrastructure (auth, billing, agents framework, event bus, real-time). Maintaining 4 separate codebases is 4x engineering cost with no benefit.
+
+**Pricing constraint:** All personas use the same pricing tiers ($275/$500/$750 monthly at Starter/Professional/Enterprise). Persona-specific pricing is a post-launch consideration once network effects are validated.
+
+
+### Industry Template Definition Interface
+
+
+The template system is **configuration, not code forks**. Each template defines what gets shown, which agents are active, and how onboarding behaves --- without any branching in the platform codebase. Templates are stored as rows in the `agent_templates` table with JSONB configuration.
+
+
+```typescript
+interface IndustryTemplate {
+  id: string; // 'kb_contractor', 'kb_dealer', 'hvac_contractor', etc.
+  industry: IndustryVertical;
+  tenantType: TenantType;
+  label: string; // "Kitchen & Bath Contractor"
+  description: string;
+
+  // What gets configured
+  dashboard: {
+    layout: 'contractor' | 'dealer' | 'rep' | 'manufacturer';
+    cards: string[]; // which dashboard cards to show
+    charts: string[]; // which analytics charts
+  };
+
+  sidebar: {
+    items: string[]; // which nav items are visible
+    showKBCanvas: boolean;
+    showEOS: boolean;
+  };
+
+  agents: {
+    enabled: AgentType[]; // which agents are active
+    promptTemplateOverrides: Record<AgentType, string>; // persona-specific prompts
+    toolPermissions: Record<AgentType, string[]>; // which tools each agent can use
+  };
+
+  onboarding: {
+    checklist: ChecklistItem[];
+    tour: TourDefinition;
+    integrationSuggestions: IntegrationService[];
+  };
+
+  rbac: {
+    availableRoles: TenantRole[];
+    defaultRole: TenantRole;
+    customRoles?: { name: string; permissions: string[] }[];
+  };
+}
+
+type IndustryVertical = 'kitchen_bath' | 'hvac' | 'general_construction' | 'landscaping';
+type TenantType = 'contractor' | 'dealer' | 'rep' | 'manufacturer';
+```
+
+
+### Template Registry
+
+
+```typescript
+const TEMPLATE_REGISTRY: Record<string, IndustryTemplate> = {
+  'kb_contractor': {
+    id: 'kb_contractor',
+    industry: 'kitchen_bath',
+    tenantType: 'contractor',
+    label: 'Kitchen & Bath Contractor',
+    description: 'Design, estimate, and manage kitchen/bath remodeling projects',
+    dashboard: {
+      layout: 'contractor',
+      cards: ['active_projects', 'lead_pipeline', 'revenue_mtd', 'pending_approvals'],
+      charts: ['project_profitability', 'lead_conversion', 'monthly_revenue'],
+    },
+    sidebar: {
+      items: ['dashboard', 'projects', 'estimates', 'leads', 'design', 'calendar', 'billing', 'eos', 'settings'],
+      showKBCanvas: true,
+      showEOS: true,
+    },
+    agents: {
+      enabled: ['discovery_concierge', 'design_spec_assistant', 'estimate_engine',
+                'project_orchestrator', 'operations_controller', 'executive_navigator', 'support_agent'],
+      promptTemplateOverrides: {
+        discovery_concierge: 'Qualify homeowner leads for kitchen/bath remodeling projects...',
+        estimate_engine: 'Generate project cost estimates for residential K&B remodeling...',
+        // ... per-agent prompt overrides
+      },
+      toolPermissions: {
+        discovery_concierge: ['query_jobtread_projects', 'draft_email', 'check_calendar'],
+        estimate_engine: ['query_pricing_db', 'generate_estimate', 'lookup_material'],
+        // ... per-agent tool permissions
+      },
+    },
+    onboarding: {
+      checklist: [/* contractor-specific checklist items */],
+      tour: {/* contractor-specific tour definition */},
+      integrationSuggestions: ['jobtread', 'quickbooks', 'google_calendar'],
+    },
+    rbac: {
+      availableRoles: ['owner', 'admin', 'manager', 'designer', 'bookkeeper', 'viewer'],
+      defaultRole: 'viewer',
+    },
+  },
+  'kb_dealer': { /* Dealer template — Wave 5 */ },
+  'kb_rep': { /* Sales Rep template — Wave 7 */ },
+  'kb_manufacturer': { /* Manufacturer template — Wave 6 */ },
+  // Future verticals:
+  // 'hvac_contractor': { /* ... */ },
+  // 'hvac_distributor': { /* ... */ },
+  // 'gc_contractor': { /* ... */ },
+};
+```
+
+
+### DDL: Tenant Type & Industry Vertical Columns
+
+
+Add to the existing `tenants` table (Section 5b):
+
+
+```sql
+-- Add to tenants table (Wave 1 — add columns with defaults, no UI yet)
+ALTER TABLE tenants ADD COLUMN industry_vertical TEXT NOT NULL DEFAULT 'kitchen_bath'
+  CHECK (industry_vertical IN ('kitchen_bath', 'hvac', 'general_construction', 'landscaping'));
+ALTER TABLE tenants ADD COLUMN tenant_type TEXT NOT NULL DEFAULT 'contractor'
+  CHECK (tenant_type IN ('contractor', 'dealer', 'rep', 'manufacturer'));
+CREATE INDEX idx_tenants_vertical_type ON tenants(industry_vertical, tenant_type);
+```
+
+
+**Migration note:** The `industry_vertical` column replaces the existing freeform `industry_vertical TEXT` column (currently stores values like `'construction_remodeling'`). Migration: `UPDATE tenants SET industry_vertical = 'kitchen_bath' WHERE industry_vertical = 'construction_remodeling';` then add the CHECK constraint. The new column uses a normalized enum with CHECK constraint for type safety.
+
+
+### DDL: B2B Network Tables (Wave 5+)
+
+
+These tables enable cross-tenant interactions (dealer-contractor orders, manufacturer-dealer catalogs, rep commissions). They are created in Wave 5 but remain empty until the B2B network layer ships.
+
+
+```sql
+-- =============================================================================
+-- DOMAIN: B2B NETWORK (Cross-Tenant Relationships & Orders)
+-- =============================================================================
+
+CREATE TABLE tenant_relationships (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  requesting_tenant_id UUID NOT NULL REFERENCES tenants(id),
+  target_tenant_id UUID NOT NULL REFERENCES tenants(id),
+  relationship_type TEXT NOT NULL CHECK (relationship_type IN (
+    'contractor_dealer', 'dealer_manufacturer', 'rep_dealer', 'rep_contractor'
+  )),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+    'pending', 'active', 'suspended', 'terminated'
+  )),
+  metadata JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(requesting_tenant_id, target_tenant_id, relationship_type)
+);
+
+-- Special RLS: both parties can see the relationship
+ALTER TABLE tenant_relationships ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tenant_relationships FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_relationships_access ON tenant_relationships
+  USING (
+    requesting_tenant_id = (SELECT current_setting('app.tenant_id', true))::uuid
+    OR target_tenant_id = (SELECT current_setting('app.tenant_id', true))::uuid
+  );
+
+COMMENT ON TABLE tenant_relationships IS 'B2B network graph. Cross-tenant by design — both parties can read.';
+CREATE INDEX idx_tenant_rel_requesting ON tenant_relationships (requesting_tenant_id);
+CREATE INDEX idx_tenant_rel_target ON tenant_relationships (target_tenant_id);
+CREATE INDEX idx_tenant_rel_type ON tenant_relationships (relationship_type);
+CREATE INDEX idx_tenant_rel_status ON tenant_relationships (status) WHERE status = 'active';
+
+CREATE TABLE cross_tenant_orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_tenant_id UUID NOT NULL REFERENCES tenants(id),
+  target_tenant_id UUID NOT NULL REFERENCES tenants(id),
+  relationship_id UUID NOT NULL REFERENCES tenant_relationships(id),
+  order_type TEXT NOT NULL CHECK (order_type IN (
+    'material_order', 'production_order', 'catalog_request'
+  )),
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN (
+    'draft', 'submitted', 'confirmed', 'in_production', 'shipped', 'delivered', 'cancelled'
+  )),
+  line_items JSONB NOT NULL DEFAULT '[]',
+  total_amount_cents INTEGER,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- RLS: both source and target can see
+ALTER TABLE cross_tenant_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cross_tenant_orders FORCE ROW LEVEL SECURITY;
+CREATE POLICY cross_tenant_orders_access ON cross_tenant_orders
+  USING (
+    source_tenant_id = (SELECT current_setting('app.tenant_id', true))::uuid
+    OR target_tenant_id = (SELECT current_setting('app.tenant_id', true))::uuid
+  );
+
+COMMENT ON TABLE cross_tenant_orders IS 'Orders flowing between tenants via B2B network. Both parties can read.';
+CREATE INDEX idx_xto_source ON cross_tenant_orders (source_tenant_id);
+CREATE INDEX idx_xto_target ON cross_tenant_orders (target_tenant_id);
+CREATE INDEX idx_xto_relationship ON cross_tenant_orders (relationship_id);
+CREATE INDEX idx_xto_status ON cross_tenant_orders (status);
+```
+
+
+### Agent Configuration Per Template
+
+
+Each of the 7 core agents is reconfigured per persona via prompt template overrides in the `IndustryTemplate.agents.promptTemplateOverrides` field. The agent code is identical --- only the prompts and tool permissions change.
+
+
+| Agent | Contractor Prompt Focus | Dealer Prompt Focus | Rep Prompt Focus | Manufacturer Prompt Focus |
+|-------|------------------------|--------------------|--------------------|--------------------------|
+| **Leads Agent** | Homeowner lead qualification | Contractor account acquisition | Territory prospecting | Dealer recruitment |
+| **Sales Agent** | Project cost estimation | Dealer pricing / markup calc | Quick material quotes | Production cost modeling |
+| **Project Management Agent** | Job site management | Order fulfillment tracking | Order status monitoring | Production scheduling |
+| **Bookkeeping Agent** | AR/AP, subcontractor payments | Inventory, purchase orders | Commission reconciliation | Supply chain operations |
+| **CEO Agent** | Project ROI, team productivity | Sales analytics, territory performance | Territory commission summary | Distribution analytics |
+| **Design Agent** | K&B design specs for clients | Product specs for contractor orders | Product spec sheets | Catalog data management |
+| **Support Agent** | Platform help (contractor context) | Platform help (dealer context) | Platform help (rep context) | Platform help (manufacturer context) |
+
+> **Spec Amendment (Update 2026-03-25):** Agents are now persona-specific. Each persona has a tailored agent roster:
+>
+> | Persona | Agent Count | Agents |
+> |---------|------------|--------|
+> | **Contractor** | 7 | Leads, Design, Sales, Project Management, Bookkeeping, CEO, Support |
+> | **Dealer** | 9 | Leads, Design, Sales, Project Management, Bookkeeping, CEO, Support, **Catalog Pricing Agent**, **Order Routing Agent** |
+> | **Sales Rep** | 7 | Leads, Design, Bookkeeping, CEO, Support, **Territory Intelligence**, **Commission Optimizer** |
+> | **Manufacturer** | 9 | Leads, Design, Sales, Project Management, Bookkeeping, CEO, Support, **Catalog Publisher**, **Production Scheduler**, **Quality Analytics** |
+>
+> **Total: 28 agent types across 4 personas** (was "7 per tenant"). Persona-specific agents (bold) are only instantiated for their respective persona. Shared agents adapt behavior via `promptTemplateOverrides` in the `IndustryTemplate` JSONB.
+
+
+**Implementation:** The `AgentPluginFactory` (Section 6) receives `tenantType` via `AgentExecutionContext`. The agent's system prompt is resolved at execution time: `basePrompt + promptTemplateOverrides[agentType]`. This means zero code changes per persona --- only JSONB configuration in the template.
+
+
+### Onboarding Flow: Industry & Persona Selection
+
+
+The existing onboarding wizard (Section 13d) is extended with industry/persona selection steps. These steps determine which `IndustryTemplate` is applied to the tenant.
+
+
+**Updated Onboarding State Machine:**
+
+
+```
+company_details -> industry_selection -> persona_selection -> profile_setup -> plan_selection -> payment -> team_invite -> complete
+                   (NEW — Wave 4)       (NEW — Wave 4)       (Phase 1: skip)  (Phase 1: skip)
+```
+
+
+#### Step 1: `/onboard/company` --- Company Details (unchanged)
+
+Company name, company size, phone, address. Same as current spec (Section 13d, Screen 1).
+
+
+#### Step 2: `/onboard/industry` --- Industry Selection (NEW --- Wave 4)
+
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| Industry vertical | Radio group with icons | Yes | Options: Kitchen & Bath (default selected), HVAC, General Construction, Landscaping. Each option includes a 1-line description. |
+
+
+**UI:** Four large radio cards with industry icons. "Kitchen & Bath" is pre-selected as the default. Each card shows: icon, industry name, 1-line description (e.g., "Design and install kitchens, bathrooms, and living spaces").
+
+Primary action: **"Continue"** button. Writes `industry_vertical` to `tenants` table.
+
+
+#### Step 3: `/onboard/persona` --- Business Role Selection (NEW --- Wave 4)
+
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| Business role | Radio group | Yes | Options change based on industry selection from Step 2. |
+
+
+**Options by industry (Kitchen & Bath):**
+- **Contractor / Remodeler** --- "I design and install kitchens/baths for homeowners"
+- **Dealer / Showroom** --- "I sell cabinets, countertops, and appliances to contractors" *(disabled until Wave 5)*
+- **Sales Representative** --- "I represent manufacturers and sell to dealers/contractors" *(disabled until Wave 7)*
+- **Manufacturer** --- "I make kitchen/bath products and sell through dealers" *(disabled until Wave 6)*
+
+Disabled options show a "Coming Soon" badge and are not selectable.
+
+**Template application on selection:**
+```typescript
+// After both industry and persona are selected:
+const templateId = `${industry}_${tenantType}`; // e.g., 'kb_contractor'
+const template = TEMPLATE_REGISTRY[templateId];
+
+// Apply template to tenant:
+await applyTemplate(tenantId, template);
+// 1. Set tenant.industry_vertical and tenant.tenant_type
+// 2. Configure dashboard layout from template.dashboard
+// 3. Enable agents from template.agents.enabled
+// 4. Configure sidebar from template.sidebar
+// 5. Set default integrations from template.onboarding.integrationSuggestions
+// 6. Initialize onboarding checklist from template.onboarding.checklist
+// 7. Prepare tour from template.onboarding.tour
+```
+
+Primary action: **"Continue"** button. Writes `tenant_type` to `tenants` table and triggers template application.
+
+
+#### Steps 4--7: Unchanged
+
+Profile setup, plan selection (Phase 2), payment (Phase 2), and team invitations proceed as specified in Section 13d.
+
+
+**Onboarding step column update:** The `tenants.onboarding_step` CHECK constraint must be extended:
+```sql
+ALTER TABLE tenants DROP CONSTRAINT tenants_onboarding_step_check;
+ALTER TABLE tenants ADD CONSTRAINT tenants_onboarding_step_check
+  CHECK (onboarding_step IN ('company', 'industry', 'persona', 'profile', 'plan', 'payment', 'team', 'complete'));
+```
+
+
+### API Routes: Template System
+
+
+```typescript
+// --- Template Routes (Wave 4) ---
+
+/** GET /api/v1/templates — List available templates */
+// Returns all templates, with 'available' flag based on current wave.
+// Auth: any authenticated user. Used during onboarding.
+listTemplates: {
+  method: 'GET',
+  path: '/api/v1/templates',
+  response: z.array(z.object({
+    id: z.string(),
+    industry: z.string(),
+    tenantType: z.string(),
+    label: z.string(),
+    description: z.string(),
+    available: z.boolean(), // false for 'Coming Soon' templates
+  })),
+  auth: ['owner', 'admin'],
+  rate_limit: 'standard',
+},
+
+/** GET /api/v1/templates/:templateId — Get template details */
+getTemplate: {
+  method: 'GET',
+  path: '/api/v1/templates/:templateId',
+  params: z.object({ templateId: z.string() }),
+  response: IndustryTemplateSchema, // Full template definition
+  auth: ['owner', 'admin'],
+  rate_limit: 'standard',
+},
+
+/** POST /api/v1/tenants/apply-template — Apply template to current tenant */
+// Called during onboarding after industry + persona selection.
+// Idempotent: re-applying the same template is a no-op.
+applyTemplate: {
+  method: 'POST',
+  path: '/api/v1/tenants/apply-template',
+  request: z.object({ template_id: z.string() }),
+  response: z.object({
+    applied: z.boolean(),
+    template_id: z.string(),
+    agents_enabled: z.array(z.string()),
+    dashboard_layout: z.string(),
+  }),
+  auth: ['owner', 'admin'],
+  rate_limit: 'standard',
+},
+
+/** GET /api/v1/tenants/current/template — Get current tenant's template config */
+getCurrentTemplate: {
+  method: 'GET',
+  path: '/api/v1/tenants/current/template',
+  response: IndustryTemplateSchema,
+  auth: ['owner', 'admin'],
+  rate_limit: 'standard',
+},
+```
+
+
+### API Routes: B2B Network (Wave 5+)
+
+
+```typescript
+// --- B2B Network Routes (Wave 5+) ---
+
+/** POST /api/v1/network/relationships — Request a business connection */
+createRelationship: {
+  method: 'POST',
+  path: '/api/v1/network/relationships',
+  request: z.object({
+    target_tenant_id: z.string().uuid(),
+    relationship_type: z.enum(['contractor_dealer', 'dealer_manufacturer', 'rep_dealer', 'rep_contractor']),
+    metadata: z.record(z.unknown()).optional(),
+  }),
+  response: TenantRelationshipSchema,
+  auth: ['owner', 'admin'],
+  rate_limit: 'standard',
+},
+
+/** GET /api/v1/network/relationships — List connections */
+listRelationships: {
+  method: 'GET',
+  path: '/api/v1/network/relationships',
+  query: z.object({
+    status: z.enum(['pending', 'active', 'suspended', 'terminated']).optional(),
+    relationship_type: z.string().optional(),
+  }),
+  response: z.array(TenantRelationshipSchema),
+  auth: ['owner', 'admin', 'manager'],
+  rate_limit: 'standard',
+},
+
+/** PATCH /api/v1/network/relationships/:id — Accept/reject/suspend */
+updateRelationship: {
+  method: 'PATCH',
+  path: '/api/v1/network/relationships/:id',
+  params: z.object({ id: z.string().uuid() }),
+  request: z.object({
+    status: z.enum(['active', 'suspended', 'terminated']),
+  }),
+  response: TenantRelationshipSchema,
+  auth: ['owner', 'admin'],
+  rate_limit: 'standard',
+},
+
+/** POST /api/v1/network/orders — Place cross-tenant order */
+createOrder: {
+  method: 'POST',
+  path: '/api/v1/network/orders',
+  request: z.object({
+    target_tenant_id: z.string().uuid(),
+    relationship_id: z.string().uuid(),
+    order_type: z.enum(['material_order', 'production_order', 'catalog_request']),
+    line_items: z.array(z.object({
+      sku: z.string(),
+      description: z.string(),
+      quantity: z.number().int().positive(),
+      unit_price_cents: z.number().int(),
+    })),
+    notes: z.string().optional(),
+  }),
+  response: CrossTenantOrderSchema,
+  auth: ['owner', 'admin', 'manager'],
+  rate_limit: 'standard',
+},
+
+/** GET /api/v1/network/orders — List orders (sent + received) */
+listOrders: {
+  method: 'GET',
+  path: '/api/v1/network/orders',
+  query: z.object({
+    direction: z.enum(['sent', 'received', 'all']).default('all'),
+    status: z.string().optional(),
+    order_type: z.string().optional(),
+  }),
+  response: z.array(CrossTenantOrderSchema),
+  auth: ['owner', 'admin', 'manager'],
+  rate_limit: 'standard',
+},
+```
+
+
+### Build Order Integration
+
+
+The multi-persona architecture is phased into the existing wave structure:
+
+
+| Wave | Deliverable | Scope |
+|------|------------|-------|
+| **Wave 1** | Add `industry_vertical` + `tenant_type` columns to `tenants` table | DDL only --- default values (`'kitchen_bath'`, `'contractor'`), no UI. Avoids data migration later. |
+| **Wave 4** | Industry/persona selection in onboarding wizard + template application logic | Two new onboarding screens, template registry, `applyTemplate()` endpoint. Only contractor template is functional; other options show "Coming Soon". |
+| **Wave 5+** | Dealer template + B2B network layer | `tenant_relationships` and `cross_tenant_orders` tables, dealer-specific agent prompt overrides, dealer dashboard route group, cross-tenant order flow. |
+| **Wave 6+** | Manufacturer template | Manufacturer-specific agent prompts, catalog publishing agent, production tracker agent, manufacturer dashboard route group. |
+| **Wave 7+** | Sales Rep template | Rep-specific agent prompts, commission tracker agent, territory intelligence agent, rep dashboard route group. |
+
+
+**Critical constraint:** Only the contractor persona ships in Waves 1--4. The template system infrastructure (registry, application logic, onboarding screens) ships in Wave 4 but only `kb_contractor` is selectable. This establishes the architecture without blocking the MVP.

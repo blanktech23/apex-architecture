@@ -1,0 +1,156 @@
+---
+title: "4. AI Gateway & Cost Model"
+slug: "ai-gateway-cost-model"
+section: "04"
+---
+
+Architecture Decision: Vercel AI Gateway over LiteLLM and OpenRouter
+
+
+The AI gateway uses **Vercel AI Gateway** (managed, zero markup, BYOK). OpenRouter charges a 5.5% fee on credit purchases. LiteLLM is self-hosted with 800+ open GitHub issues, memory leaks requiring nightly restarts, and a DB bottleneck at 1M+ logs. Vercel AI Gateway eliminates both: zero markup (same as LiteLLM), zero ops overhead (unlike LiteLLM), automatic Anthropic prompt caching, and native AI SDK v6 integration. At 100 customers, this saves ~$193/mo vs OpenRouter (5.5% of ~$3,500 AI spend) while also freeing 1,024 MB RAM per VPS node vs LiteLLM.
+
+
+### Per-Request Model Routing Strategy
+
+
+| Task Complexity | Model | Input $/1M | Output $/1M | Use Case | |
+
+
+| Simple (classify, extract) | GPT-4.1 Nano | $0.10 | $0.40 | Lead scoring, status checks (pricing verified March 2026) | |
+
+| Medium (summarize, draft) | Claude Haiku 4.5 | $1.00 | $5.00 | Email drafts, daily summaries | |
+
+| Complex (reasoning, analysis) | Claude Sonnet 4.6 | $3.00 | $15.00 | Estimates, financial analysis, CEO briefings | |
+
+| Frontier (deep analysis, complex reasoning) | Claude Sonnet 4.6 | $3.00 | $15.00 | Multi-step financial analysis, cross-agent orchestration, complex reasoning chains | |
+
+
+**Note:** Complex and Frontier route to the same model (Sonnet). The distinction is functional (Estimates vs CEO briefings), not cost-based. Frontier tasks are additionally capped at 1x/day per tenant to control frequency.
+
+
+**Note:** Full 4-tier routing specification with per-agent cost breakdown in Appendix B.
+
+
+**Note:** Opus ($75/1M output) is reserved exclusively for Frontier-tier CEO strategic briefings (1x/day max) --- all other production tasks route to Sonnet 4.6 or lower. If Sonnet quality proves sufficient for strategic briefings during Wave 4 testing, the Frontier tier collapses into Complex and Opus is eliminated entirely.
+
+
+**Note:** Model pricing verified March 2026. Re-validate against Vercel AI Gateway supported models and provider pricing pages before launch and at each quarterly planning cycle.
+
+
+### Cost at Scale (100 customers)
+
+
+| Metric | Unoptimized | With Routing + Caching | |
+
+
+| Monthly AI cost | $5,400 | $3,500 | |
+
+| Per customer/mo | $54.00 | $35.00 | |
+
+| Annual | $64,800 | $42,000 | |
+
+
+*Calculated using 20--30% blended cache hit rate (Starter: ~50--60%, Enterprise: ~10--20%). See Appendix B for full derivation.*
+
+
+### Pricing Strategy (SaaS Revenue)
+
+
+| Tier | Setup Fee | Monthly | Includes | AI Margin | |
+
+
+| Starter | $5,000 | $275/mo | 3 operational agents + Support Agent, 1K calls/day | ~85% | |
+
+| Professional | $10,000 | $500/mo | 6 operational agents + Support Agent, 5K calls/day | ~80% | |
+
+| Enterprise | $20,000 | $750/mo | 6 operational agents + Support Agent, unlimited, priority. Enterprise tier capped at $200/mo AI spend per tenant; usage above cap billed at cost. | ~75% | |
+
+
+Enterprise Unit Economics Note
+
+
+At $750/mo with a dedicated success manager commitment, Enterprise is a cost center unless each CSM carries 15--20+ Enterprise accounts. At 10% Enterprise mix (Year 3 = ~19 Enterprise customers), one CSM at $55--70K/year is viable ($3.6K/year per Enterprise customer vs $9K/year revenue per customer). The dedicated CSM commitment should be scoped as "priority support queue + quarterly business review", not a full-time assignment per account.
+
+
+**At 100 customers (60/30/10 blended mix):** $39,000/mo recurring revenue --- $3,500 AI cost --- $979 infra (VPS $320 + Supabase $599 + Vercel $20 + Cloudflare $20 + SendGrid $20) --- ~$624 payment processing (blended ACH/card, ~1.6%) = **$33,897/mo contribution margin (86.9%)**. This uses the actual infrastructure costs from the scaling table and the blended tier mix used throughout the P&L.
+
+
+**Payment Method Strategy:** Both ACH/bank transfer and credit/debit cards are accepted for all payments. ACH is presented as the default/recommended option. A 2.9% + $0.30 card processing surcharge is applied to card payments, displayed transparently at checkout. This is legal in 48 US states (restricted only in Connecticut and Massachusetts --- verify customer's state before applying surcharge).
+
+**Why ACH is recommended (shown to customer):**
+- No processing fee (vs 2.9% surcharge on cards)
+- Lower fraud/dispute risk
+- Standard for B2B construction payments
+
+**Checkout display:**
+```
+Select Payment Method:
+  ● Bank Account (ACH)  — $5,275.00  [RECOMMENDED]
+  ○ Credit/Debit Card   — $5,427.98  (includes 2.9% processing fee)
+```
+
+**Checkout Flow:**
+1. Customer selects plan tier (Starter/Professional/Enterprise)
+2. Checkout shows: Setup fee ($5K--$20K) + First month ($275--$750) = Total due today
+3. Payment method: Customer chooses ACH (recommended, no surcharge) or credit/debit card (2.9% + $0.30 surcharge applied). ACH is pre-selected as default.
+4. If card is selected, surcharge line item appears before confirmation
+5. Monthly subscription renewals: customer's choice of ACH or card. Same surcharge applies to card renewals. Customer can switch payment method at any time in billing settings.
+
+**Stripe Configuration:**
+```typescript
+// Checkout session — ACH preferred, cards accepted
+const session = await stripe.checkout.sessions.create({
+  mode: 'subscription',
+  payment_method_types: ['us_bank_account', 'card'], // ACH preferred, cards accepted
+  // Card surcharge applied via Stripe's automatic_tax or line item adjustment
+  line_items: [
+    { price: setupFeePrice, quantity: 1 },      // One-time setup fee
+    { price: monthlySubscriptionPrice },          // Recurring monthly
+  ],
+  payment_method_options: {
+    us_bank_account: {
+      financial_connections: { permissions: ['payment_method'] },
+      verification_method: 'instant', // Plaid instant verification
+    },
+  },
+});
+```
+
+**ACH Timeline:**
+- Instant verification via Plaid: customer connects bank account in ~30 seconds
+- Fallback: micro-deposit verification (2 business days)
+- ACH settlement: 4--5 business days for initial payment
+- Subsequent ACH debits: 4--5 business days each
+
+**Cost Model / P&L Note:** Blended processing rate assumes 70% ACH / 30% card (based on construction industry payment patterns). At 70/30 split: blended rate ~1.5--1.8% of revenue. If card adoption is higher, processing costs increase but are offset by the surcharge passed to customers. The surcharge means card processing fees are revenue-neutral --- customers pay the fee, not Kiptra. P&L processing costs remain based on ACH rates only (the portion Kiptra absorbs).
+
+**Edge Cases:** Customer disputes card surcharge --- Surcharge is clearly disclosed before payment confirmation. Stripe receipt includes surcharge as a separate line item. Refunds include the surcharge amount.
+
+**Backup Processor:** Helcim maintained as documented backup. If Stripe account is ever restricted, Helcim processes payments while Stripe issue is resolved.
+
+
+**Daily call caps:** The tier-level daily cap (1K for Starter, 5K for Professional) is the binding constraint. Per-agent limits are configured per tier to respect the tier cap.
+
+
+**Tier limit configuration:** All tier-level limits (seat counts, daily agent call caps, integration count, feature flags per tier) must live in a single configuration table in the database (`plan_tiers`), not in application code. The Stripe `subscription.metadata` carries the tier name, and the `plan_tiers` table maps tier names to their limit values. Tier limit changes (e.g., increasing Professional daily calls from 20 to 30) require only a database update, not a code deploy. The Hono rate-limiting middleware reads limits from a Valkey-cached copy of `plan_tiers`, refreshed every 5 minutes.
+
+
+### Cost Controls (Non-Negotiable)
+
+
+- **Per-tenant spending limit** enforced via Valkey counters (checked in AI SDK `budgetEnforcementMiddleware` before every LLM call). When a tenant reaches 80%, an in-app alert and email notification are triggered. At 100%, Starter/Professional agents are paused with a dashboard notification; Enterprise tier switches to metered Stripe billing (usage above cap billed at cost) rather than hard cutoff. All spending events are logged in the audit trail.
+
+- **Model cascade**: route by task complexity, not one-size-fits-all
+
+- **Prompt caching**: system prompts cached (90% per-token discount when a cache hit occurs. Blended cache hit rate is 20--30% across all tiers (see Appendix B) --- effective cost reduction is ~18--27%, not 90%)
+
+- **Token budgets**: max_tokens per agent invocation (prevent runaway)
+
+- **Loop detection**: Loop prevention via per-agent `stopWhen: stepCountIs(N)` limits (see Section 12) and per-execution token budget. Per-agent step budgets (includes +2 structured output buffer for AI SDK v6): Leads Agent: `stopWhen: stepCountIs(7)`, CEO Agent: `stopWhen: stepCountIs(12)`, Sales Agent: `stopWhen: stepCountIs(17)`. The `stopWhen` approach is preferred over consecutive-call heuristics, which produce false positives for agents that legitimately call the same tool multiple times (e.g., Sales Agent pricing lookups).
+
+- **Daily usage sync**: track per-tenant spend in Supabase for billing dashboard
+
+- **Pre-flight spending check**: Before queuing an agent execution in BullMQ, the API endpoint MUST check the tenant's current month spend against their plan limit. If spend >= 100%, return HTTP 429 with a user-facing message ('Monthly AI budget reached --- upgrade your plan or wait for the next billing cycle') and do NOT queue the job. This prevents the scenario where a customer clicks 'Run Estimate', waits 2 minutes for the agent to execute, and then gets a mid-execution failure when the spending limit is enforced mid-execution at step 12 of 17. The 80% spending alert should be driven by the AI SDK costTrackingMiddleware (real-time Valkey counter), not the daily sync job. Add a `BILLING_PAUSED` state to the agent execution state machine to distinguish spending-limit halts from actual failures.
+
+
+---

@@ -1,0 +1,30 @@
+---
+title: "0. Infrastructure & SDK Overview"
+slug: "infrastructure-sdk-overview"
+section: "00"
+---
+
+### Infrastructure
+
+
+Kiptra AI runs on a **dual-VPS architecture** (DigitalOcean CPU-Optimized droplets behind a load balancer, ~$172/mo) with a modular monolith deployed via Docker Compose. The backend is **Hono + Node.js** (TypeScript), using **NATS JetStream** as the hub-and-spoke event bus for inter-agent communication, **Valkey + BullMQ** for job queuing/cron/caching (DigitalOcean Managed Valkey, wire-compatible Redis replacement), and **Supabase Pro** (PostgreSQL + Row-Level Security) as the multi-tenant database. The frontend is **Next.js 16** on Vercel.
+
+
+AI inference routes through **Vercel AI Gateway** (zero markup, managed service --- zero ops overhead vs. self-hosted LiteLLM or OpenRouter's 5.5% credit purchase fee), with per-request model routing across **GPT-4.1 nano**, **Claude Haiku 4.5**, and **Claude Sonnet 4.6** based on task complexity. Supporting infra includes **Cloudflare** (WAF/CDN), **Prometheus + Grafana Cloud + Sentry** for monitoring, **Pino + Grafana Loki + OpenTelemetry** for structured logging/tracing, and **GitHub Actions** for CI/CD.
+
+
+### SDKs & Their Purpose
+
+
+**thorchh/agent-starter** serves as the primary boilerplate, providing native Vercel AI SDK (AI SDK v6) multi-step tool calling (`tool()` + Zod), streaming, and chain-of-thought in an exact stack match (Next.js 16, shadcn/ui, Tailwind v4). The **Vercel AI SDK** provides type-safe `generateText()` / `streamText()` / `generateText({ output: Output.object({ schema }) })` with Zod-validated structured output. Mastra patterns (graph workflows, MCP tool servers via **CedarCopilot/cedar-mastra-starter** and `deep-search` template) are adopted selectively as orchestration complexity grows --- lightweight-first, upgrade when justified.
+
+
+**better-auth** (with its Organization plugin) handles self-hosted multi-tenant RBAC, team invitations, and role scoping --- chosen over NextAuth (no built-in multi-tenancy) and Clerk (per-MAU cost). **React Flow v12** powers the interactive architecture mind map and live agent status visualization.
+
+
+**Socket.io** provides real-time WebSocket push (attached to the raw Node.js `http.Server` alongside Hono) for full control and to avoid Supabase Realtime's per-connection billing at scale (500 default on Pro, expandable to 10K). **shadcn/ui + Tailwind + TanStack Table** form the dashboard UI layer, and **Recharts** handles CEO financial dashboards.
+
+
+Integration adapters sit behind an **anti-corruption layer** so swapping JobTread for Procore or Jobber is a single adapter file.
+
+> **Spec Amendment (Update 2026-03-25):** The platform serves **4 industry personas** (Contractor, Dealer, Sales Rep, Manufacturer) with **7--9 agents per tenant** depending on persona (28 total agent types across all personas). Product modules include a **CRM** (pipeline kanban, contact management, deal tracking, activity log) and **Team Chat** (three-panel interface with Slack/Teams message mirroring). See Sections 6b, 13n, and 13o.

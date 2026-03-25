@@ -1,0 +1,2599 @@
+---
+title: "15. Business Operating System"
+slug: "business-os"
+section: "15"
+---
+
+> **Production naming:** The sidebar label and all user-facing UI must use **"Business OS"** (not "EOS") to avoid trademark issues with EOS Worldwide. Production code, routes (`/bos/*`), and UI copy use the trademark-safe "Business OS" label.
+
+This section defines Kiptra AI's built-in Business Operating System --- a complete implementation of the EOS (Entrepreneurial Operating System) methodology as a native feature module. Rather than integrating with existing EOS software (none offer APIs), Kiptra builds the entire capability from scratch with construction-industry-specific advantages, AI augmentation, and an open integration layer that no competitor provides.
+
+
+### 15.1 Overview & Strategic Rationale
+
+
+The Entrepreneurial Operating System is a business management methodology used by over 130,000+ companies worldwide (per EOS Worldwide's 2024 data). It provides a structured framework for vision alignment, quarterly goal-setting, weekly meeting cadence, KPI tracking, issue resolution, and people management. EOS is *enormously* popular in construction --- Sachse Construction grew from $35M to $138M during its scaling phase using it, and the methodology's emphasis on accountability, measurables, and execution discipline maps directly to how construction companies operate.
+
+
+The dominant EOS software platform, Ninety.io, has a critical limitation: **historically limited integration capabilities.** Ninety launched Scorecard Integrations in Q1 2026, is beta-testing a limited Scorecard API for Q2 2026, added a Monday.com integration (Dec 2025 beta), and has To-Dos integration with Todoist/Asana/ClickUp in beta. However, it still lacks a general-purpose API, webhook subscriptions, or construction-specific integrations, and charges $11.20--$16 per user per month. This creates a strategic opening for Kiptra AI.
+
+
+**Key insight:** No construction project management tool offers business operating system features. No EOS tool offers construction PM features. Kiptra AI is uniquely positioned to deliver both in a single platform --- with AI augmentation, automated KPI data, and an open API that Ninety.io cannot match.
+
+
+#### Why Build vs. Integrate
+
+
+|
+Factor |
+Ninety.io (Status Quo) |
+Kiptra Built-In (Our Approach) |
+ |
+
+
+|
+API / Webhooks |
+Limited Scorecard API (beta Q2 2026); no general-purpose API or webhooks |
+Full REST API + webhook subscriptions |
+ |
+
+|
+KPI Data Entry |
+100% manual |
+Automated from project data, financials, CRM |
+ |
+
+|
+AI Features |
+Basic meeting prep only |
+Full AI: meeting summaries, goal creation, trend analysis |
+ |
+
+|
+Construction Context |
+Generic for all industries |
+Construction-specific templates, KPIs, and terminology |
+ |
+
+|
+Pricing |
+$11.20--$16/user/mo (tiered) |
+Included in Kiptra subscription (flat pricing) |
+ |
+
+|
+Data Portability |
+No export API, manual CSV only |
+Full export, API access, PDF reports |
+ |
+
+|
+Real-time Collaboration |
+Standard web-based (no live cursor/presence indicators) |
+Supabase Realtime (WebSocket, presence, live cursors) |
+ |
+
+
+#### Competitive Advantages Summary
+
+
+- **Open API + Webhooks** --- **Ninety lacks a general-purpose API or webhook system** (limited Scorecard API in beta Q2 2026). Every piece of Business OS data in Kiptra is API-accessible and webhook-subscribable.
+
+- **Automated KPI Data** --- Ninety requires manual entry for every measurable. Kiptra auto-populates from project data, QuickBooks, CRM, and job costing.
+
+- **Construction-Specific Templates** --- Pre-built quarterly goals, KPI dashboards, and meeting agendas tailored to GCs, subcontractors, and design-build firms.
+
+- **AI Meeting Summaries** --- Full meeting recap generation, action item extraction, and issue identification. Ninety only offers AI-assisted meeting *preparation*.
+
+- **Flat Competitive Pricing** --- No per-user Business OS tier. Business OS features included in the Kiptra subscription.
+
+
+Emerging Competitor: EOS One
+
+
+**EOS One** is the official software from EOS Worldwide. Per-user pricing model. Limited API/integration capabilities. Its key competitive threat is **implementer channel bias** --- certified EOS Implementers may recommend EOS One due to official brand endorsement, regardless of feature parity. Kiptra's construction-specific value proposition and open API/integration story must be strong enough to overcome this channel advantage.
+
+
+Companion Document: Business OS Feature Parity Matrix
+
+
+A detailed 86-feature comparison between Kiptra AI and Ninety.io is maintained as a separate companion document: `eos-feature-parity-matrix.html` (63 KB, 1,667 lines). The matrix evaluates every Ninety.io feature against Kiptra's planned implementation.
+
+
+**Headline stats:**
+
+
+| Status | Count | % | |
+
+
+| Full Parity | 52 | 60% | |
+
+| Partial Parity | 14 | 16% | |
+
+| Missing / Not Planned | 11 | 13% | |
+
+| Kiptra-Only (Advantage) | 9 | 10% | |
+
+| **Total** | **86** | **76% parity** | |
+
+
+**Key Kiptra advantages not in Ninety.io:** Open API + webhooks, AI-powered meeting recaps, automated KPI population from integrations, construction-specific templates, AI goal/seat creation, and real-time multi-user collaboration. The 11 missing features are primarily community/social features (user community forum, implementer directory) and niche methodology tools (meeting pulse rating trend, organizational checkup) that have low impact on the target construction vertical.
+
+
+Companion Document: Business OS & K&B Competitive Pricing Analysis
+
+
+A comprehensive pricing analysis is maintained as a separate companion document: `kiptra-eos-kb-pricing-analysis.html`. Key findings:
+
+
+**Business OS competitive landscape:**
+
+
+- **Ninety.io:** $11.20--$16/user/month. For a 25-person company: $210--$400/mo for Business OS features alone --- on top of PM software.
+
+- **Bloom Growth:** Starting at $249/mo (annual commitment required). Contact for enterprise pricing.
+
+- **General PM tools (monday.com, Asana, ClickUp):** $7--$25/user/mo but no native business operating system structure.
+
+
+**K&B design tool landscape:**
+
+
+- **Cyncly Design Flex (2020 Design successor):** $2,500/yr (current verified price). Windows-only, crash-prone.
+
+- **Chief Architect Premier:** $1,995/yr or $229/mo. Overkill for K&B-only use.
+
+- **AI/consumer tools (Planner 5D, Coohom, Spacely):** $25--$65/mo. Consumer-grade, no BOM or estimate integration.
+
+- **Coohom (Kujiale/Manycore Tech):** $312M funded, $2B valuation. Browser-based, AI-powered, 10M+ users. Closest direct competitor. However, their ToS grants perpetual rights to all user content for ML training, data routes through Chinese infrastructure (Hangzhou), and they lack CRM/PM/estimating integration. Kiptra differentiates through: (1) NA manufacturer catalog depth via dealer relationships, (2) integrated business platform (CRM + PM + design + estimates), (3) formal NKBA compliance validation (Z3 SMT), (4) conversational AI design, (5) self-hosted rendering with zero data leaving customer infrastructure.
+
+
+**Pricing recommendation:** Bundle Business OS into all Kiptra tiers (no per-user surcharge --- competitive weapon against Ninety.io). K&B Design Tool as tiered add-on: Essentials $99/mo (52% cheaper than Cyncly), Professional $199/mo (with AI layout generation and photorealistic renders). Business OS margin: high (database storage only). K&B margin: 94--98% (AI render cost $0.02--$0.06/render).
+
+
+### 15.2 Trademark-Safe Terminology
+
+
+EOS Worldwide holds registered trademarks on many terms commonly associated with their methodology. All Kiptra implementations **must** use trademark-safe alternatives exclusively --- in code, UI, documentation, marketing, and API surface.
+
+
+Trademark Enforcement Warning
+
+
+EOS Worldwide has in-house counsel and external IP analysts actively patrolling for trademark infringement. They have sent cease-and-desist letters to software companies using their terminology. ALL code, UI labels, API endpoints, documentation, and marketing materials MUST use the safe alternatives listed below. Zero exceptions.
+
+
+|
+EOS Trademarked Term |
+Kiptra Safe Alternative |
+Usage Notes |
+ |
+
+
+|
+EOS |
+Business Operating System |
+Never reference "EOS" in any user-facing context |
+ |
+
+|
+Rocks |
+Quarterly Goals / 90-Day Priorities |
+DB column: `rock` -> `quarterly_goal` |
+ |
+
+|
+Level 10 / L10 |
+Weekly Sync |
+Meeting type enum: `weekly_sync` |
+ |
+
+|
+Scorecard |
+KPI Dashboard |
+Route: `/kpi-dashboard` |
+ |
+
+|
+IDS (Identify, Discuss, Solve) |
+Issue Resolution Process (IRP) |
+Three phases: Identify -> Discuss -> Resolve |
+ |
+
+|
+V/TO (Vision/Traction Organizer) |
+Strategic Vision Plan |
+Route: `/vision-plan` |
+ |
+
+|
+People Analyzer |
+Team Fit Assessment |
+Route: `/team-fit` |
+ |
+
+|
+GWC (Get it, Want it, Capacity) |
+Role Fit Check (Competency/Commitment/Capacity) |
+Abbreviation: CCC |
+ |
+
+|
+Accountability Chart |
+Responsibility Map |
+Route: `/responsibility-map` |
+ |
+
+|
+Integrator |
+Operations Leader |
+Seat type enum: `operations_leader` |
+ |
+
+|
+Visionary |
+Strategic Leader |
+Seat type enum: `strategic_leader` |
+ |
+
+|
+Traction |
+Execution Discipline |
+Never use "traction" in EOS context |
+ |
+
+|
+Core Focus |
+Mission & Niche |
+Vision plan subsection |
+ |
+
+|
+90-Day World |
+Quarterly Cycle |
+Planning period reference |
+ |
+
+|
+Issues List |
+Issue Tracker |
+Avoid "issues list" as a compound noun |
+ |
+
+|
+To-Do List |
+Weekly Action Items |
+7-day scope, distinct from project tasks |
+ |
+
+
+### 15.3 Module Inventory
+
+
+The Business Operating System comprises 18 modules organized across four pricing tiers. Each module maps to specific EOS methodology components while using exclusively trademark-safe terminology.
+
+
+|
+# |
+Module (Safe Name) |
+Tier |
+Complexity |
+Core Functionality |
+ |
+
+
+|
+1 |
+Strategic Vision Plan |
+Free |
+Medium |
+Digitized strategic planning document --- mission, niche, 10-year target, 3-year picture, 1-year plan, quarterly focus. Versioned with diff tracking. |
+ |
+
+|
+2 |
+Quarterly Goals |
+Essentials |
+Complex |
+90-day priorities with milestones, owner assignment, status tracking, cascading alignment (company -> department -> individual), progress rollup. |
+ |
+
+|
+3 |
+KPI Dashboard |
+Essentials |
+Complex |
+Weekly measurables/KPIs with goal ranges, trend visualization, on/off track indicators. Automated data feeds from QuickBooks, CRM, project data. |
+ |
+
+|
+4 |
+Weekly Action Items |
+Essentials |
+Medium |
+7-day action items created during meetings. Auto-carry forward if incomplete. Owner, due date, completion status. Distinct from project tasks. |
+ |
+
+|
+5 |
+Issue Tracker (IRP) |
+Essentials |
+Medium |
+Structured issue resolution: identify -> discuss -> resolve. Priority ranking, categorization (short-term, long-term, departmental), resolution logging. |
+ |
+
+|
+6 |
+Meeting Hub (Weekly Sync) |
+Essentials+ |
+Complex |
+Structured meeting facilitation with timed sections, real-time collaboration, agenda templates, rating system, automated recap generation via AI. |
+ |
+
+|
+7 |
+Responsibility Map |
+Free |
+Complex |
+Function-based org chart. Seats (roles) separate from people. Drag-and-drop hierarchy. 5 core functions: Strategic Leadership, Operations Leadership, Sales/Marketing, Operations, Finance. Note: HR is a common secondary function added by many companies. |
+ |
+
+|
+8 |
+SOP Builder |
+Thrive |
+Medium |
+Process documentation with step-by-step instructions, checklists, media embeds. Version control, approval workflows, department assignment. |
+ |
+
+|
+9 |
+Quarterly Reviews |
+Accelerate |
+Complex |
+Structured review workflow: self-assessment -> manager review -> discussion -> finalization. Core values alignment scoring, role fit check (CCC), goal retrospective. |
+ |
+
+|
+10 |
+Team Fit Assessment |
+Accelerate |
+Medium |
+Core values evaluation + CCC (Competency/Commitment/Capacity) assessment. Traffic light scoring (+, +/-, -). Trend tracking over quarters. |
+ |
+
+|
+11 |
+Announcements |
+Essentials |
+Simple |
+Headlines and wins shared during meetings. Company-wide or team-scoped. Archive with search. Feeds into meeting agenda automatically. |
+ |
+
+|
+12 |
+Goal Milestones |
+Essentials |
+Simple |
+Sub-goals within quarterly goals. Weekly checkpoints with on/off track status. Milestone completion drives parent goal progress percentage. |
+ |
+
+|
+13 |
+Analytics Dashboard |
+Accelerate |
+Medium |
+Computed insights across all modules: goal completion rates, meeting effectiveness, KPI trends, issue resolution velocity, team health scores. |
+ |
+
+|
+14 |
+My Dashboard |
+Essentials |
+Medium |
+Personal cross-team view aggregating all goals, action items, KPIs, issues, and upcoming meetings for the logged-in user. Customizable layout. |
+ |
+
+|
+15 |
+Knowledge Portal |
+Free/Thrive |
+Complex |
+Combined LMS + wiki. Rich-text articles with content blocks, collections, categories. Seat-based assignment, progress tracking, completion certificates, content freshness enforcement. |
+ |
+
+|
+16 |
+Business Health Assessment |
+Free/Thrive |
+Medium |
+Structured surveys measuring organizational health across the 6 key components. Anonymous responses, trend tracking, benchmark comparisons. |
+ |
+
+|
+17 |
+People Directory |
+All |
+Medium |
+User/employee management with profiles, seat assignments, team memberships, role history. Core values listing. Integration with better-auth identity. |
+ |
+
+|
+18 |
+AI Assistant |
+Thrive |
+Complex |
+Conversational AI for Business OS tasks: SMART goal creation, seat building, meeting prep summaries, KPI trend analysis, issue prioritization recommendations. |
+ |
+
+
+### 15.4 Technical Architecture
+
+
+The Business Operating System modules leverage the existing Kiptra platform infrastructure (Sections 1--6) while introducing several new technical capabilities. Each subsystem is designed to be independently deployable and testable.
+
+
+#### 15.4.1 Real-time Collaboration
+
+
+Multiple users will simultaneously edit vision plans, manage meeting agendas, and update KPI values. The collaboration layer must handle concurrent edits without data loss while remaining simple enough to maintain.
+
+
+**Key insight:** Full CRDT implementations (Yjs, Automerge) are unnecessary complexity for *this* use case. Most Business OS fields are single-value (a goal title, a KPI number, a status enum) where Last-Writer-Wins is perfectly adequate. Only long-form text fields (vision plan narratives, meeting notes) require collaborative editing --- and ProseMirror's built-in `prosemirror-collab` handles this without CRDTs. *Note: Section 16 (Kitchen & Bath Design Tool) does adopt Yjs CRDTs in Phase 3 for real-time multi-user 3D scene editing --- a fundamentally different problem where spatial object state requires conflict-free merging rather than field-level LWW. The two modules correctly use different collaboration strategies for different problem shapes.*
+
+
+**Architecture:**
+
+
+- **Transport:** Supabase Realtime --- Broadcast (ephemeral events like cursor positions), Presence (who's viewing/editing), and Postgres Changes (live DB subscriptions for data sync). *Note: Section 3b rejected Supabase Realtime for the main dashboard due to the 500-connection cap on Pro. The Business OS use case is different: meeting collaboration is bounded to {
+ updateMeasurableValue(payload.new);
+ })
+ .on('presence', { event: 'sync' }, () => {
+ const state = channel.presenceState();
+ setActiveEditors(Object.values(state).flat());
+ })
+ .subscribe();
+
+```
+
+
+Architecture Decision: Employee Performance Data RLS & Access Control
+
+
+**Decision:** RLS policies on `reviews`, `review_responses`, `fit_checks`, and `assessment_responses` enforce tenant isolation ONLY (consistent with Section 5's rule). All role-based visibility logic (who sees what within a tenant) is enforced at the Hono middleware layer.
+
+
+**Key access rules (Hono middleware):**
+
+
+- **Reviews:** Reviewee sees own review. Reviewer sees assigned reviews. Owner/admin sees all. Self-assessment and manager review are hidden from each other until both submit (status >= `meeting_ready`).
+
+- **Fit Checks:** One-way assessment. The assessed person NEVER sees individual fit check records. They see aggregated trends ("improving" / "stable" / "declining") computed server-side via a separate API endpoint.
+
+- **Assessment Responses:** Anonymity enforced at API layer. Results endpoint returns aggregates only, never `user_id`. **Anonymity threshold: results suppressed when in_progress -> section_active -> paused -> wrapping_up -> completed |
+Timer-driven section transitions, manual override, early end |
+ |
+
+|
+Quarterly Goal Lifecycle |
+draft -> active -> on_track / off_track / at_risk -> completed / dropped |
+Status changes, milestone completion, quarter-end evaluation |
+ |
+
+|
+Review Workflow |
+not_started -> self_assessment -> manager_review -> discussion -> finalized |
+Submission triggers, manager action, discussion scheduling |
+ |
+
+|
+Issue Resolution (IRP) |
+identified -> prioritized -> discussing -> resolved -> archived |
+Priority ranking, discussion assignment, resolution recording |
+ |
+
+|
+Approval Chain |
+pending -> reviewing -> approved / rejected -> revision -> re_review |
+Multi-level approval, delegation, timeout escalation |
+ |
+
+
+TypeScript
+// Meeting lifecycle state machine (XState v5)
+import { setup, assign } from 'xstate';
+
+export const meetingMachine = setup({
+ types: {} as {
+ context: MeetingContext;
+ events: MeetingEvent;
+ },
+ actions: {
+ advanceSection: assign(({ context }) => ({
+ currentSectionIndex: context.currentSectionIndex + 1,
+ sectionStartedAt: new Date(),
+ })),
+ recordRating: assign(({ context, event }) => ({
+ ratings: [...context.ratings, event.rating],
+ })),
+ },
+ guards: {
+ hasMoreSections: ({ context }) =>
+ context.currentSectionIndex
+ context.ratings.length >= context.attendees.length,
+ },
+}).createMachine({
+ id: 'meeting',
+ initial: 'scheduled',
+ context: ({ input }) => ({
+ meetingId: input.meetingId,
+ sections: input.sections,
+ attendees: input.attendees,
+ currentSectionIndex: 0,
+ sectionStartedAt: null,
+ ratings: [],
+ }),
+ states: {
+ scheduled: { on: { START: 'in_progress' } },
+ in_progress: {
+ initial: 'section_active',
+ states: {
+ section_active: {
+ after: {
+ sectionDuration: [
+ { guard: 'hasMoreSections', actions: 'advanceSection', target: 'section_active' },
+ { target: '#meeting.wrapping_up' },
+ ],
+ },
+ on: { NEXT_SECTION: [
+ { guard: 'hasMoreSections', actions: 'advanceSection' },
+ { target: '#meeting.wrapping_up' },
+ ]},
+ },
+ },
+ on: { PAUSE: 'paused', END_EARLY: 'wrapping_up' },
+ },
+ paused: { on: { RESUME: 'in_progress' } },
+ wrapping_up: {
+ on: {
+ RATE: { actions: 'recordRating' },
+ COMPLETE: { guard: 'allRatingsCollected', target: 'completed' },
+ },
+ },
+ completed: { type: 'final' },
+ },
+});
+
+```
+
+
+**Persistence:** Machine state is serialized to a `workflow_state` JSONB column on the parent record. On server restart or reconnection, the machine is rehydrated from persisted state. BullMQ handles delayed transitions (timer-based section advances) with durable job scheduling.
+
+
+Architecture Decision: XState v5 Hybrid Execution (Server-Authoritative Workflows)
+
+
+**Decision:** All five named state machines (Meeting Lifecycle, Quarterly Goal Lifecycle, Review Workflow, Issue Resolution, Approval Chain) execute on the server (Hono API). Client-side execution is limited to ephemeral UI state (section countdown timers, panel toggles, drag state).
+
+
+**Why not client-only:** Meetings have multiple concurrent users driving the same machine. Browser tabs close mid-meeting. Browser timers are throttled in background tabs. Client-side execution creates split-brain risk with no single source of truth.
+
+
+**Why not server-only:** Timer countdowns and UI micro-state would require API round-trips for every tick, adding latency that degrades UX.
+
+
+**Architecture:**
+
+
+- **Event flow:** Client sends events via `POST /api/{entity}/{id}/events`. Hono routes to XState machine. Machine transitions, persists new `workflow_state` JSONB, schedules BullMQ delayed jobs for timeouts.
+
+- **Broadcast:** New state broadcast to all connected clients via Supabase Realtime Broadcast channel. Clients render server state as source of truth.
+
+- **Machine registry:** LRU cache of active machine instances in Hono process. Machines loaded from DB on first event, evicted after 30 minutes of inactivity.
+
+- **Horizontal scaling:** Machine events routed through NATS JetStream (`machine.{type}.{id}`) with single consumer per machine ID. Prevents concurrent processing across 2 VPS nodes.
+
+- **Meeting timers:** Server schedules BullMQ delayed job per section duration. Job fires `SECTION_TIMEOUT` event to machine via NATS. Durable across server restarts (Valkey-backed). Client shows local countdown from `section_started_at + duration_minutes`, synced on reconnect.
+
+- **Reconnection:** Client fetches current `workflow_state` from API on reconnect. No client-side machine rehydration --- client is a pure state renderer.
+
+
+#### 15.4.3 Analytics & Visualization
+
+
+The Analytics Dashboard and KPI Dashboard require rich, interactive data visualization with drill-down capabilities, cross-filtering, and responsive layouts.
+
+
+- **Chart library:** Recharts for all charts (line, bar, area, combo, sparklines) + shadcn/ui Card components for KPI card layouts
+
+- **Data layer:** Postgres materialized views for pre-computed aggregates (goal completion rates, KPI trends, meeting effectiveness). Refreshed via BullMQ cron jobs (every 15 minutes for active data, hourly for historical).
+
+- **Caching:** Valkey caching for dashboard queries with 5-minute TTL. Cache invalidation on write events via Postgres NOTIFY.
+
+- **Layout:** React Grid Layout for user-customizable dashboard arrangements. Layout persisted per-user in `user_workspace_layout` table.
+
+- **Drill-down:** Click any aggregate to see constituent records. KPI off-track -> show weekly values -> show individual data points. Goal completion rate -> show individual goals -> show milestones.
+
+- **Cross-filtering:** Select a team in one widget, all other widgets filter to that team. Time range selector affects all charts simultaneously.
+
+
+Architecture Decision: Recharts Only --- Drop Tremor (ADR-CHART-001)
+
+
+**Decision: Option A --- Recharts only.** Remove Tremor from the dependency list. Build KPI cards and sparklines with Recharts + shadcn/ui Card components.
+
+
+**Rationale:**
+
+
+- **Tremor IS Recharts.** Tremor v3 (and Tremor Raw) uses Recharts as its internal charting engine. Adding Tremor on top of Recharts means shipping Recharts twice --- once directly and once bundled inside Tremor. The "~30 KB gzipped" estimate for Tremor is misleading because it excludes the Recharts dependency it carries.
+
+- **Redundant abstraction layer.** Tremor wraps Recharts charts in opinionated Tailwind components (cards, KPI indicators, sparklines). Kiptra already uses shadcn/ui + Tailwind CSS as its component layer (Section 3). Building a `` component with a shadcn Card + a Recharts `` takes ~40 lines of code and matches the existing design system. Tremor introduces a second component API convention that diverges from shadcn patterns.
+
+- **Bundle savings:** Removing Tremor saves ~30 KB gzipped of wrapper code (the underlying Recharts was already included). More importantly, it eliminates a second charting API surface --- developers do not need to learn both `` from Recharts and `` from Tremor, which have different prop signatures.
+
+- **Sparklines in Recharts:** Recharts supports sparklines natively via `` with `width={120} height={40}`, no axes, no grid, no legend --- this is a 10-line component. No library needed for this pattern.
+
+- **Maintenance:** One charting library = one upgrade path. Tremor v3 is actively maintained by Vercel (acquired Jan 2025), but pinning to an intermediate abstraction means waiting for Tremor to bump its Recharts dependency before Kiptra can adopt Recharts fixes.
+
+
+**What to build instead of Tremor components:**
+
+
+- `` --- shadcn/ui `` + Recharts `` sparkline + delta indicator (green/red arrow with percentage)
+
+- `` --- shadcn/ui `` with large number, label, and optional trend line
+
+- `` --- Tailwind-styled badge (already available via shadcn/ui ``)
+
+
+**Updated dependency table (Section 15.6):** Remove the Tremor row. Recharts row updated to: "Interactive charts, sparklines, KPI trends, and analytics --- ~45 KB gzipped."
+
+
+**Updated Section 15.4.3:** Replace `Tremor for dashboard components (cards, KPI indicators, sparklines) + Recharts for custom charts` with `Recharts for all charts (line, bar, area, combo, sparklines) + shadcn/ui Card components for KPI card layouts`.
+
+
+#### 15.4.4 Calendar Sync
+
+
+Meeting Hub requires two-way calendar synchronization so that Weekly Syncs, Quarterly Reviews, and ad-hoc meetings appear on users' Google Calendar and/or Microsoft Outlook calendars.
+
+
+- **Google Calendar:** Google Calendar API v3 via OAuth2. Scopes: `calendar.events` (read/write). Incremental sync via `syncToken` for efficient polling.
+
+- **Microsoft Outlook:** Microsoft Graph Calendar API via MSAL (Microsoft Authentication Library). Delta queries for incremental sync.
+
+- **Recurring events:** RFC 5545 RRULE support for recurring meetings (weekly syncs are always recurring). Store RRULE in DB; generate occurrences on read.
+
+- **Sync direction:** Two-way. Meeting created in Kiptra -> event created in external calendar. Meeting rescheduled in external calendar -> Kiptra meeting updated. Conflict resolution: Kiptra is source of truth for meeting *content*; external calendar is source of truth for *time* changes.
+
+- **Sync jobs:** BullMQ repeatable jobs per user/calendar connection. Poll interval: 5 minutes. Webhook-based push notifications where supported (Google Push Notifications, Microsoft Graph subscriptions).
+
+
+#### 15.4.5 Notification System
+
+
+Business OS modules generate a high volume of notifications: meeting reminders, action item due dates, KPI off-track alerts, goal status changes, review assignments, and issue escalations. The notification system must be channel-agnostic, user-configurable, and deduplication-aware.
+
+
+- **Event-driven architecture:** All Business OS events publish to NATS JetStream. Notification service subscribes to relevant subjects and generates notification records.
+
+- **Channel router:** Each notification is routed to one or more channels based on user preferences:
+
+
+- **In-app:** Socket.io push to connected clients. Stored in `notifications` table with read/unread status.
+
+- **Email:** SendGrid transactional emails with customizable templates. Batched digest option (daily/weekly).
+
+- **Push:** Firebase Cloud Messaging (FCM) for mobile/desktop push notifications.
+
+
+- **User preferences:** Per-notification-type, per-channel toggles. Example: "KPI off-track" -> in-app + email; "Meeting starting" -> in-app + push; "Announcement posted" -> in-app only.
+
+- **Deduplication:** Hash-based dedup within a 5-minute window. Prevents duplicate notifications from retry logic or event replays.
+
+- **Rate limiting:** Maximum 10 notifications per user per hour per channel. Excess notifications batched into a digest.
+
+- **Digest scheduling:** Users can opt into daily or weekly email digests instead of individual notifications. BullMQ cron job aggregates and sends.
+
+
+#### 15.4.6 PDF & Report Generation
+
+
+Several modules require PDF export: meeting recaps, vision plan documents, quarterly goal reports, KPI dashboard snapshots, and review summaries.
+
+
+- **Structured reports:** React-PDF (`@react-pdf/renderer`) for programmatic PDF generation. React components render directly to PDF with full layout control. Used for meeting recaps, goal reports, and review documents.
+
+- **Complex visual reports:** Puppeteer for rendering HTML/CSS to PDF when charts and complex layouts are needed (KPI dashboard snapshots, analytics reports). Headless Chrome in a Docker sidecar container.
+
+- **Async generation:** All PDF generation runs as BullMQ jobs to avoid blocking API requests. Job creates PDF, uploads to object storage (S3-compatible), and notifies user via the notification system.
+
+- **Templates:** Meeting recap, Strategic Vision Plan export, Quarterly Goal report, KPI Dashboard snapshot, Review summary, Responsibility Map org chart.
+
+
+#### 15.4.7 Knowledge Portal
+
+
+The Knowledge Portal is the most content-heavy module --- a combined learning management system and internal wiki. Its editor and content model require special attention.
+
+
+- **Editor:** TipTap (ProseMirror-based) with extensions for tables, images, embeds, checklists, callouts, and code blocks. Collaborative editing via `prosemirror-collab` (same infrastructure as vision plan text).
+
+- **Content model:** Articles are composed of `ContentBlock` records (JSONB) supporting text, image, video, embed, checklist, and quiz block types. Blocks are ordered and independently versioned.
+
+- **Search:** Postgres `tsvector` for full-text search across article content + `pg_trgm` for fuzzy/partial matching. Search results ranked by relevance with snippet highlighting.
+
+- **Assignment & tracking:** Seat-based assignment (assign articles/collections to seats, not people --- consistent with Responsibility Map). Learning progress tracked per-user-per-article with completion percentage, quiz scores, and time spent.
+
+- **Content freshness:** Configurable review cycles per article (30/60/90/180 days). Automated notifications to content owners when review is due. Stale content flagged in UI with amber indicators.
+
+
+#### 15.4.8 Organizational Data Modeling
+
+
+Business OS modules fundamentally depend on organizational hierarchy: teams, seats (roles), people, and reporting relationships. This data model underlies the Responsibility Map and scopes data access throughout all modules.
+
+
+- **Hierarchy storage:** Postgres `ltree` extension for efficient hierarchical queries (ancestors, descendants, subtree operations). Alternative: closure table if `ltree` proves limiting for complex org structures. Decision: start with `ltree`, migrate to closure table only if needed.
+
+- **Seat-person separation:** Seats (roles/functions) are distinct from people. A seat can be vacant, held by one person, or shared. A person can hold multiple seats. This is core EOS methodology and must be strictly modeled.
+
+- **Access control:** RBAC (Role-Based Access Control) layered on top of Supabase RLS. Team-scoped data: users only see data for teams they belong to. Seat-scoped permissions: certain actions require specific seat assignments (e.g., only the meeting facilitator can advance sections).
+
+- **Audit trail:** Trigger-based audit log on all Business OS tables. Records who changed what, when, and the before/after values. Required for quarterly reviews and compliance.
+
+- **Polymorphic relationships:** `ItemLink` table for cross-module references (e.g., linking an issue to a quarterly goal, linking an action item to a meeting section). Uses `source_type`/`source_id` + `target_type`/`target_id` pattern.
+
+
+#### 15.4.9 Onboarding Wizard --- Time-to-First-Meeting Optimization
+
+
+The Business Operating System comprises 18 modules --- but a new customer does not need all 18 to get value. The onboarding wizard is designed around a single goal: **run the first Weekly Sync meeting within 45 minutes of account creation.** Everything else is deferred to progressive disclosure over weeks 1--4. Without this wizard, the setup burden would be equivalent to filling out a 15-page form before seeing any value --- a churn death sentence for a $275--$750/mo product.
+
+
+#### 15.4.9.1 Minimum Viable Setup (6 Configuration Steps)
+
+
+Analysis of the Weekly Sync meeting's data dependencies reveals exactly 6 things that *must* exist before the first meeting can run. Everything else can be empty, defaulted, or created later.
+
+
+|
+# |
+Configuration Step |
+Why Required |
+Minimum Data |
+Est. Time |
+ |
+
+
+|
+1 |
+**Company Profile** |
+Tenant entity, timezone, industry |
+Name, industry vertical, timezone, company size (headcount range) |
+30 sec |
+ |
+
+|
+2 |
+**Core Values** |
+Required for Team Fit, Reviews, and culture tracking. Defines organizational identity. |
+3--5 core values (text strings). AI suggests industry-relevant defaults. |
+2 min |
+ |
+
+|
+3 |
+**Leadership Team** |
+Minimum 1 team to scope meetings, goals, and KPIs. Weekly Sync is always team-scoped. |
+1 team name (default: "Leadership Team") + invite members by email |
+2 min |
+ |
+
+|
+4 |
+**Seats (Org Chart Stub)** |
+Goals and KPIs must be assigned to seat owners. Meetings need a facilitator seat. |
+Create 2--3 leadership seats: Strategic Leader, Operations Leader, + 1 custom. Assign people to seats. |
+3 min |
+ |
+
+|
+5 |
+**KPI Dashboard (3--5 measurables)** |
+Weekly Sync reviews KPI status. Dashboard with zero measurables is useless. |
+3--5 KPIs with name, owner, goal value, and goal direction. AI suggests based on industry. |
+3 min |
+ |
+
+|
+6 |
+**Meeting Template Selection** |
+Defines the Weekly Sync agenda sections and time allocations. |
+Select from 3 pre-built templates (Standard 90-min, Compact 60-min, Extended 120-min). Customize later. |
+30 sec |
+ |
+
+
+**Key insight:** Quarterly Goals are deliberately *not* in the minimum setup. A team can run their first Weekly Sync without any quarterly goals --- the goals section of the meeting will simply show "No quarterly goals set yet. Create your first goals after this meeting." This removes the single most time-consuming setup step (goal creation requires strategic thinking, not data entry) and lets teams experience the meeting flow before committing to the full methodology.
+
+
+**Total minimum setup time: ~11 minutes.** With AI assistance, this drops to ~6--8 minutes because steps 2 and 5 are pre-populated.
+
+
+#### 15.4.9.2 Wizard Flow (Step-by-Step)
+
+
+The wizard is a full-screen modal overlay that appears after the first admin user completes account creation (post-payment, post-email-verification). It uses a linear stepper UI with back/next navigation, progress indicator, and the AI Assistant Agent embedded in a collapsible side panel.
+
+
+|
+Step |
+Screen Title |
+UI Components |
+AI Assistance |
+Skip Allowed? |
+ |
+
+
+|
+**1** |
+Welcome & Company Info |
+Company name input (pre-filled from Stripe checkout), industry dropdown (20 options, "Other" with free text), company size radio (1--10, 11--50, 51--200, 201--500, 500+), timezone auto-detected from `Intl.DateTimeFormat().resolvedOptions().timeZone` with manual override dropdown. |
+None needed --- factual inputs only. |
+No |
+ |
+
+|
+**2** |
+Define Your Core Values |
+Editable list of 3--5 text inputs, pre-populated with AI suggestions. Add/remove buttons. Character limit: 50 per value. Tooltip: "These should be the 3--5 non-negotiable behaviors that define your culture." |
+AI suggests 5 core values based on industry selection from Step 1. Construction example: "Safety First, Craftsmanship, Accountability, Client Obsession, Continuous Improvement." User edits freely. |
+Yes (defaults to AI suggestions) |
+ |
+
+|
+**3** |
+Create Your Leadership Team |
+Team name input (default: "Leadership Team"), multi-email invite field with bulk paste support (comma or newline separated). Invited users receive email with magic link. Admin can also skip invites and add members later. |
+AI explains: "Your leadership team typically includes the owner, GM/COO, heads of sales, operations, and finance. Invite anyone who should attend the weekly leadership meeting." |
+Partially (team name required, invites can be skipped) |
+ |
+
+|
+**4** |
+Set Up Key Roles |
+Visual org chart builder with drag-and-drop. Pre-created with 2 top-level seats: Strategic Leader (owner/CEO) and Operations Leader (GM/COO). "+ Add Role" button. Each seat has: title input, person assignment dropdown (from invited team members), responsibilities textarea (optional). Maximum 10 seats in wizard; more can be added post-setup. |
+AI suggests seat structure based on industry and company size. Construction GC with 11--50 employees gets: Strategic Leader, Operations Leader, VP of Sales, Project Management Lead, Finance Lead. AI pre-fills responsibilities for each suggested seat. |
+Yes (defaults to 2 pre-created seats) |
+ |
+
+|
+**5** |
+Track Your Key Numbers |
+KPI builder with pre-populated suggestions. Each KPI card shows: title, owner (dropdown from seats), goal value input, goal direction toggle (above/below/between), unit selector (currency, percentage, number, days). "+ Add KPI" button. "I'll set these up later" link (creates 3 placeholder KPIs). |
+AI suggests 5--8 KPIs based on industry and company size. Construction example: Revenue ($, goal: above $X), Gross Margin (%, goal: above 35%), Backlog (months, goal: between 3--6), AR Aging >60 Days ($, goal: below $Y), Active Projects (count, goal: above Z), Safety Incidents (count, goal: below 0), Client Satisfaction (1--10, goal: above 8). User picks 3--5 from suggestions. |
+Yes (creates 3 placeholder KPIs) |
+ |
+
+|
+**6** |
+Choose Your Meeting Format |
+3 template cards with visual time breakdown:
+
+**Standard (90 min):** Check-in (5) -> KPI Review (10) -> Goal Review (10) -> Announcements (5) -> Issues (60) -> Wrap-up (5)
+
+**Compact (60 min):** Check-in (5) -> KPI Review (5) -> Goal Review (5) -> Issues (40) -> Wrap-up (5)
+
+**Extended (120 min):** Full template + deep dives
+
+Selected template highlighted with blue border. "Customize sections" expandable panel for power users. |
+AI recommends template based on team size. Teams of 3--5: Compact. Teams of 6--10: Standard. Teams of 10+: Extended. |
+No (must select one) |
+ |
+
+|
+**7** |
+You're Ready! |
+Success screen with animated checkmark. Summary of what was configured. Two CTA buttons:
+
+**Primary:** "Schedule Your First Weekly Sync" (opens calendar picker)
+
+**Secondary:** "Explore Your Dashboard" (goes to main app)
+
+Below CTAs: "What to do next" checklist (see 15.4.9.4 Post-Setup Roadmap). |
+AI sends a welcome message in the chat: "Your Business Operating System is ready. Here's what I suggest you do before your first meeting..." |
+N/A |
+ |
+
+
+#### 15.4.9.3 AI-Assisted Setup --- Industry Templates
+
+
+The AI Assistant Agent uses the industry selection from Step 1 to pre-populate suggestions throughout the wizard. These are not generic placeholders --- they are curated, industry-specific defaults maintained in a `onboarding_templates` JSONB configuration table.
+
+
+|
+Industry |
+Suggested Core Values |
+Suggested Seats |
+Suggested KPIs |
+ |
+
+
+|
+**General Contractor** |
+Safety First, Craftsmanship, Accountability, Client Obsession, Continuous Improvement |
+Strategic Leader, Operations Leader, VP of Sales, PM Lead, Finance Lead, Safety Director |
+Revenue, Gross Margin, Backlog (months), AR >60 Days, Active Projects, Safety Incidents, Client Satisfaction Score |
+ |
+
+|
+**Subcontractor (Trade)** |
+Quality Work, Reliability, Safety, Teamwork, Integrity |
+Owner, Operations Mgr, Estimating Lead, Field Supervisor, Office Manager |
+Revenue, Win Rate (%), Avg Job Margin, Crew Utilization (%), Callbacks/Warranty Claims, TRIR |
+ |
+
+|
+**Design-Build** |
+Design Excellence, Client Partnership, Innovation, Integrity, Sustainable Practices |
+Principal, Design Director, Project Director, Business Dev Lead, Finance Lead |
+Revenue, Design-to-Build Conversion %, Avg Project Value, Client NPS, Repeat Client %, Design Revision Count |
+ |
+
+|
+**Remodeling / K&B** |
+Craftsmanship, Client Experience, Timeliness, Transparency, Pride in Work |
+Owner, Lead Designer, Production Manager, Sales Lead, Office Manager |
+Revenue, Lead-to-Close %, Avg Job Size, On-Time Completion %, Client Referral Rate, Change Order % |
+ |
+
+|
+**Real Estate / Property** |
+Client First, Market Expertise, Transparency, Responsiveness, Community |
+Broker/Owner, Sales Manager, Marketing Lead, Operations Lead, Transaction Coordinator |
+Closed Volume ($), Units Closed, Avg Days on Market, Listing Inventory, Lead Conversion %, Agent Productivity |
+ |
+
+|
+**Professional Services** |
+Client Success, Expertise, Integrity, Collaboration, Innovation |
+Managing Partner, Client Services Lead, Operations Lead, Finance Lead, People Lead |
+Revenue, Utilization Rate (%), Client Retention, NPS, Revenue per Employee, Avg Engagement Size |
+ |
+
+|
+**Other / Custom** |
+Integrity, Excellence, Teamwork, Innovation, Customer Focus |
+CEO/Owner, COO/GM, Sales Lead, Operations Lead, Finance Lead |
+Revenue, Gross Margin, Customer Retention, Employee Satisfaction, Cash Runway (months) |
+ |
+
+
+#### AI Pre-Population Mechanics
+
+
+The AI Assistant Agent does not use live LLM calls for suggestion generation during onboarding --- this would add latency and unpredictability to a critical first-impression flow. Instead:
+
+
+- **Static templates:** The `onboarding_templates` table stores curated suggestions per industry, loaded on wizard initialization. Zero latency, deterministic output.
+
+- **AI refinement (optional):** If the user clicks "Customize with AI" on any step, the AI Assistant Agent activates with a conversational interface: "Tell me about your business and I'll suggest better KPIs." This uses the standard AI gateway (Section 4) with Claude Haiku for fast responses (~500ms).
+
+- **Learning from edits:** When users modify AI suggestions, the deltas are logged to `onboarding_analytics` for future template refinement. If 80%+ of GCs change "Continuous Improvement" to "Never Settle," the template updates.
+
+
+TypeScript
+// Onboarding template lookup — zero LLM latency
+interface OnboardingTemplate {
+ industry: IndustryVertical;
+ companySize: CompanySizeRange;
+ coreValues: string[];
+ suggestedSeats: { title: string; seatType: SeatType; responsibilities: string[] }[];
+ suggestedKPIs: { title: string; unit: KPIUnit; goalDirection: GoalDirection; goalValue: number | null }[];
+ meetingRecommendation: 'compact' | 'standard' | 'extended';
+}
+
+async function getOnboardingTemplate(
+ industry: IndustryVertical,
+ companySize: CompanySizeRange
+): Promise {
+ const template = await db
+ .selectFrom('onboarding_templates')
+ .where('industry', '=', industry)
+ .where('company_size', '=', companySize)
+ .executeTakeFirst();
+
+ if (!template) {
+ // Fallback to "Other / Custom" template
+ return getOnboardingTemplate('other', companySize);
+ }
+ return template;
+}
+```
+
+
+#### 15.4.9.4 Import Capability
+
+
+Ninety.io Import: Not Viable
+
+
+Ninety.io offers **no export API, no CSV export, no webhook access, and no data portability features.** The only way to extract data is manual copy-paste from the Ninety.io web interface. This is a deliberate lock-in strategy by Ninety. Kiptra cannot build an automated import from Ninety.io --- but this limitation is also a competitive advantage: customers who switch to Kiptra are making a commitment, reducing churn risk.
+
+
+**Available import paths (wizard Step 1 offers these options):**
+
+
+|
+Import Source |
+Method |
+Data Imported |
+Feasibility |
+ |
+
+
+|
+**Ninety.io** |
+Manual re-entry only |
+N/A |
+Not viable |
+ |
+
+|
+**Spreadsheet (CSV/XLSX)** |
+File upload with column mapping UI |
+Team members (name, email, title), KPI definitions (name, owner, goal), quarterly goals (title, owner, status) |
+Supported |
+ |
+
+|
+**Google Sheets** |
+OAuth2 + Sheets API v4, sheet selection picker |
+Same as CSV, with live column preview |
+Supported |
+ |
+
+|
+**Existing Kiptra Data** |
+Auto-pull from Kiptra CRM contacts and project data |
+Team members from CRM contacts, KPI values from project financial data, company info from tenant record |
+Supported |
+ |
+
+
+**CSV/XLSX import implementation:** The import flow uses a 3-step process: (1) file upload with drag-and-drop, (2) column mapping UI where users match their columns to Kiptra fields (AI auto-detects common column names like "Name," "Email," "Title"), and (3) preview/confirm with validation errors highlighted in red. Import runs as a BullMQ job to handle large files without blocking the UI. Maximum file size: 10 MB / 5,000 rows.
+
+
+#### 15.4.9.5 Post-Setup Roadmap (Progressive Disclosure)
+
+
+After the wizard completes, users see a persistent "Getting Started" checklist in the sidebar that progressively introduces modules over 4 weeks. The checklist uses completion tracking stored in `onboarding_progress` (JSONB on the `tenant_eos_settings` table).
+
+
+|
+Timeframe |
+Checklist Items |
+Modules Unlocked |
+AI Nudge |
+ |
+
+
+|
+**Day 1 (Post-Wizard)** |
+
+
+- Schedule your first Weekly Sync
+
+- Enter this week's KPI values
+
+- Create 1--2 test issues in the Issue Tracker
+
+
+ |
+Meeting Hub, KPI Dashboard, Issue Tracker |
+In-app notification 2 hours post-setup: "Ready to enter your first KPI values? Tap here to update your dashboard." |
+ |
+
+|
+**Week 1** |
+
+
+- Run your first Weekly Sync meeting
+
+- Review the AI-generated meeting recap
+
+- Complete any carry-forward action items
+
+- Post your first Announcement (win or update)
+
+
+ |
+Weekly Action Items, Announcements |
+Day before scheduled meeting: "Your first Weekly Sync is tomorrow. Here's what to expect..." (AI sends a prep brief) |
+ |
+
+|
+**Week 2** |
+
+
+- Set 3--5 Quarterly Goals for this quarter
+
+- Add milestones to at least 1 goal
+
+- Add any missing team members
+
+- Review your KPI trends (2 data points now)
+
+
+ |
+Quarterly Goals, Goal Milestones |
+After 2nd meeting: "You've run 2 Weekly Syncs --- great rhythm! Now it's time to set quarterly goals. Want me to help you write SMART goals?" |
+ |
+
+|
+**Week 3** |
+
+
+- Complete your Responsibility Map (all key seats filled)
+
+- Start your Strategic Vision Plan (10-year target + 3-year picture)
+
+- Connect your calendar (Google or Outlook)
+
+
+ |
+Strategic Vision Plan (full edit), Calendar Sync |
+After 3rd meeting: "Your execution loop is running. Let's build your strategic foundation --- start with your 10-year target." |
+ |
+
+|
+**Month 1** |
+
+
+- Review My Dashboard for personal view
+
+- Set up automated KPI data feeds (QuickBooks, CRM)
+
+- Explore the AI Assistant for goal suggestions
+
+- Schedule your first Quarterly Review (if near quarter-end)
+
+
+ |
+My Dashboard, AI Assistant, Analytics Dashboard preview |
+End of month: "You've completed 4 Weekly Syncs. Your team's meeting effectiveness score is X/10. Here's what top-performing teams do differently..." |
+ |
+
+
+#### 15.4.9.6 Onboarding Analytics & Drop-off Detection
+
+
+Every wizard step tracks timing and completion status. If a user abandons the wizard mid-flow, the system detects it and triggers recovery actions.
+
+
+|
+Event |
+Detection |
+Automated Response |
+ |
+
+
+|
+Wizard abandoned at Step 1--3 |
+No activity for 24 hours after account creation |
+Email: "You're 3 minutes from your first dashboard. Pick up where you left off." Deep link to wizard at last completed step. |
+ |
+
+|
+Wizard abandoned at Step 4--6 |
+No activity for 12 hours after last wizard interaction |
+Email + in-app push: "Your team is almost ready. Finish setting up your KPIs and you can run your first meeting." |
+ |
+
+|
+Wizard completed, no meeting scheduled |
+48 hours post-wizard with no meeting created |
+AI Assistant chat message: "I noticed you haven't scheduled your first Weekly Sync yet. Most teams schedule theirs for Monday or Tuesday mornings. Want me to help?" |
+ |
+
+|
+First meeting scheduled but not held |
+Meeting scheduled time + 24 hours, no start event |
+Email: "Your Weekly Sync was scheduled for yesterday. Things happen --- want to reschedule for this week?" |
+ |
+
+|
+First meeting held, no second meeting |
+7 days after first meeting, no recurring meeting or next meeting created |
+Email: "Great first meeting! The power of the Weekly Sync comes from consistency. Set up a recurring weekly meeting to build the habit." |
+ |
+
+
+SQL
+-- Onboarding tracking columns on tenant_eos_settings table
+ALTER TABLE tenant_eos_settings ADD COLUMN onboarding_state JSONB NOT NULL DEFAULT '{
+ "wizard_started_at": null,
+ "wizard_completed_at": null,
+ "current_step": 1,
+ "steps_completed": [],
+ "step_durations_ms": {},
+ "ai_suggestions_accepted": 0,
+ "ai_suggestions_modified": 0,
+ "ai_suggestions_rejected": 0,
+ "import_source": null,
+ "first_meeting_scheduled_at": null,
+ "first_meeting_held_at": null,
+ "checklist_progress": {}
+}';
+
+-- Index for drop-off detection queries
+CREATE INDEX idx_companies_onboarding_incomplete
+ ON companies ((onboarding_state->>'wizard_completed_at') IS NULL)
+ WHERE (onboarding_state->>'wizard_completed_at') IS NULL;
+```
+
+
+#### 15.4.9.7 Technical Implementation
+
+
+|
+Component |
+Technology |
+Details |
+ |
+
+
+|
+Wizard UI |
+Next.js App Router + Zustand |
+Route: `/app/onboarding`. Full-screen layout (no sidebar). Zustand store for wizard state with `localStorage` persistence (survives browser refresh). 7 step components lazy-loaded via `React.lazy()`. |
+ |
+
+|
+Progress Persistence |
+Supabase (tenant_eos_settings table) |
+Each step completion writes to `onboarding_state` JSONB via Hono API. If user closes browser and returns, wizard resumes at last completed step. |
+ |
+
+|
+Email Invite System |
+SendGrid + better-auth magic links |
+Step 3 invites trigger `bos.onboarding.invite` NATS event. Notification service sends branded invite emails with magic link that auto-joins the team on click. |
+ |
+
+|
+AI Side Panel |
+AI Assistant Agent (Claude Haiku via Vercel AI Gateway) |
+Collapsible panel on right side of wizard. Conversational interface for "Customize with AI" requests. System prompt includes industry context and current wizard state. Uses streaming for responsive UX. |
+ |
+
+|
+Import Pipeline |
+BullMQ + Papa Parse (CSV) + SheetJS (XLSX) |
+File uploaded to Supabase Storage, BullMQ job parses and validates, results stored in staging table for user confirmation. Max 10 MB / 5,000 rows. |
+ |
+
+|
+Drop-off Detection |
+BullMQ repeatable job |
+Runs every 6 hours. Queries `companies` where `onboarding_state.wizard_completed_at IS NULL` and `created_at` exceeds threshold. Publishes `bos.onboarding.abandoned` events to NATS for notification routing. |
+ |
+
+|
+Post-Setup Checklist |
+React component + companies.onboarding_state |
+Sidebar widget reads `checklist_progress` from `onboarding_state`. Each item maps to a route or action. Completed items show green checkmark. Widget auto-hides after all Month 1 items completed. |
+ |
+
+
+**Decisions locked:**
+
+
+**1. Wizard-first, not dashboard-first.** New users see the wizard immediately after account creation, not the main dashboard. Rationale: an empty dashboard with zero data is worse than a guided setup flow.
+
+
+**2. Quarterly goals deferred.** Goals are excluded from the minimum viable setup. Users create goals after their first meeting, when they understand the system. This reduces time-to-first-meeting by ~15--20 minutes.
+
+
+**3. Static templates over live AI.** Onboarding suggestions come from curated templates, not live LLM calls. Rationale: predictability and zero-latency matter more than personalization during first-run UX. Live AI is available as an opt-in refinement.
+
+
+**4. 6-step minimum, not 18-module full setup.** Only 6 of 18 modules require configuration before first use. The remaining 12 modules are introduced progressively over 4 weeks via the sidebar checklist.
+
+
+#### 15.4.10 Weekly Execution Loop --- End-to-End Data Flow
+
+
+The weekly execution loop is the core Business OS heartbeat: set quarterly goals -> track KPIs weekly -> meet weekly to review -> resolve issues -> assign action items -> repeat. This section specifies the complete data flow for one cycle, from Monday KPI entry through the Weekly Sync meeting through action item completion.
+
+
+Flow
+SEQUENCE DIAGRAM: One Complete Weekly Cycle
+===========================================
+
+Mon 9 AM Mon--Thu Thu 3 PM (pre-meeting) Thu 4 PM (Weekly Sync) Fri
+ | | | | |
+ v v v v v
+
+[KPI Owner] [KPI/Scorecard Agent] [Meeting Facilitator] [Meeting Facilitator] [Goal & Alignment]
+ | | | | |
+ | POST /api/bos/ | | | |
+ | measurables/:id/ | | | |
+ | values | | | |
+ |--->[Supabase] | | | |
+ | INSERT INTO | | | |
+ | measurable_values| | | |
+ | | | | | |
+ | |--NOTIFY-->| | | |
+ | | pg_notify| | | |
+ | | &apos;kpi_ | | | |
+ | | updated&apos; | | | |
+ | | | | |
+ | [analyzeTrend] | | |
+ | Compare value vs | | |
+ | goal_value, check | | |
+ | goal_direction | | |
+ | | | | |
+ | IF off-track: | | |
+ | NATS publish | | |
+ | TENANT_{id}.bos. | | |
+ | kpi.off_track | | |
+ | | | | |
+ | |----NATS event------->| | |
+ | | | | |
+ | | [auto-add to next | |
+ | | meeting&apos;s issues | |
+ | | section via | |
+ | | INSERT INTO issues | |
+ | | + item_links] | |
+ | | | | |
+ | | | | |
+ | | | BullMQ cron job | |
+ | | | (T-60min before | |
+ | | | meeting): | |
+ | | | [prepareMeetingAgenda] | |
+ | | | | |
+ | | | READ: measurables | |
+ | | | (off-track this week) | |
+ | | | READ: quarterly_goals | |
+ | | | (status != complete) | |
+ | | | READ: action_items | |
+ | | | (due | [Attendees see agenda] |
+ | | | | |
+ | | | [startMeeting] |
+ | | | XState: scheduled -> in_progress |
+ | | | NATS: TENANT_{id}.bos.meeting.started |
+ | | | | |
+ | | | Section 1: Segue/Check-in (5 min) |
+ | | | Section 2: KPI Review (5 min) |
+ | | | READ: mv_kpi_weekly_summary |
+ | | | (materialized view, refreshed 15min) |
+ | | | Section 3: Goal Review (5 min) |
+ | | | READ: quarterly_goals WHERE status IN |
+ | | | (&apos;on_track&apos;,&apos;off_track&apos;,&apos;at_risk&apos;) |
+ | | | Section 4: Action Item Review (5 min) |
+ | | | READ: action_items WHERE due_date |
+ | | | = week_start |
+ | | | Section 6: Issue Resolution --- Identify, Discuss, Resolve (60 min) |
+ | | | READ: issues ORDER BY priority, vote_count |
+ | | | For each resolved issue: |
+ | | | UPDATE issues SET status=&apos;resolved&apos; |
+ | | | INSERT INTO action_items (from resolution) |
+ | | | Section 7: Conclude (5 min) |
+ | | | [collectRating] per attendee (1--10) |
+ | | | [advanceSection] -> XState: wrapping_up |
+ | | | | |
+ | | | [generateRecap] (Haiku LLM call) |
+ | | | INPUT: meeting_agenda_sections.notes, |
+ | | | resolved issues, new action_items |
+ | | | OUTPUT: recap_html on meetings row |
+ | | | | |
+ | | | [extractActionItems] (structured output) |
+ | | | INSERT INTO action_items |
+ | | | (source_meeting_id = this meeting) |
+ | | | | |
+ | | | NATS publish: |
+ | | | TENANT_{id}.bos.meeting.completed |
+ | | | payload: {meeting_id, action_item_ids[], |
+ | | | resolved_issue_ids[], rating_avg} |
+ | | | | |
+ | | | |--NATS--> [Goal & Alignment Agent] |
+ | | | | Consumes meeting.completed |
+ | | | | [updateProgress] for goals |
+ | | | | linked to resolved issues |
+ | | | | |
+ | | | |--NATS--> [Notification Service] |
+ | | | | Email recap to all attendees |
+ | | | | Socket.io: action_item assignments |
+ | | | | |
+ | | | | [Fri]|
+ | | | | Action item |
+ | | | | owners work |
+ | | | | on tasks. |
+ | | | | PATCH /api/ |
+ | | | | bos/actions |
+ | | | | /:id |
+ | | | | {completed_ |
+ | | | | at: now()} |
+ | | | | |
+NEXT MONDAY: Cycle repeats. Incomplete action_items carry forward (carried_from_id = original id).
+
+```
+
+
+Weekly Sync Duration Deviation Note
+
+
+The Kiptra Weekly Sync template extends KPI Review and Goal Review to 10 minutes each (vs standard 5 minutes in the canonical EOS Level 10 Meeting&trade; agenda) to accommodate richer data visualization and AI-generated trend commentary. Total meeting time remains 90 minutes; the additional 10 minutes are reclaimed from the Issue Resolution section (50 min vs standard 60 min), reflecting that automated KPI flagging resolves some issues before the meeting begins.
+
+
+#### NATS Event Table
+
+
+| Subject | Publisher | Consumer(s) | Payload Summary | Trigger | |
+
+
+|
+`TENANT_{id}.bos.kpi.value_recorded` |
+Hono API (POST handler) |
+KPI/Scorecard Agent |
+`{ measurable_id, value, week_start, entered_by }` |
+User enters weekly KPI value |
+ |
+
+|
+`TENANT_{id}.bos.kpi.off_track` |
+KPI/Scorecard Agent |
+Meeting Facilitator Agent, Notification Service |
+`{ measurable_id, title, value, goal_value, goal_direction, weeks_off_track, owner_id, team_id }` |
+KPI value misses goal threshold |
+ |
+
+|
+`TENANT_{id}.bos.kpi.trend_alert` |
+KPI/Scorecard Agent |
+AI Assistant Agent, Notification Service |
+`{ measurable_id, trend_direction, consecutive_weeks, severity }` |
+3+ consecutive weeks declining |
+ |
+
+|
+`TENANT_{id}.bos.meeting.agenda_ready` |
+Meeting Facilitator Agent |
+Notification Service |
+`{ meeting_id, team_id, scheduled_at, off_track_count, open_issues_count, overdue_actions_count }` |
+BullMQ cron T-60min before meeting |
+ |
+
+|
+`TENANT_{id}.bos.meeting.started` |
+Meeting Facilitator Agent |
+Notification Service (Socket.io broadcast) |
+`{ meeting_id, facilitator_id, attendee_ids[], template_id }` |
+Facilitator clicks Start Meeting |
+ |
+
+|
+`TENANT_{id}.bos.meeting.section_advanced` |
+Meeting Facilitator Agent |
+Socket.io (live UI update) |
+`{ meeting_id, from_section, to_section, actual_duration_seconds }` |
+Section timer expires or manual advance |
+ |
+
+|
+`TENANT_{id}.bos.meeting.issue_resolved` |
+Meeting Facilitator Agent |
+Goal & Alignment Agent, Notification Service |
+`{ meeting_id, issue_id, resolution_notes, action_item_ids[] }` |
+Issue marked resolved during Issue Resolution Process |
+ |
+
+|
+`TENANT_{id}.bos.meeting.completed` |
+Meeting Facilitator Agent |
+Goal & Alignment Agent, KPI/Scorecard Agent, Notification Service, AI Assistant Agent |
+`{ meeting_id, action_item_ids[], resolved_issue_ids[], rating_avg, recap_html, duration_minutes }` |
+Meeting concludes and recap generated |
+ |
+
+|
+`TENANT_{id}.bos.action.created` |
+Hono API / Meeting Facilitator |
+Notification Service, Goal & Alignment Agent |
+`{ action_item_id, owner_id, title, due_date, source_meeting_id, linked_goal_id }` |
+Action item extracted from meeting or created manually |
+ |
+
+|
+`TENANT_{id}.bos.action.completed` |
+Hono API (PATCH handler) |
+Goal & Alignment Agent, KPI/Scorecard Agent |
+`{ action_item_id, owner_id, completed_at }` |
+Owner marks action item done |
+ |
+
+|
+`TENANT_{id}.bos.action.overdue` |
+BullMQ cron (daily 8 AM tenant-local) |
+Notification Service, Meeting Facilitator Agent |
+`{ action_item_ids[], owner_ids[], days_overdue[] }` |
+Daily overdue check job |
+ |
+
+|
+`TENANT_{id}.bos.goal.progress_updated` |
+Goal & Alignment Agent |
+KPI/Scorecard Agent (cross-reference), Notification Service |
+`{ goal_id, previous_progress_pct, new_progress_pct, status, updated_by }` |
+Milestone completed or manual progress update |
+ |
+
+|
+`TENANT_{id}.bos.goal.status_changed` |
+Goal & Alignment Agent |
+Meeting Facilitator Agent (auto-add to agenda), Notification Service |
+`{ goal_id, previous_status, new_status, owner_id }` |
+Goal transitions to off_track or at_risk |
+ |
+
+
+#### Database Operations by Phase
+
+
+| Phase | Tables Read | Tables Written | Triggers / Side Effects | |
+
+
+|
+**Monday: KPI Entry** |
+`measurables` (goal_value, goal_direction) |
+`measurable_values` (INSERT), `audit_logs` (trigger) |
+pg_notify `kpi_updated` channel -> KPI/Scorecard Agent subscriber. Valkey cache invalidation for `tenant:{id}:kpi:dashboard`. |
+ |
+
+|
+**Mon--Thu: Off-Track Detection** |
+`measurable_values` (last 13 weeks), `measurables` (thresholds) |
+`issues` (INSERT if auto-escalation enabled), `item_links` (link issue -> measurable), `notifications` (INSERT) |
+NATS publish `bos.kpi.off_track`. Materialized view `mv_kpi_weekly_summary` refreshed by BullMQ cron every 15 minutes. |
+ |
+
+|
+**Pre-Meeting Prep (T-60min)** |
+`meetings`, `meeting_templates`, `measurables` + `measurable_values`, `quarterly_goals` + `milestones`, `action_items`, `issues`, `headlines` |
+`meeting_agenda_sections` (INSERT/UPDATE with pre-populated data snapshots) |
+BullMQ scheduled job per team. Reads from materialized view `mv_kpi_weekly_summary` instead of raw tables. NATS publish `bos.meeting.agenda_ready`. |
+ |
+
+|
+**During Meeting: Section Progression** |
+`meeting_agenda_sections` (current section), `meetings.workflow_state` (XState) |
+`meetings.workflow_state` (UPDATE per transition), `meeting_agenda_sections.started_at`, `meeting_agenda_sections.ended_at` |
+XState state machine persisted to `workflow_state` JSONB. BullMQ delayed job for section timer auto-advance. Socket.io broadcast on every section change. |
+ |
+
+|
+**During Meeting: Issue Resolution (IRP)** |
+`issues` (prioritized list), `item_links` (linked goals/actions) |
+`issues` (UPDATE status=&apos;resolved&apos;, resolution_notes), `action_items` (INSERT from resolution), `item_links` (INSERT issue -> action_item), `audit_logs` |
+NATS publish `bos.meeting.issue_resolved` per resolved issue. Goal & Alignment Agent consumes to check if resolution unblocks a quarterly goal. |
+ |
+
+|
+**Meeting Conclusion: Recap** |
+`meeting_agenda_sections` (all notes), `meeting_attendees` (ratings), `issues` (resolved this meeting), `action_items` (created this meeting) |
+`meetings.recap_html` (UPDATE), `meetings.average_rating` (UPDATE), `meetings.ended_at` (UPDATE), `meeting_attendees.rating` (UPDATE per attendee) |
+LLM call (Haiku) generates recap from section notes. `extractActionItems` uses structured output to parse unresolved discussion into action items. NATS publish `bos.meeting.completed`. Notification service emails recap to all attendees. |
+ |
+
+|
+**Post-Meeting: Goal Updates** |
+`action_items` (new from meeting), `item_links` (action -> goal), `quarterly_goals`, `milestones` |
+`quarterly_goals.progress_pct` (UPDATE via rollup), `quarterly_goals.status` (UPDATE if progress triggers threshold) |
+Goal & Alignment Agent consumes `meeting.completed` event. Recalculates progress_pct from milestone completion + action item completion. NATS publish `bos.goal.progress_updated`. |
+ |
+
+|
+**Fri--Mon: Action Item Execution** |
+`action_items` (assigned to user) |
+`action_items.completed_at` (UPDATE), `audit_logs` |
+NATS publish `bos.action.completed`. Daily BullMQ cron checks for overdue items, publishes `bos.action.overdue`. Incomplete items at next meeting carry forward: new row with `carried_from_id` referencing original. |
+ |
+
+|
+**Materialized View Refresh** |
+Source tables: `measurable_values`, `measurables`, `quarterly_goals`, `action_items` |
+`mv_kpi_weekly_summary`, `mv_goal_completion_rates`, `mv_meeting_effectiveness` |
+BullMQ cron: every 15 minutes for active data, hourly for historical. `REFRESH MATERIALIZED VIEW CONCURRENTLY` (non-blocking). Valkey cache bust on refresh via pg_notify. **Live meeting override:** When a Weekly Sync meeting is in-progress (`meetings.status = 'active'`), KPI value changes trigger an immediate NATS event `TENANT_{id}.bos.kpi.value_changed` which forces an on-demand materialized view refresh within 30 seconds (bypassing the 15-minute cron). This prevents stale data during live meeting KPI review segments. |
+ |
+
+
+#### Agent Handoff Chains
+
+
+Four concrete handoff patterns operate during the weekly cycle:
+
+
+Flow
+HANDOFF 1: KPI Off-Track -> Meeting Agenda
+=============================================
+KPI/Scorecard Agent
+ -> analyzeTrend(measurable_id)
+ -> Detects: value 72, goal >= 80, direction = &apos;above&apos;
+ -> Publishes: TENANT_{id}.bos.kpi.off_track
+ payload: { measurable_id, title: &quot;Close Rate&quot;, value: 72,
+ goal_value: 80, weeks_off_track: 2, owner_id, team_id }
+
+Meeting Facilitator Agent (subscriber)
+ -> Consumes: bos.kpi.off_track
+ -> INSERT INTO issues (title: &quot;Close Rate off-track (72% vs 80% goal, 2 weeks)&quot;,
+ team_id, category: &apos;kpi_auto&apos;, priority: 3)
+ -> INSERT INTO item_links (source_type: &apos;issue&apos;, target_type: &apos;measurable&apos;,
+ link_type: &apos;caused_by&apos;)
+ -> Issue appears in next Weekly Sync Issue Resolution section automatically
+
+
+HANDOFF 2: Meeting Resolution -> Goal Progress
+================================================
+Meeting Facilitator Agent
+ -> extractActionItems(meeting_agenda_sections.notes)
+ -> Structured output (Haiku): extracts owner, title, due_date per action
+ -> INSERT INTO action_items (source_meeting_id = meeting.id)
+ -> For issues linked to quarterly_goals:
+ INSERT INTO item_links (source_type: &apos;action_item&apos;, target_type: &apos;quarterly_goal&apos;)
+ -> Publishes: TENANT_{id}.bos.meeting.completed
+
+Goal & Alignment Agent (subscriber)
+ -> Consumes: bos.meeting.completed
+ -> For each resolved_issue_id in payload:
+ READ item_links WHERE source_id = issue_id AND target_type = &apos;quarterly_goal&apos;
+ If linked goal found:
+ Recalculate progress_pct from milestones + linked action_items
+ UPDATE quarterly_goals SET progress_pct = new_value
+ -> Publishes: TENANT_{id}.bos.goal.progress_updated
+
+
+HANDOFF 3: Goal Status Change -> Meeting Agenda
+=================================================
+Goal & Alignment Agent
+ -> progress_pct drops below 25% at week 8 of quarter
+ -> UPDATE quarterly_goals SET status = &apos;at_risk&apos;
+ -> Publishes: TENANT_{id}.bos.goal.status_changed
+ payload: { goal_id, previous_status: &apos;on_track&apos;, new_status: &apos;at_risk&apos; }
+
+Meeting Facilitator Agent (subscriber)
+ -> Consumes: bos.goal.status_changed WHERE new_status IN (&apos;at_risk&apos;, &apos;off_track&apos;)
+ -> INSERT INTO issues (title: &quot;Q2 Goal at risk: [goal title] (25% at week 8)&quot;,
+ category: &apos;goal_auto&apos;, priority: 2)
+
+
+HANDOFF 4: AI Assistant Cross-Domain Query
+===========================================
+User: &quot;How did we do this quarter?&quot;
+
+AI Assistant Agent
+ -> Tool calls (read-only):
+ 1. queryGoals({ quarter: current, status: all }) -> quarterly_goals
+ 2. queryKPIs({ period: &apos;trailing_13_week&apos; }) -> mv_kpi_weekly_summary
+ 3. queryMeetings({ quarter: current }) -> meetings (avg rating, issue count)
+ 4. queryActions({ quarter: current }) -> action_items (completion rate)
+ -> Synthesizes via Sonnet:
+ &quot;Q2 summary: 7/10 Quarterly Goals on track (70%), avg meeting rating 8.2,
+ 142/168 action items completed (84.5%), 3 KPIs consistently off-track:
+ Close Rate, Lead Response Time, Gross Margin.&quot;
+
+```
+
+
+#### Error and Retry Paths
+
+
+| Failure Scenario | Detection | Recovery Path | User Impact | |
+
+
+|
+**KPI data source unavailable** (external API --- QuickBooks, CRM) |
+KPI/Scorecard Agent `ingestExternalData` tool returns connection error or timeout (>30s) |
+BullMQ retry with exponential backoff (3 attempts, 5min/15min/60min). After 3 failures: mark measurable as `source: &apos;stale&apos;`, NATS publish `bos.kpi.data_source_failed`, create notification for KPI owner: &quot;[Source] data unavailable --- enter value manually or retry.&quot; Manual entry fallback always available. |
+KPI shows last known value with amber &quot;stale&quot; indicator. Owner can enter manually. Meeting proceeds with stale data flagged. |
+ |
+
+|
+**Meeting abandoned mid-session** (facilitator disconnects, browser crash) |
+XState machine in `in_progress` state with no `section_advanced` event for >15 minutes. Socket.io disconnect event for facilitator. BullMQ health check queries `meetings WHERE workflow_state->>&apos;value&apos; = &apos;in_progress&apos; AND updated_at 7 days past due)** |
+Daily BullMQ cron job (8 AM tenant-local) queries `action_items WHERE completed_at IS NULL AND due_date `parent_seat_id` hierarchy). Day 7+ overdue: auto-create issue in next meeting&apos;s Issue Resolution section (title: &quot;Overdue action item: [title] (7+ days)&quot;, category: &apos;accountability&apos;). At next meeting: incomplete items carry forward with `carried_from_id` reference. Carry count tracked for accountability reporting. |
+Owner receives escalating notifications. Item persists across meetings until resolved. Carry count visible in meeting recap and analytics. |
+ |
+
+|
+**LLM failure during recap generation** |
+`generateRecap` Haiku call returns error or timeout (>60s) |
+Retry once with same context. If second failure: store meeting data without recap (`recap_html = NULL`), mark meeting as `completed_no_recap`. Queue BullMQ job to retry recap generation in 30 minutes. NATS publish `bos.meeting.recap_failed`. Notification: &quot;Meeting completed. AI recap will be available shortly.&quot; |
+Meeting concludes normally. Recap arrives late (email delayed). All action items and resolutions captured regardless of recap status. |
+ |
+
+|
+**Materialized view refresh failure** |
+BullMQ job for `REFRESH MATERIALIZED VIEW CONCURRENTLY` fails (lock contention, OOM) |
+Retry in 5 minutes. Dashboard falls back to Valkey-cached stale data (TTL extended from 5min to 30min on failure). Alert to operations channel. Views remain queryable with stale data --- `CONCURRENTLY` ensures the old snapshot is served during refresh. |
+Dashboard shows slightly stale data (up to 30 min old). No user-visible error. |
+ |
+
+
+**Key insight:** The weekly loop is resilient by design --- every failure mode has a manual fallback that preserves the meeting cadence. KPI data can be entered manually, meetings can be paused and resumed, action items carry forward across weeks, and recaps can be regenerated asynchronously. The methodology works even when the AI layer is degraded.
+
+
+### 15.5 Database Schema
+
+
+The Business Operating System adds approximately 30+ new tables to the Kiptra database, organized by domain. All tables follow Kiptra conventions: UUID primary keys, `tenant_id` for multi-tenancy, `created_at`/`updated_at` timestamps, and soft-delete via `deleted_at`.
+
+
+**Key insight:** All Business OS tables inherit Kiptra's tenant isolation model: Row-Level Security (RLS) policies on every table, `tenant_id` column indexed and enforced, and all queries wrapped in `withTenantContext()` (see Section 3). No additional multi-tenancy work is required --- the pattern is already established.
+
+
+Architecture Decision: Rename companies to tenant_eos_settings (ADR-SCHEMA-001)
+
+
+**Decision: Option C --- Rename `companies` to `tenant_eos_settings`** --- a clearly scoped settings table with a 1:1 foreign key to `tenants`.
+
+
+| Criterion | A: Merge into tenants | B: companies FK->tenants | C: tenant_eos_settings (chosen) | |
+
+
+|
+ **Schema clarity** |
+ Muddies the core table --- `tenants` becomes a dumping ground for every module's config. |
+ Ambiguous naming --- `companies` sounds like a parallel top-level entity. |
+ **Best.** Name explicitly communicates: "this is EOS-specific configuration for a tenant." |
+ |
+
+|
+ **Migration safety** |
+ Requires ALTER TABLE on the high-traffic `tenants` table. |
+ Clean --- new table, no core table changes. |
+ **Best.** New table, zero changes to `tenants`. |
+ |
+
+|
+ **Future extensibility** |
+ Every new module adds more columns to `tenants` --- "God table" anti-pattern. |
+ Sets a precedent but naming doesn't follow a pattern. |
+ **Best.** Establishes the `tenant_{module}_settings` naming convention. K&B can add `tenant_kb_settings`. |
+ |
+
+
+**Key constraint:** The `tenant_eos_settings` table has a `UNIQUE` constraint on `tenant_id`, enforcing 1:1 cardinality. It is NOT a child table --- it is a settings extension. RLS policy uses the same `tenant_id` pattern as all other tables.
+
+
+#### Updated CREATE TABLE (replaces `companies`)
+
+
+SQL
+-- EOS-specific tenant configuration (1:1 extension of tenants table)
+-- Replaces the 'companies' table from Section 15.5
+CREATE TABLE tenant_eos_settings (
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ tenant_id UUID REFERENCES tenants NOT NULL UNIQUE,
+ name TEXT, -- Display name for EOS context (may differ from tenants.name)
+ core_values JSONB NOT NULL DEFAULT '[]', -- Array of {value, description} objects
+ mission TEXT,
+ niche TEXT,
+ target_market TEXT,
+ fiscal_year_start INTEGER DEFAULT 1, -- Month (1-12), default January
+ quarter_start_month INTEGER DEFAULT 1, -- Allows offset quarters
+ settings JSONB NOT NULL DEFAULT '{}', -- Module-level settings (meeting defaults, scorecard config, etc.)
+ created_at TIMESTAMPTZ DEFAULT now(),
+ updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- RLS: same tenant isolation pattern as all other tables
+ALTER TABLE tenant_eos_settings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON tenant_eos_settings
+ USING (tenant_id = (SELECT current_setting('app.tenant_id', true)::uuid));
+```
+
+
+#### Cascading Updates Required
+
+
+- **All Section 15.5 tables referencing `company_id`** must be updated to reference `tenant_id` directly (not through the settings table). The `teams`, `vision_plans`, `long_term_issues`, `org_charts` tables already have `tenant_id` for RLS --- the `company_id` FK is redundant and should be removed.
+
+- **No ALTER TABLE on `tenants` required.** The `tenants` table already has all needed columns.
+
+- **teams table update:** Change `company_id` to `tenant_id` (column already exists for RLS, drop the `company_id` FK).
+
+
+#### Organizational Tables (5)
+
+
+|
+Table |
+Purpose |
+Key Columns |
+ |
+
+
+|
+`tenant_eos_settings` |
+Business OS module configuration (1:1 tenant extension) |
+`tenant_id` (UNIQUE), `name`, `core_values` (JSONB), `mission`, `niche`, `target_market`, `fiscal_year_start`, `settings` (JSONB) |
+ |
+
+|
+`teams` |
+Departments/functional groups |
+`tenant_id`, `name`, `parent_team_id`, `path` (ltree) |
+ |
+
+|
+`team_memberships` |
+User-to-team assignments |
+`user_id`, `team_id`, `role` (enum: member/admin/owner) |
+ |
+
+|
+`user_profiles` |
+Extended user data for Business OS |
+`user_id`, `display_name`, `avatar_url`, `title`, `bio`, `core_values_scores` (JSONB) |
+ |
+
+|
+`user_workspace_layouts` |
+Per-user dashboard layouts |
+`user_id`, `workspace` (enum), `layout` (JSONB --- React Grid Layout config) |
+ |
+
+
+#### Strategic Tables (5)
+
+
+|
+Table |
+Purpose |
+Key Columns |
+ |
+
+
+|
+`vision_plans` |
+Strategic Vision Plan (V/TO equivalent) |
+`tenant_id`, `version`, `ten_year_target`, `three_year_picture` (JSONB), `one_year_plan` (JSONB), `status` |
+ |
+
+|
+`long_term_issues` |
+Issues parked for future quarters |
+`tenant_id`, `title`, `description`, `target_quarter`, `priority` |
+ |
+
+|
+`org_charts` |
+Responsibility Map versions |
+`tenant_id`, `version`, `is_active`, `layout_data` (JSONB) |
+ |
+
+|
+`seats` |
+Roles/functions in the org chart |
+`org_chart_id`, `title`, `parent_seat_id`, `path` (ltree), `responsibilities` (JSONB), `seat_type` (enum) |
+ |
+
+|
+`seat_assignments` |
+Person-to-seat mapping |
+`seat_id`, `user_id`, `is_primary`, `assigned_at`, `removed_at` |
+ |
+
+
+#### Execution Tables (5)
+
+
+|
+Table |
+Purpose |
+Key Columns |
+ |
+
+
+|
+`quarterly_goals` |
+90-day priorities (EOS methodology equivalent) |
+`tenant_id`, `team_id`, `owner_id`, `title`, `description`, `quarter`, `year`, `status`, `parent_goal_id`, `progress_pct` |
+ |
+
+|
+`milestones` |
+Sub-goals within quarterly goals |
+`goal_id`, `title`, `due_date`, `status`, `sort_order` |
+ |
+
+|
+`action_items` |
+Weekly to-do items |
+`owner_id`, `team_id`, `title`, `due_date`, `completed_at`, `source_meeting_id`, `carried_from_id` |
+ |
+
+|
+`issues` |
+Issue Tracker entries |
+`team_id`, `title`, `description`, `category` (enum), `priority`, `status`, `resolved_at`, `resolution_notes` |
+ |
+
+|
+`headlines` |
+Announcements and wins |
+`tenant_id`, `team_id`, `author_id`, `title`, `body`, `headline_type` (enum: win/news/update) |
+ |
+
+
+#### Meeting Tables (4)
+
+
+|
+Table |
+Purpose |
+Key Columns |
+ |
+
+
+|
+`meeting_templates` |
+Reusable meeting structures |
+`tenant_id`, `name`, `meeting_type` (enum), `sections` (JSONB --- ordered section definitions with default durations) |
+ |
+
+|
+`meetings` |
+Individual meeting instances |
+`template_id`, `team_id`, `facilitator_id`, `scheduled_at`, `started_at`, `ended_at`, `workflow_state` (JSONB), `recap_html`, `average_rating` |
+ |
+
+|
+`meeting_attendees` |
+Meeting participation |
+`meeting_id`, `user_id`, `status` (enum: invited/accepted/declined/attended), `rating` (1--10) |
+ |
+
+|
+`meeting_agenda_sections` |
+Per-meeting section overrides and notes |
+`meeting_id`, `section_key`, `duration_minutes`, `notes` (JSONB --- ProseMirror doc), `started_at`, `ended_at` |
+ |
+
+
+#### KPI Tables (3)
+
+
+|
+Table |
+Purpose |
+Key Columns |
+ |
+
+
+|
+`scorecards` |
+KPI Dashboard definitions |
+`team_id`, `name`, `description`, `is_active` |
+ |
+
+|
+`measurables` |
+Individual KPI definitions |
+`scorecard_id`, `owner_id`, `title`, `unit`, `goal_value`, `goal_direction` (enum: above/below/between), `goal_min`, `goal_max`, `data_source` (enum: manual/api/computed), `formula` (JSONB) |
+ |
+
+|
+`measurable_values` |
+Weekly KPI data points |
+`measurable_id`, `week_start` (date), `value` (numeric), `entered_by`, `source` (enum: manual/automated), `notes` |
+ |
+
+
+#### People & Review Tables (4)
+
+
+|
+Table |
+Purpose |
+Key Columns |
+ |
+
+
+|
+`reviews` |
+Quarterly review instances |
+`reviewee_id`, `reviewer_id`, `quarter`, `year`, `status` (enum: draft/self_assessment/manager_review/discussion/finalized), `workflow_state` (JSONB) |
+ |
+
+|
+`review_responses` |
+Individual review answers |
+`review_id`, `question_id`, `response_type` (enum: self/manager), `score`, `comments` |
+ |
+
+|
+`review_questions` |
+Configurable review questions |
+`tenant_id`, `category` (enum: core_value/ccc/goal_retro/open_ended), `question_text`, `sort_order` |
+ |
+
+|
+`fit_checks` |
+Team Fit Assessment results |
+`user_id`, `assessor_id`, `quarter`, `year`, `core_values_scores` (JSONB), `competency` (enum: +/+&minus;/&minus;), `commitment` (enum), `capacity` (enum) |
+ |
+
+
+#### Knowledge Portal Tables (10+)
+
+
+|
+Table |
+Purpose |
+Key Columns |
+ |
+
+
+|
+`knowledge_categories` |
+Top-level content organization |
+`tenant_id`, `name`, `description`, `icon`, `sort_order` |
+ |
+
+|
+`knowledge_collections` |
+Groups of related articles |
+`category_id`, `name`, `description`, `prerequisite_collection_id` |
+ |
+
+|
+`knowledge_articles` |
+Individual content pieces |
+`collection_id`, `title`, `slug`, `status` (enum), `estimated_minutes`, `review_cycle_days`, `last_reviewed_at`, `search_vector` (tsvector) |
+ |
+
+|
+`content_blocks` |
+Article content blocks |
+`article_id`, `block_type` (enum), `content` (JSONB), `sort_order` |
+ |
+
+|
+`content_versions` |
+Article version history |
+`article_id`, `version`, `blocks_snapshot` (JSONB), `changed_by`, `change_summary` |
+ |
+
+|
+`content_assignments` |
+Seat-based article assignments |
+`article_id`, `seat_id`, `assigned_by`, `due_date`, `required` (boolean) |
+ |
+
+|
+`user_progress` |
+Per-user learning progress |
+`user_id`, `article_id`, `progress_pct`, `completed_at`, `time_spent_seconds`, `quiz_score` |
+ |
+
+|
+`sop_documents` |
+Standard operating procedures |
+`tenant_id`, `team_id`, `title`, `version`, `status` (enum: draft/review/approved), `approved_by`, `steps` (JSONB) |
+ |
+
+|
+`assessments` |
+Business Health Assessment surveys |
+`tenant_id`, `assessment_type`, `quarter`, `year`, `status`, `results` (JSONB) |
+ |
+
+|
+`assessment_responses` |
+Individual survey responses |
+`assessment_id`, `user_id`, `answers` (JSONB), `is_anonymous` (boolean) |
+ |
+
+
+#### Infrastructure Tables (5+)
+
+
+|
+Table |
+Purpose |
+Key Columns |
+ |
+
+
+|
+`notifications` |
+In-app notification records |
+`user_id`, `type` (enum), `title`, `body`, `link`, `read_at`, `channel` (enum), `dedup_hash` |
+ |
+
+|
+`notification_preferences` |
+Per-user, per-type channel toggles |
+`user_id`, `notification_type`, `in_app` (boolean), `email` (boolean), `push` (boolean), `digest_frequency` (enum) |
+ |
+
+|
+`calendar_sync_connections` |
+External calendar OAuth connections |
+`user_id`, `provider` (enum: google/microsoft), `access_token_enc`, `refresh_token_enc`, `calendar_id`, `sync_token`, `last_synced_at` |
+ |
+
+|
+`audit_logs` |
+Change history for all Business OS tables |
+`table_name`, `record_id`, `action` (enum: insert/update/delete), `old_values` (JSONB), `new_values` (JSONB), `changed_by`, `changed_at` |
+ |
+
+|
+`item_links` |
+Polymorphic cross-module references |
+`source_type`, `source_id`, `target_type`, `target_id`, `link_type` (enum: related/blocks/caused_by/resolves) |
+ |
+
+
+### 15.6 New Agents
+
+
+The Business Operating System introduces seven new agents to the Kiptra agent ecosystem. Each agent is implemented as an `AgentPluginFactory` (Section 6) using the factory + registration pattern, and communicates via NATS JetStream event subjects defined in Section 2. All agents emit the standard 13-event streaming protocol (AI-25, Section 7b).
+
+
+|
+Agent |
+Purpose |
+Key Tools |
+ |
+
+
+|
+**Business OS Agent** |
+Core domain logic orchestrator for the entire Business OS module. Routes requests to specialized sub-agents, manages cross-module operations, and enforces business rules. |
+`createQuarterlyGoal`, `updateVisionPlan`, `resolveIssue`, `linkItems`, `getCompanyDashboard` |
+ |
+
+|
+**Meeting Facilitator Agent** |
+Manages live meeting state machines. Controls section transitions, enforces time limits, collects ratings, and generates AI-powered meeting recaps with action item extraction. |
+`startMeeting`, `advanceSection`, `pauseMeeting`, `collectRating`, `generateRecap`, `extractActionItems` |
+ |
+
+|
+**Goal & Alignment Agent** |
+Manages the quarterly goal lifecycle. Handles cascading alignment (company -> team -> individual), progress rollup calculations, milestone tracking, and quarter-end evaluation workflows. |
+`createGoal`, `cascadeGoal`, `updateProgress`, `evaluateQuarter`, `suggestGoals`, `checkAlignment` |
+ |
+
+|
+**KPI/Scorecard Agent** |
+Manages KPI dashboards and measurables. Builds computed formulas, ingests automated data from external sources (QuickBooks, CRM), detects trends, and generates off-track alerts. |
+`createMeasurable`, `recordValue`, `buildFormula`, `ingestExternalData`, `analyzeTrend`, `alertOffTrack` |
+ |
+
+|
+**People & Review Agent** |
+Manages quarterly review workflows and team fit assessments. Orchestrates the self-assessment -> manager review -> discussion -> finalization pipeline. Tracks core values alignment over time. |
+`initiateReview`, `submitSelfAssessment`, `submitManagerReview`, `scheduleDiscussion`, `recordFitCheck`, `trackValuesTrend` |
+ |
+
+|
+**Knowledge Portal Agent** |
+Manages content lifecycle in the Knowledge Portal. Handles article creation, version control, seat-based assignment, progress tracking, and content freshness enforcement cycles. |
+`createArticle`, `assignContent`, `trackProgress`, `checkFreshness`, `searchKnowledge`, `generateQuiz` |
+ |
+
+|
+**AI Assistant Agent** |
+Conversational AI for Business OS tasks. Helps users create SMART quarterly goals, build seat descriptions, prepare meeting agendas, analyze KPI trends, and get recommendations on issue prioritization. |
+`createSMARTGoal`, `buildSeatDescription`, `prepareMeetingAgenda`, `analyzeKPIs`, `prioritizeIssues`, `summarizeQuarter` |
+ |
+
+
+**Key insight:** All seven agents are implemented as `AgentPluginFactory` functions (Section 6) and communicate via NATS JetStream (Section 2). No changes to the core event bus, executor, agent dashboard, or agent lifecycle infrastructure are required. The Business OS agents are simply new factory functions registered in the agent registry, emitting the same 13-event streaming protocol (AI-25) as the operational agents.
+
+
+#### Agent Interaction Patterns
+
+
+Business OS agents frequently collaborate on cross-cutting operations:
+
+
+- **Meeting -> Execution:** Meeting Facilitator extracts action items and issues during recap generation, then publishes events that the Goal & Alignment Agent and KPI/Scorecard Agent consume to update relevant records.
+
+- **KPI -> Meeting:** KPI/Scorecard Agent identifies off-track measurables and automatically adds them to the next Weekly Sync's issues section via the Meeting Facilitator Agent.
+
+- **Review -> People:** People & Review Agent pulls goal completion data from Goal & Alignment Agent and KPI performance from KPI/Scorecard Agent to pre-populate review forms.
+
+- **AI Assistant -> All:** AI Assistant Agent has read access to all other agents' data via tool calls, enabling conversational queries like "How did our team do this quarter?" that span multiple domains.
+
+
+### 15.7 Implementation Phases
+
+
+The Business Operating System is built in three phases, each delivering a complete, usable increment of functionality. The phasing follows the EOS methodology itself: the weekly execution loop (Phase 1) is the foundation upon which people management (Phase 2) and knowledge systems (Phase 3) are built.
+
+
+#### Phase 1 --- MVP (Weeks 1--12): Core Execution Loop
+
+
+The EOS methodology works because of a tight weekly execution loop: set quarterly goals -> track KPIs weekly -> meet weekly to review progress -> resolve issues -> assign action items -> repeat. Phase 1 must deliver this *entire* loop end-to-end. Shipping individual modules without the loop is useless --- users cannot adopt the methodology partially.
+
+
+**Modules delivered:**
+
+
+|
+Module |
+Weeks |
+Dependencies |
+ |
+
+
+|
+People Directory |
+1--2 |
+None (foundation for all other modules) |
+ |
+
+|
+Responsibility Map |
+2--4 |
+People Directory |
+ |
+
+|
+Strategic Vision Plan |
+3--5 |
+People Directory |
+ |
+
+|
+Quarterly Goals |
+4--7 |
+Responsibility Map (for seat-based ownership) |
+ |
+
+|
+KPI Dashboard |
+5--8 |
+Responsibility Map |
+ |
+
+|
+Weekly Action Items |
+6--8 |
+People Directory |
+ |
+
+|
+Issue Tracker (IRP) |
+7--9 |
+People Directory |
+ |
+
+|
+Announcements |
+8--9 |
+People Directory |
+ |
+
+|
+Meeting Hub (Weekly Sync only) |
+8--11 |
+All execution modules (meeting pulls from goals, KPIs, issues, action items) |
+ |
+
+|
+Cross-cutting: Notifications, Item Links, Basic PDF Export |
+10--12 |
+All modules |
+ |
+
+
+**Phase 1 exit criteria:** A team can run a complete weekly sync meeting in Kiptra --- reviewing KPI dashboards, checking quarterly goal progress, resolving issues, assigning action items, and receiving an AI-generated meeting recap. The full execution loop is operational.
+
+
+#### Phase 2 --- Growth (Weeks 12--20): People & Analytics
+
+
+With the execution loop running, Phase 2 adds the people management and analytics layers that drive long-term organizational health.
+
+
+|
+Module |
+Weeks |
+Dependencies |
+ |
+
+
+|
+Team Fit Assessment |
+12--14 |
+People Directory, Responsibility Map |
+ |
+
+|
+Quarterly Reviews |
+13--16 |
+Team Fit Assessment, Quarterly Goals |
+ |
+
+|
+My Dashboard |
+14--16 |
+All Phase 1 modules |
+ |
+
+|
+Analytics Dashboard |
+15--18 |
+All Phase 1 modules (materialized views) |
+ |
+
+|
+Calendar Sync (Google + Microsoft) |
+16--18 |
+Meeting Hub |
+ |
+
+|
+Meeting Types Expansion (quarterly, annual, departmental) |
+18--20 |
+Meeting Hub |
+ |
+
+
+**Phase 2 exit criteria:** Teams can conduct quarterly reviews with core values scoring, managers can assess team fit, users have personalized dashboards, and meetings sync to external calendars.
+
+
+#### Phase 3 --- Premium (Weeks 20--28): Knowledge & AI
+
+
+Phase 3 delivers the premium-tier features that differentiate Kiptra from Ninety.io and create long-term competitive moats.
+
+
+|
+Module |
+Weeks |
+Dependencies |
+ |
+
+
+|
+Knowledge Portal |
+20--24 |
+People Directory, Responsibility Map |
+ |
+
+|
+SOP Builder |
+22--24 |
+Knowledge Portal (shared editor infrastructure) |
+ |
+
+|
+Business Health Assessment |
+23--25 |
+People Directory |
+ |
+
+|
+AI Assistant |
+24--27 |
+All modules (conversational access to full data) |
+ |
+
+|
+Public API + Webhooks |
+26--28 |
+All modules (REST endpoints for every entity) |
+ |
+
+
+**Phase 3 exit criteria:** Full Knowledge Portal with seat-based assignment and progress tracking, AI assistant capable of conversational SMART goal creation and meeting prep, and a public API with webhook subscriptions that surpasses Ninety.io's zero-integration offering.
+
+
+**Total timeline:** 18--28 weeks depending on team size and parallelization opportunities.
+
+
+Timeline & Resource Dependencies
+
+
+This timeline assumes AI-driven development (Claude Code, Cursor, AI agent pipelines) with Joseph as the sole developer, consistent with the core platform build approach. Business OS development begins after the Kiptra core platform achieves stability (post-launch, approximately Month 8 of the overall timeline --- see Section 9 Post-Launch Roadmap). ~80--90% of Business OS modules are AI-buildable (schemas, state machines, CRUD, API routes, dashboard UI, validation, tests). The remaining ~10--20% requiring human judgment (XState edge cases, ProseMirror collaboration tuning, meeting UX polish) is handled by Joseph directly. No additional engineering hires are required --- AI tooling replaces the traditional 2--4 engineer team assumption.
+
+
+### 15.8 Integration with Kiptra Platform
+
+
+The Business Operating System is not a standalone application --- it is a feature module within the Kiptra AI platform. This means it shares core infrastructure while introducing targeted new dependencies.
+
+
+#### Shared Infrastructure (Reuse Directly)
+
+
+|
+Component |
+Kiptra Platform Layer |
+Business OS Usage |
+ |
+
+
+|
+Database |
+Supabase (Postgres 15+) |
+All Business OS tables, RLS policies, materialized views, `ltree` extension |
+ |
+
+|
+API Server |
+Hono (Node.js runtime) |
+New route groups: `/api/bos/*` for all Business OS endpoints |
+ |
+
+|
+Frontend |
+Next.js 16 (App Router) |
+New route group: `/app/(bos)/*` for Business OS pages |
+ |
+
+|
+Job Queue |
+BullMQ + Valkey |
+Meeting timers, notification delivery, PDF generation, calendar sync, KPI data ingestion |
+ |
+
+|
+Infrastructure |
+Docker + DigitalOcean + Cloudflare |
+No new infrastructure --- Business OS runs in existing containers |
+ |
+
+|
+AI |
+Vercel AI SDK + Vercel AI Gateway |
+Meeting recap generation, SMART goal assistance, KPI trend analysis, issue prioritization |
+ |
+
+|
+Real-time |
+Socket.io + NATS JetStream |
+In-app notifications (Socket.io), agent-to-agent events (NATS), live meeting collaboration |
+ |
+
+|
+Auth |
+better-auth |
+Same auth layer, extended with seat-based permissions for Business OS modules |
+ |
+
+
+#### New Infrastructure (Business OS Specific)
+
+
+|
+Dependency |
+Version |
+Purpose |
+Bundle Impact |
+ |
+
+
+|
+XState |
+v5 |
+State machines for meetings, goals, reviews, approvals |
+~15 KB gzipped (tree-shakeable) |
+ |
+
+|
+TipTap |
+v2 |
+Rich-text editor for Knowledge Portal, meeting notes, vision plan narratives |
+~50 KB gzipped (with extensions) |
+ |
+
+|
+Recharts |
+v2 |
+Interactive charts, sparklines, KPI trends, and analytics --- all chart types (line, bar, area, combo, sparklines) + shadcn/ui Card components for KPI card layouts |
+~45 KB gzipped |
+ |
+
+|
+React-PDF |
+v4 |
+Programmatic PDF generation for reports and recaps |
+Server-side only |
+ |
+
+|
+Puppeteer |
+v23 |
+HTML-to-PDF for complex visual reports (KPI snapshots) |
+Server-side only (Docker sidecar) |
+ |
+
+|
+React Grid Layout |
+v1 |
+Draggable/resizable dashboard widget layout |
+~20 KB gzipped |
+ |
+
+|
+Google Calendar API |
+v3 |
+Two-way calendar sync for meetings |
+Server-side only (googleapis) |
+ |
+
+|
+Microsoft Graph (MSAL) |
+v2 |
+Outlook calendar sync for meetings |
+Server-side only (@azure/msal-node) |
+ |
+
+
+#### Key Competitive Advantages vs. Ninety.io
+
+
+|
+# |
+Advantage |
+Ninety.io Reality |
+Kiptra Approach |
+ |
+
+
+|
+1 |
+**Open API + Webhooks** |
+Zero API. Zero webhooks. Zero integration capability. Complete data silo. |
+Full REST API for every Business OS entity. Webhook subscriptions for all events. MCP server for AI agent access. |
+ |
+
+|
+2 |
+**Automated KPI Data** |
+100% manual data entry. Users must remember to update every measurable weekly. |
+Automated data feeds from QuickBooks (financials), CRM (sales pipeline), and project management (job progress, change orders). |
+ |
+
+|
+3 |
+**Construction-Specific AI Context** |
+Generic across all industries. No domain awareness. |
+AI agents understand construction terminology, common KPIs (backlog, WIP, AR aging), and industry-specific goal templates. |
+ |
+
+|
+4 |
+**Flat Competitive Pricing** |
+$11.20--$16/user/month across 4 tiers (Essentials, Accelerate, Thrive, Summit). |
+Business OS features included in Kiptra subscription. No per-user Business OS surcharge. No feature gating across artificial tiers. |
+ |
+
+|
+5 |
+**AI Meeting Summaries** |
+AI-assisted meeting *preparation* only (pre-meeting briefs). No post-meeting recap generation. |
+Full AI meeting recaps: auto-generated summaries, action item extraction, issue identification, KPI commentary, and next-meeting agenda seeding. |
+ |
+
+
+Strategic Positioning
+
+
+Kiptra AI is the first platform to combine construction project management with a complete Business Operating System. Construction companies currently pay for two separate tools (PM software + Ninety.io) that don't talk to each other. Kiptra eliminates this gap: project data flows directly into KPI dashboards, job milestones map to quarterly goals, and AI agents have full context across both domains. This is not a feature --- it is a category-defining integration.
+
+
+---

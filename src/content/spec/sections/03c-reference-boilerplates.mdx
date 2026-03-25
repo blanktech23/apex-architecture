@@ -1,0 +1,68 @@
+---
+title: "3c. Reference Boilerplates (Evaluated March 2026)"
+slug: "reference-boilerplates"
+section: "03c"
+---
+
+All repos below are from reputable sources (Vercel, Supabase community, Mastra/Gatsby team, or high-star production templates), use our exact stack, and deploy to Vercel. Organized by role in the architecture.
+
+
+### Primary: Chat UI + Agent Tool Calling
+
+
+| Repo | Stars | Stack Match | Role in Our Architecture | |
+
+
+| **thorchh/agent-starter** | ~120 | Next.js 16 + AI SDK (AI SDK v6) + shadcn + Tailwind v4 | **Primary fork.** Multi-step tool calling (`tool()` + Zod), streaming, chain-of-thought, file uploads, message branching. Tools in `src/lib/ai/tools/`. Model switching built-in (trivial to plug Vercel AI Gateway routing). Running agent chat with tools in replace Neon with Supabase -> add React Flow + Socket.io. | |
+
+
+### Auth + Multi-Tenant Foundation
+
+
+| Repo | Stars | Stack Match | Role in Our Architecture | |
+
+
+| **jabirdev/nextjs-better-auth** | ~94 | Next.js 16 + better-auth + Drizzle + Supabase | **Auth layer reference.** Our exact auth choice (better-auth Organization plugin). Clone for RBAC/team-invites/multi-tenancy patterns, merge into primary fork. | |
+
+| **supabase-community/vercel-ai-chatbot** | ~800 | AI SDK + Supabase Auth + Postgres | **Supabase integration reference.** Pre-wired Supabase chat persistence + auth. Use as bridge if prioritizing Supabase RLS setup before better-auth swap. | |
+
+
+### Advanced Agent Orchestration (Upgrade Path)
+
+
+| Repo / Template | Stars | Stack Match | Role in Our Architecture | |
+
+
+| **CedarCopilot/cedar-mastra-starter** | --- | Next.js 16 + Mastra + React Flow | **React Flow + agent status reference.** Built-in interactive mind maps + live streaming status + tool calling + workflows. Closest match to our architecture visualization + live agent status needs. One-click Vercel deploy. | |
+
+| **mastra-ai/template-deep-research**
+`npx create-mastra@latest --template deep-search` | 22K (mono) | Mastra + AI SDK | **Complex orchestration reference.** Multi-agent research with self-evaluation, web tools, human-in-the-loop. Reference for when agent graphs/MCP tool servers become needed. | |
+
+| **koji/mastra-app-template** | --- | Next.js + Mastra + Assistant UI | **Alternative UI pattern.** Assistant UI + Mastra agents + web search tool. Reference for Assistant-style interface if needed. | |
+
+
+### Workflow + Background Jobs
+
+
+| Repo | Stars | Stack Match | Role in Our Architecture | |
+
+
+| **inngest/vercel-ai-o1-preview-crm-agent** | --- | AI SDK + Inngest + Next.js | **Durable workflow reference.** Background steps, retries, step orchestration. Study alongside our NATS JetStream + BullMQ patterns for cron and inter-agent events. | |
+
+
+### Visualization
+
+
+| Repo | Stars | Stack Match | Role in Our Architecture | |
+
+
+| **xyflow/react-flow** | --- | React + Next.js | **Mind map foundation.** Official React Flow repo. Examples folder has Next.js + shadcn integrations. Combine with streaming for real-time agent node status. | |
+
+
+### Recommended Build Path
+
+
+**Step 1:** Fork **thorchh/agent-starter** -> instant chat UI + AI SDK streaming + tool calling ( human review -> client-facing document). The Bookkeeping Agent and Sales Agent should be designed with change order extensibility in mind --- specifically, the Sales Agent's pricing lookup tools and the Bookkeeping Agent's budget tracking should accept change-order-scoped queries.
+
+
+**Lightweight-first principle:** thorchh/agent-starter gives 100% of the Vercel AI SDK tool-calling surface with zero framework overhead. Mastra templates are reference material for selective adoption --- not the base. Every boilerplate listed deploys to Vercel and integrates with our Supabase + better-auth + Vercel AI Gateway stack with

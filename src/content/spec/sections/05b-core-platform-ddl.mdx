@@ -1,0 +1,879 @@
+---
+title: "5b. Core Platform DDL (Complete Schema)"
+slug: "core-platform-ddl"
+section: "05b"
+---
+
+Complete `CREATE TABLE` definitions for all core platform tables referenced in Section 5. Every tenant-scoped table includes RLS policies using the `(SELECT current_setting('app.tenant_id', true))::uuid` pattern with `FORCE ROW LEVEL SECURITY`. Platform-scoped tables are explicitly annotated with `NO RLS`.
+
+
+**Convention alignment:** These DDL statements follow the same patterns established in the Business OS schema (Section 15.5) and K&B schema (Section 16.8): UUID PKs with `gen_random_uuid()`, snake_case plural table names, `TIMESTAMPTZ DEFAULT now()`, CHECK constraints for enum-like TEXT columns, and composite indexes on `(tenant_id, )`.
+
+
+### Table Summary (23 tables + 3 helper functions)
+
+
+| Domain | Table | Scope | Purpose | |
+
+
+| **Auth & Tenancy** | `users` | Platform | User profiles extending better-auth `auth.users` | |
+
+| | `tenants` | Platform | Top-level organizational unit (scope root) | |
+
+| | `tenant_members` | Tenant | User-to-tenant RBAC role mapping | |
+
+| | `invitations` | Tenant | Pending team invitations with token-based acceptance | |
+
+| **Agents & Execution** | `agents` | Tenant | Active agent instances per tenant | |
+
+| | `agent_executions` | Tenant | Full run history with status lifecycle (9 states) | |
+
+| | `agent_prompt_versions` | Platform | Prompt version history with canary rollout support | |
+
+| | `conversation_turns` | Tenant | AI conversation threads with tool call records | |
+
+| **Human-in-the-Loop** | `escalations` | Tenant | Approval queue for agent decisions requiring review | |
+
+| | `drafts` | Tenant | Agent-generated content pending human approval | |
+
+| **Event Bus & Webhooks** | `event_bus_log` | Tenant | Full NATS JetStream event audit trail | |
+
+| | `webhook_events` | Tenant | Inbound webhook deduplication (7-day TTL) | |
+
+| **Integrations** | `integrations` | Tenant | OAuth connections with AES-256-GCM encrypted tokens | |
+
+| **Support** | `support_conversations` | Tenant | Support Agent chat sessions | |
+
+| | `support_messages` | Tenant | Individual messages with confidence scores and KB citations | |
+
+| **Billing & Usage** | `tenant_usage_daily` | Tenant | Pre-aggregated daily usage metrics per agent type | |
+
+| **Notifications** | `notifications` | Tenant | In-app notifications via Socket.io | |
+
+| | `notification_preferences` | Tenant | Per-user, per-category channel preferences | |
+
+| **Security** | `tenant_keys` | Platform | Envelope encryption DEKs (service-role only) | |
+
+| **Configuration** | `system_config` | Platform | Platform-wide key-value configuration | |
+
+| **Event Delivery** | `outbox_events` | Tenant | Reliable event publishing via outbox pattern (Attack Audit 2026-03-22) | |
+
+
+
+### Full DDL
+
+
+SQL
+-- =============================================================================
+-- Kiptra AI — Core Platform DDL
+-- Complete schema for all core platform tables (Plan v3)
+-- Generated: 2026-03-21
+--
+-- Conventions (matching existing Business OS/K&B DDL):
+-- - UUID PKs with gen_random_uuid()
+-- - snake_case, plural table names
+-- - TIMESTAMPTZ for all timestamps, DEFAULT now()
+-- - RLS via current_setting('app.tenant_id', true)::uuid wrapped in SELECT
+-- - CHECK constraints for enum-like TEXT columns
+-- - Composite indexes on (tenant_id, )
+-- - FORCE ROW LEVEL SECURITY on all tenant-scoped tables
+-- - Platform-scoped tables explicitly noted with NO RLS
+-- =============================================================================
+
+
+-- =============================================================================
+-- DOMAIN: AUTH & TENANCY
+-- =============================================================================
+
+-- Users table: extends better-auth's auth.users with platform-specific fields.
+-- better-auth manages the auth.users table directly; this table stores
+-- additional profile data that better-auth does not handle.
+CREATE TABLE users (
+ id UUID PRIMARY KEY REFERENCES auth.users ON DELETE CASCADE,
+ email TEXT NOT NULL UNIQUE,
+ name TEXT,
+ avatar_url TEXT,
+ mfa_enabled BOOLEAN NOT NULL DEFAULT false,
+ email_verified BOOLEAN NOT NULL DEFAULT false, -- better-auth may manage this in auth.users; kept here for API contract alignment
+ lASt_logIN_at TIMESTAMPTZ,
+ created_at TIMESTAMPTZ DEFAULT now(),
+ UPDATEd_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- No RLS on users — access controlled at application layer via better-auth.
+-- Users span tenants (a user can belong to multiple tenants via tenant_members).
+COMMENT ON TABLE users IS 'PlatfORm user profiles extENDINg better-auth auth.users. No RLS — cross-tenant by design.';
+
+CREATE INDEX idx_users_email ON users (email);
+CREATE INDEX idx_users_lASt_logIN ON users (lASt_logIN_at);
+
+
+-- Tenants: the top-level organizational unit. Every customer (individual or team)
+-- is a tenant. All tenant-scoped data references this table.
+CREATE TABLE tenants (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ name TEXT NOT NULL,
+ slug TEXT NOT NULL UNIQUE,
+ INdustry_vertical TEXT NOT NULL DEFAULT 'kitchen_bath'
+ CHECK (INdustry_vertical IN ('kitchen_bath', 'hvac', 'general_construction', 'landscaping')),
+ tenant_type TEXT NOT NULL DEFAULT 'contractor'
+ CHECK (tenant_type IN ('contractor', 'dealer', 'rep', 'manufacturer')),
+ company_size TEXT
+ CHECK (company_size IN ('solo', 'small', 'medium', 'large')),
+ plan TEXT NOT NULL DEFAULT 'starter'
+ CHECK (plan IN ('starter', 'professiONal', 'enterprise')),
+ billINg_status TEXT NOT NULL DEFAULT 'active'
+ CHECK (billINg_status IN ('active', 'pASt_due', 'cancelINg', 'canceled')),
+ stripe_customer_id TEXT,
+ stripe_subscriptiON_id TEXT,
+ feature_flags JSONB NOT NULL DEFAULT '{}',
+ ONboardINg_step TEXT NOT NULL DEFAULT 'company'
+ CHECK (ONboardINg_step IN ('company', 'industry', 'persona', 'profile', 'plan', 'payment', 'team', 'complete')),
+ ONboardINg_completed BOOLEAN NOT NULL DEFAULT false,
+ timezONe TEXT NOT NULL DEFAULT 'America/Chicago',
+ created_at TIMESTAMPTZ DEFAULT now(),
+ UPDATEd_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- No tenant-scoped RLS on tenants itself — the tenant row IS the scope root.
+-- Access controlled at application layer (better-auth Organization plugin).
+COMMENT ON TABLE tenants IS 'Top-level ORganizatiONal unit. Every customer is a tenant. No self-referencINg RLS.';
+
+CREATE UNIQUE INDEX idx_tenants_slug ON tenants (slug);
+CREATE INDEX idx_tenants_plan ON tenants (plan);
+CREATE INDEX idx_tenants_billINg_status ON tenants (billINg_status);
+CREATE INDEX idx_tenants_stripe_customer ON tenants (stripe_customer_id) WHERE stripe_customer_id IS NOT NULL;
+CREATE INDEX idx_tenants_vertical_type ON tenants (INdustry_vertical, tenant_type);
+
+
+-- Tenant members: maps users to tenants with RBAC roles.
+-- Managed via better-auth Organization plugin; this table is the source of truth
+-- for who belongs to which tenant and with what role.
+CREATE TABLE tenant_members (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ role TEXT NOT NULL DEFAULT 'viewer'
+ CHECK (role IN ('owner', 'admIN', 'manager', 'designer', 'bookkeeper', 'viewer')),
+ is_active BOOLEAN NOT NULL DEFAULT true,
+ ONboardINg_completed BOOLEAN NOT NULL DEFAULT false,
+ INvited_by UUID REFERENCES users(id),
+ accepted_at TIMESTAMPTZ,
+ created_at TIMESTAMPTZ DEFAULT now(),
+ UPDATEd_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ UNIQUE (tenant_id, user_id)
+);
+
+ALTER TABLE tenant_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tenant_members FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolatiON ON tenant_members
+ FOR ALL
+ USING (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid)
+ WITH CHECK (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid);
+
+COMMENT ON TABLE tenant_members IS 'Maps users to tenants with RBAC roles. RLS enfORces tenant isolatiON.';
+
+CREATE INDEX idx_tenant_members_tenant ON tenant_members (tenant_id);
+CREATE INDEX idx_tenant_members_user ON tenant_members (user_id);
+CREATE INDEX idx_tenant_members_role ON tenant_members (tenant_id, role);
+
+
+-- Invitations: pending team invitations managed by better-auth Organization plugin.
+CREATE TABLE INvitatiONs (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ email TEXT NOT NULL,
+ role TEXT NOT NULL DEFAULT 'viewer'
+ CHECK (role IN ('owner', 'admIN', 'manager', 'designer', 'bookkeeper', 'viewer')),
+ INvited_by UUID NOT NULL REFERENCES users(id),
+ token TEXT NOT NULL UNIQUE,
+ status TEXT NOT NULL DEFAULT 'pENDINg'
+ CHECK (status IN ('pENDINg', 'accepted', 'expired', 'revoked')),
+ expires_at TIMESTAMPTZ NOT NULL,
+ accepted_at TIMESTAMPTZ,
+ created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE INvitatiONs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE INvitatiONs FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolatiON ON INvitatiONs
+ FOR ALL
+ USING (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid)
+ WITH CHECK (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid);
+
+COMMENT ON TABLE INvitatiONs IS 'PENDINg team INvitatiONs. Token-bASed acceptance flow.';
+
+CREATE INDEX idx_INvitatiONs_tenant ON INvitatiONs (tenant_id);
+CREATE INDEX idx_INvitatiONs_email ON INvitatiONs (email);
+CREATE INDEX idx_INvitatiONs_token ON INvitatiONs (token);
+CREATE INDEX idx_INvitatiONs_status ON INvitatiONs (tenant_id, status);
+
+
+-- =============================================================================
+-- DOMAIN: AGENTS & EXECUTION
+-- =============================================================================
+
+-- Agents: active agent instances per tenant, instantiated from templates.
+-- Each tenant gets a configurable set (up to 7 in the Slate template).
+CREATE TABLE agents (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ agent_type TEXT NOT NULL
+ CHECK (agent_type IN ('discovery_cONcierge', 'design_spec_assistant', 'estimate_engINe', 'project_orchestratOR', 'ONperatiONs_cONtroller', 'executive_navigatOR', 'suppORt_agent')),
+ name TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'active'
+ CHECK (status IN ('active', 'paused', 'disabled')),
+ model_tier TEXT, -- e.g., 'nano', 'haiku', 'sONnet'
+ agent_cONfig JSONB NOT NULL DEFAULT '{}', -- tenant-specific overrides
+ prompt_versiON INTEGER NOT NULL DEFAULT 1, -- FK to agent_prompt_versiONs.versiON
+ created_at TIMESTAMPTZ DEFAULT now(),
+ UPDATEd_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE agents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agents FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolatiON ON agents
+ FOR ALL
+ USING (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid)
+ WITH CHECK (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid);
+
+COMMENT ON TABLE agents IS 'Active agent INstances per tenant. INstantiated from agent templates.';
+
+CREATE INDEX idx_agents_tenant ON agents (tenant_id);
+CREATE INDEX idx_agents_tenant_type ON agents (tenant_id, agent_type);
+CREATE INDEX idx_agents_tenant_status ON agents (tenant_id, status);
+
+
+-- Agent executions: every agent run is logged here with full input/output,
+-- cost tracking, and status lifecycle. This is the core audit trail for
+-- all AI activity. Status transitions are defined in Section 7b of the plan.
+CREATE TABLE agent_executiONs (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+ trigger_type TEXT NOT NULL, -- e.g., 'webhook', 'crON', 'manual', 'event_bus'
+ status TEXT NOT NULL DEFAULT 'queued'
+ CHECK (status IN (
+ 'queued', 'runnINg', 'completed', 'failed', 'timed_out',
+ 'awaitINg_approval', 'rejected', 'cancelled', 'dead_letter',
+ 'billing_paused'
+ )),
+ INput_cONtext JSONB NOT NULL DEFAULT '{}',
+ output JSONB,
+ tokens_used INTEGER,
+ cost_usd NUMERIC(10, 6),
+ model_used TEXT,
+ started_at TIMESTAMPTZ,
+ completed_at TIMESTAMPTZ,
+ errOR_message TEXT,
+ bullmq_job_id TEXT,
+ created_at TIMESTAMPTZ DEFAULT now(),
+ UPDATEd_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE agent_executiONs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_executiONs FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolatiON ON agent_executiONs
+ FOR ALL
+ USING (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid)
+ WITH CHECK (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid);
+
+COMMENT ON TABLE agent_executiONs IS 'Full run histORy fOR every agent executiON. CORe audit trail fOR AI activity.';
+
+CREATE INDEX idx_agent_executiONs_tenant ON agent_executiONs (tenant_id);
+CREATE INDEX idx_agent_executiONs_status ON agent_executiONs (tenant_id, status);
+CREATE INDEX idx_agent_executiONs_agent ON agent_executiONs (tenant_id, agent_id);
+CREATE INDEX idx_agent_executiONs_created ON agent_executiONs (tenant_id, created_at DESC);
+CREATE INDEX idx_agent_executiONs_bullmq ON agent_executiONs (bullmq_job_id) WHERE bullmq_job_id IS NOT NULL;
+
+
+-- Agent prompt versions: platform-scoped prompt history per agent type.
+-- Supports canary rollout (10% → 90%) with automated rollback.
+-- PLATFORM-SCOPED: No RLS — shared across all tenants.
+CREATE TABLE agent_prompt_versiONs (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ agent_type TEXT NOT NULL,
+ versiON INTEGER NOT NULL,
+ system_prompt TEXT NOT NULL,
+ tools JSONB NOT NULL DEFAULT '[]', -- tool defINitiONs fOR this versiON
+ model_cONfig JSONB NOT NULL DEFAULT '{}', -- model, max_tokens, temperature, etc.
+ is_active BOOLEAN NOT NULL DEFAULT false,
+ created_by UUID REFERENCES users(id),
+ created_at TIMESTAMPTZ DEFAULT now(),
+ UNIQUE (agent_type, versiON)
+);
+
+-- NO RLS — platform-scoped table, accessible only via service role.
+COMMENT ON TABLE agent_prompt_versiONs IS 'PlatfORm-scoped prompt versiON histORy. No RLS — service-role access ONly.';
+
+CREATE INDEX idx_prompt_versiONs_type_active ON agent_prompt_versiONs (agent_type, is_active) WHERE is_active = true;
+CREATE INDEX idx_prompt_versiONs_type_versiON ON agent_prompt_versiONs (agent_type, versiON DESC);
+
+
+-- Conversation turns: AI conversation history per tenant per agent.
+-- Stores the full message thread including tool calls and results.
+CREATE TABLE cONversatiON_turns (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+ sessiON_id UUID NOT NULL, -- groups turns IN a sINgle cONversatiON
+ role TEXT NOT NULL
+ CHECK (role IN ('user', 'ASsistant', 'system', 'tool')),
+ cONtent TEXT,
+ tool_calls JSONB, -- outbound tool INvocatiONs
+ tool_results JSONB, -- tool executiON results
+ tokens_used INTEGER,
+ model_used TEXT,
+ created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE cONversatiON_turns ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cONversatiON_turns FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolatiON ON cONversatiON_turns
+ FOR ALL
+ USING (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid)
+ WITH CHECK (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid);
+
+COMMENT ON TABLE cONversatiON_turns IS 'AI cONversatiON histORy per tenant. Full message thread with tool calls.';
+
+CREATE INDEX idx_cONversatiON_turns_tenant ON cONversatiON_turns (tenant_id);
+CREATE INDEX idx_cONversatiON_turns_sessiON ON cONversatiON_turns (tenant_id, sessiON_id, created_at);
+CREATE INDEX idx_cONversatiON_turns_agent ON cONversatiON_turns (tenant_id, agent_id);
+
+
+-- =============================================================================
+-- DOMAIN: HUMAN-IN-THE-LOOP (ESCALATIONS & DRAFTS)
+-- =============================================================================
+
+-- Escalations: human-in-the-loop approval queue. Agents escalate decisions
+-- that require human review (high-value estimates, risky actions, etc.).
+CREATE TABLE escalatiONs (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ agent_executiON_id UUID NOT NULL REFERENCES agent_executiONs(id) ON DELETE CASCADE,
+ escalatiON_type TEXT NOT NULL, -- e.g., 'high_value_estimate', 'risky_actiON', 'low_cONfidence'
+ priORity TEXT NOT NULL DEFAULT 'medium'
+ CHECK (priORity IN ('low', 'medium', 'high', 'critical')),
+ status TEXT NOT NULL DEFAULT 'pENDINg'
+ CHECK (status IN ('pENDINg', 'approved', 'rejected', 'expired')),
+ title TEXT NOT NULL,
+ summary TEXT,
+ ORigINal_output JSONB, -- agent's proposed output
+ modified_output JSONB, -- human-modified versiON (if edited befORe approval)
+ ASsigned_to UUID REFERENCES users(id),
+ resolved_by UUID REFERENCES users(id),
+ resolved_at TIMESTAMPTZ,
+ expires_at TIMESTAMPTZ,
+ created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE escalatiONs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE escalatiONs FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolatiON ON escalatiONs
+ FOR ALL
+ USING (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid)
+ WITH CHECK (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid);
+
+COMMENT ON TABLE escalatiONs IS 'Human-IN-the-loop approval queue fOR agent decisiONs requirINg review.';
+
+CREATE INDEX idx_escalatiONs_tenant ON escalatiONs (tenant_id);
+CREATE INDEX idx_escalatiONs_status ON escalatiONs (tenant_id, status);
+CREATE INDEX idx_escalatiONs_ASsigned ON escalatiONs (tenant_id, ASsigned_to) WHERE ASsigned_to IS NOT NULL;
+CREATE INDEX idx_escalatiONs_executiON ON escalatiONs (agent_executiON_id);
+CREATE INDEX idx_escalatiONs_expires ON escalatiONs (expires_at) WHERE status = 'pENDINg';
+
+
+-- Drafts: agent-generated content pending human approval.
+-- Covers email drafts, estimates, reports, and recommended actions.
+CREATE TABLE drafts (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ agent_executiON_id UUID NOT NULL REFERENCES agent_executiONs(id) ON DELETE CASCADE,
+ draft_type TEXT NOT NULL
+ CHECK (draft_type IN ('email', 'estimate', 'repORt', 'actiON', 'purchase_order', 'lien_waiver', 'morning_briefing', 'change_order')),
+ status TEXT NOT NULL DEFAULT 'pENDINg'
+ CHECK (status IN ('pENDINg', 'approved', 'rejected', 'modified', 'send_failed')),
+ cONtent JSONB NOT NULL, -- current cONtent (may be human-edited)
+ ORigINal_cONtent JSONB NOT NULL, -- ORigINal agent-generated cONtent
+ approved_by UUID REFERENCES users(id),
+ approved_at TIMESTAMPTZ,
+ created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE drafts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE drafts FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolatiON ON drafts
+ FOR ALL
+ USING (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid)
+ WITH CHECK (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid);
+
+COMMENT ON TABLE drafts IS 'Agent-generated drafts (emails, estimates, repORts) pENDINg human approval.';
+
+CREATE INDEX idx_drafts_tenant ON drafts (tenant_id);
+CREATE INDEX idx_drafts_status ON drafts (tenant_id, status);
+CREATE INDEX idx_drafts_type ON drafts (tenant_id, draft_type);
+CREATE INDEX idx_drafts_executiON ON drafts (agent_executiON_id);
+
+
+-- =============================================================================
+-- DOMAIN: EVENT BUS & WEBHOOKS
+-- =============================================================================
+
+-- Event bus log: full audit trail of all NATS JetStream messages.
+-- Every inter-agent event is logged for debugging and compliance.
+CREATE TABLE event_bus_log (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ subject TEXT NOT NULL, -- NATS subject, e.g., 'TENANT_{tenantId}.agent.estimate.executiON.completed'
+ payload JSONB NOT NULL,
+ source_agent TEXT, -- agent_type of the publisher
+ target_agent TEXT, -- agent_type of the INtENDed cONsumer
+ status TEXT NOT NULL DEFAULT 'published'
+ CHECK (status IN ('published', 'delivered', 'failed')),
+ nats_sequence BIGINT, -- NATS JetStream sequence number
+ created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE event_bus_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_bus_log FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolatiON ON event_bus_log
+ FOR ALL
+ USING (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid)
+ WITH CHECK (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid);
+
+COMMENT ON TABLE event_bus_log IS 'Full audit trail of NATS JetStream INter-agent events.';
+
+CREATE INDEX idx_event_bus_tenant ON event_bus_log (tenant_id);
+CREATE INDEX idx_event_bus_tenant_created ON event_bus_log (tenant_id, created_at DESC);
+CREATE INDEX idx_event_bus_subject ON event_bus_log (tenant_id, subject);
+CREATE INDEX idx_event_bus_status ON event_bus_log (tenant_id, status) WHERE status = 'failed';
+
+
+-- Webhook events: deduplication and audit trail for inbound webhooks.
+-- Uses (provider, external_event_id, tenant_id) unique constraint for
+-- at-least-once deduplication via INSERT ... ON CONFLICT DO NOTHING.
+CREATE TABLE webhook_events (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ provider TEXT NOT NULL, -- e.g., 'jobtread', 'quickbooks', 'sENDgrid'
+ external_event_id TEXT NOT NULL, -- provider's event ID fOR dedup
+ event_type TEXT NOT NULL, -- e.g., 'INvoice.created', 'project.UPDATEd'
+ payload JSONB NOT NULL,
+ status TEXT NOT NULL DEFAULT 'received'
+ CHECK (status IN ('received', 'processINg', 'processed', 'failed')),
+ idempotency_key TEXT,
+ processed_at TIMESTAMPTZ,
+ created_at TIMESTAMPTZ DEFAULT now(),
+ UNIQUE (provider, external_event_id, tenant_id)
+);
+
+ALTER TABLE webhook_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE webhook_events FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolatiON ON webhook_events
+ FOR ALL
+ USING (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid)
+ WITH CHECK (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid);
+
+COMMENT ON TABLE webhook_events IS 'INbound webhook deduplicatiON AND audit. 7-day retentiON TTL.';
+
+CREATE INDEX idx_webhook_events_tenant ON webhook_events (tenant_id);
+CREATE INDEX idx_webhook_events_dedup ON webhook_events (provider, external_event_id, tenant_id);
+CREATE INDEX idx_webhook_events_status ON webhook_events (tenant_id, status);
+CREATE INDEX idx_webhook_events_created ON webhook_events (created_at); -- fOR TTL cleanup
+
+
+-- =============================================================================
+-- DOMAIN: INTEGRATIONS
+-- =============================================================================
+
+-- Integrations: OAuth connections to external services.
+-- Tokens are encrypted with AES-256-GCM using tenant-specific DEKs (see tenant_keys).
+CREATE TABLE INtegratiONs (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ provider TEXT NOT NULL
+ CHECK (provider IN ('jobtread', 'quickbooks', 'google_calENDar', 'gmail', 'outlook_email', 'outlook_calENDar', 'google_drive', 'sENDgrid', 'stripe', 'hubspot', 'openweathermap')),
+ status TEXT NOT NULL DEFAULT 'pENDINg'
+ CHECK (status IN ('cONnected', 'discONnected', 'errOR', 'pENDINg')),
+ oauth_tokens_encrypted BYTEA, -- AES-256-GCM encrypted OAuth tokens
+ token_expires_at TIMESTAMPTZ,
+ lASt_sync_at TIMESTAMPTZ,
+ sync_cONfig JSONB NOT NULL DEFAULT '{}', -- provider-specific sync SETtINgs
+ created_at TIMESTAMPTZ DEFAULT now(),
+ UPDATEd_at TIMESTAMPTZ DEFAULT now(),
+ UNIQUE (tenant_id, provider)
+);
+
+ALTER TABLE INtegratiONs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE INtegratiONs FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolatiON ON INtegratiONs
+ FOR ALL
+ USING (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid)
+ WITH CHECK (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid);
+
+COMMENT ON TABLE INtegratiONs IS 'OAuth cONnectiONs to external services. Tokens encrypted with tenant DEKs.';
+
+CREATE INDEX idx_INtegratiONs_tenant ON INtegratiONs (tenant_id);
+CREATE INDEX idx_INtegratiONs_tenant_provider ON INtegratiONs (tenant_id, provider);
+CREATE INDEX idx_INtegratiONs_status ON INtegratiONs (tenant_id, status);
+CREATE INDEX idx_INtegratiONs_token_expiry ON INtegratiONs (token_expires_at) WHERE status = 'cONnected';
+
+
+-- =============================================================================
+-- DOMAIN: SUPPORT AGENT
+-- =============================================================================
+
+-- Support conversations: chat sessions between users and the Support Agent.
+-- Scoped to tenant + user for &quot;my conversations&quot; views.
+CREATE TABLE suppORt_cONversatiONs (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ status TEXT NOT NULL DEFAULT 'active'
+ CHECK (status IN ('active', 'resolved', 'escalated')),
+ channel TEXT NOT NULL DEFAULT 'chat'
+ CHECK (channel IN ('chat', 'email', 'proactive')),
+ satisfactiON_ratINg INTEGER CHECK (satisfactiON_ratINg BETWEEN 1 AND 5),
+ created_at TIMESTAMPTZ DEFAULT now(),
+ resolved_at TIMESTAMPTZ
+);
+
+ALTER TABLE suppORt_cONversatiONs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE suppORt_cONversatiONs FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolatiON ON suppORt_cONversatiONs
+ FOR ALL
+ USING (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid)
+ WITH CHECK (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid);
+
+COMMENT ON TABLE suppORt_cONversatiONs IS 'SuppORt Agent chat sessiONs. Scoped to tenant + user.';
+
+CREATE INDEX idx_suppORt_cONversatiONs_tenant ON suppORt_cONversatiONs (tenant_id);
+CREATE INDEX idx_suppORt_cONversatiONs_user ON suppORt_cONversatiONs (tenant_id, user_id);
+CREATE INDEX idx_suppORt_cONversatiONs_status ON suppORt_cONversatiONs (tenant_id, status);
+
+
+-- Support messages: individual messages within a support conversation.
+-- Includes agent confidence scores and KB citations for transparency.
+CREATE TABLE suppORt_messages (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ cONversatiON_id UUID NOT NULL REFERENCES suppORt_cONversatiONs(id) ON DELETE CASCADE,
+ tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ role TEXT NOT NULL
+ CHECK (role IN ('user', 'agent', 'system')),
+ cONtent TEXT NOT NULL,
+ citatiONs JSONB, -- KB article REFERENCES [{article_id, title, chunk}]
+ cONfidence NUMERIC(3, 2), -- 0.00–1.00 retrieval cONfidence scORe
+ tokens_used INTEGER,
+ created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE suppORt_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE suppORt_messages FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolatiON ON suppORt_messages
+ FOR ALL
+ USING (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid)
+ WITH CHECK (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid);
+
+COMMENT ON TABLE suppORt_messages IS 'INdividual messages IN suppORt cONversatiONs. INcludes cONfidence scORes AND KB citatiONs.';
+
+CREATE INDEX idx_suppORt_messages_cONversatiON ON suppORt_messages (cONversatiON_id, created_at);
+CREATE INDEX idx_suppORt_messages_tenant ON suppORt_messages (tenant_id);
+
+
+-- =============================================================================
+-- DOMAIN: BILLING & USAGE
+-- =============================================================================
+
+-- Tenant usage daily: pre-aggregated daily usage metrics per tenant per agent type.
+-- Powers the CEO dashboard, billing metering, and spending limit enforcement.
+CREATE TABLE tenant_usage_daily (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ date DATE NOT NULL,
+ agent_type TEXT NOT NULL,
+ executiON_count INTEGER NOT NULL DEFAULT 0,
+ tokens_INput BIGINT NOT NULL DEFAULT 0,
+ tokens_output BIGINT NOT NULL DEFAULT 0,
+ tokens_cached BIGINT NOT NULL DEFAULT 0,
+ cost_usd NUMERIC(10, 6) NOT NULL DEFAULT 0,
+ created_at TIMESTAMPTZ DEFAULT now(),
+ UNIQUE (tenant_id, date, agent_type)
+);
+
+ALTER TABLE tenant_usage_daily ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tenant_usage_daily FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolatiON ON tenant_usage_daily
+ FOR ALL
+ USING (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid)
+ WITH CHECK (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid);
+
+COMMENT ON TABLE tenant_usage_daily IS 'Pre-aggregated daily usage metrics. Powers CEO dAShboard AND billINg meterINg.';
+
+CREATE INDEX idx_usage_daily_tenant ON tenant_usage_daily (tenant_id);
+CREATE INDEX idx_usage_daily_tenant_date ON tenant_usage_daily (tenant_id, date DESC);
+CREATE INDEX idx_usage_daily_date ON tenant_usage_daily (date);
+
+
+-- =============================================================================
+-- DOMAIN: NOTIFICATIONS
+-- =============================================================================
+
+-- Notifications: in-app notifications delivered via Socket.io.
+-- Covers escalation alerts, usage warnings, proactive support, etc.
+CREATE TABLE notificatiONs (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ type TEXT NOT NULL, -- e.g., 'escalatiON', 'usage_warnINg', 'oauth_expiry', 'agent_failure'
+ title TEXT NOT NULL,
+ body TEXT,
+ data JSONB, -- structured metadata (lINks, actiON buttONs, etc.)
+ read_at TIMESTAMPTZ,
+ created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE notificatiONs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notificatiONs FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolatiON ON notificatiONs
+ FOR ALL
+ USING (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid)
+ WITH CHECK (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid);
+
+COMMENT ON TABLE notificatiONs IS 'IN-app notificatiONs delivered via Socket.io.';
+
+CREATE INDEX idx_notificatiONs_tenant ON notificatiONs (tenant_id);
+CREATE INDEX idx_notificatiONs_user ON notificatiONs (tenant_id, user_id, created_at DESC);
+CREATE INDEX idx_notificatiONs_unread ON notificatiONs (tenant_id, user_id, read_at) WHERE read_at IS NULL;
+
+
+-- Notification preferences: per-user, per-category channel toggles.
+-- Controls which notifications go to which channel (in-app, email, digest).
+CREATE TABLE notificatiON_pREFERENCES (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ categORy TEXT NOT NULL, -- e.g., 'escalatiONs', 'usage_alerts', 'agent_failures', 'INtegratiONs'
+ IN_app BOOLEAN NOT NULL DEFAULT true,
+ email BOOLEAN NOT NULL DEFAULT false,
+ digest_frequency TEXT NOT NULL DEFAULT 'nONe'
+ CHECK (digest_frequency IN ('realtime', 'daily', 'weekly', 'nONe')),
+ created_at TIMESTAMPTZ DEFAULT now(),
+ UPDATEd_at TIMESTAMPTZ DEFAULT now(),
+ UNIQUE (user_id, tenant_id, categORy)
+);
+
+ALTER TABLE notificatiON_pREFERENCES ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notificatiON_pREFERENCES FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolatiON ON notificatiON_pREFERENCES
+ FOR ALL
+ USING (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid)
+ WITH CHECK (tenant_id = (SELECT current_SETtINg('app.tenant_id', true))::uuid);
+
+COMMENT ON TABLE notificatiON_pREFERENCES IS 'Per-user, per-categORy notificatiON channel pREFERENCES.';
+
+CREATE INDEX idx_notificatiON_prefs_user ON notificatiON_pREFERENCES (user_id, tenant_id);
+CREATE INDEX idx_notificatiON_prefs_tenant ON notificatiON_pREFERENCES (tenant_id);
+
+
+-- =============================================================================
+-- DOMAIN: SECURITY & ENCRYPTION
+-- =============================================================================
+
+-- Tenant keys: envelope encryption data encryption keys (DEKs).
+-- Each tenant has a DEK encrypted by a platform KEK (stored in env vars).
+-- Used to encrypt OAuth tokens in the integrations table.
+-- PLATFORM-SCOPED: No RLS — service-role access only, never exposed to clients.
+CREATE TABLE tenant_keys (
+ id UUID PRIMARY KEY DEFAULT gen_rANDom_uuid(),
+ tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ key_versiON INTEGER NOT NULL DEFAULT 1,
+ encrypted_dek BYTEA NOT NULL, -- AES-256-GCM encrypted DEK
+ created_at TIMESTAMPTZ DEFAULT now(),
+ rotated_at TIMESTAMPTZ,
+ UNIQUE (tenant_id, key_versiON)
+);
+
+-- NO RLS — service-role access only. Never exposed via client queries.
+COMMENT ON TABLE tenant_keys IS 'Envelope encryptiON DEKs per tenant. Service-role access ONly — no RLS.';
+
+CREATE INDEX idx_tenant_keys_tenant ON tenant_keys (tenant_id);
+CREATE INDEX idx_tenant_keys_active ON tenant_keys (tenant_id, key_versiON DESC);
+
+
+-- =============================================================================
+-- DOMAIN: PLATFORM CONFIGURATION
+-- =============================================================================
+
+-- System config: platform-wide key-value configuration.
+-- Used for feature flags, rate limit defaults, model routing config, etc.
+-- PLATFORM-SCOPED: No RLS — service-role access only.
+CREATE TABLE system_cONfig (
+ key TEXT PRIMARY KEY,
+ value JSONB NOT NULL,
+ UPDATEd_at TIMESTAMPTZ DEFAULT now(),
+ UPDATEd_by UUID REFERENCES users(id)
+);
+
+-- NO RLS — platform-scoped table, accessible only via service role.
+COMMENT ON TABLE system_cONfig IS 'PlatfORm-wide key-value cONfiguratiON. No RLS — service-role access ONly.';
+
+
+-- =============================================================================
+-- DOMAIN: AGENT TEMPLATES
+-- =============================================================================
+
+-- Agent templates: platform-wide agent definitions.
+-- Agents are instantiated from these templates per tenant.
+-- PLATFORM-SCOPED: No RLS — shared across tenants.
+CREATE TABLE agent_templates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_type TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  system_prompt TEXT NOT NULL,
+  tools JSONB NOT NULL DEFAULT '[]',
+  model_config JSONB NOT NULL DEFAULT '{}',
+  is_default BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Platform-scoped: NO RLS (shared across tenants)
+COMMENT ON TABLE agent_templates IS 'Platform-wide agent template definitions. No RLS — shared across all tenants.';
+
+
+
+
+-- =============================================================================
+-- DOMAIN: OUTBOX (Reliable Event Publishing)
+-- Spec Amendment (CRITICAL — Attack Audit 2026-03-22): Outbox pattern
+-- referenced in Architecture Overview and Webhook Ingestion but never
+-- defined in DDL. Required for at-least-once event delivery guarantee.
+-- =============================================================================
+
+CREATE TABLE outbox_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  event_type TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_at TIMESTAMPTZ,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  max_retries INTEGER NOT NULL DEFAULT 5
+);
+CREATE INDEX idx_outbox_pending ON outbox_events (status, created_at) WHERE status = 'pending';
+
+-- Tenant-scoped: RLS via app.tenant_id
+ALTER TABLE outbox_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE outbox_events FORCE ROW LEVEL SECURITY;
+CREATE POLICY outbox_events_tenant_isolation ON outbox_events
+  USING (tenant_id = (SELECT current_setting('app.tenant_id', true))::uuid);
+COMMENT ON TABLE outbox_events IS 'Outbox pattern for reliable event publishing. Poller reads pending rows and publishes to NATS.';
+
+-- =============================================================================
+-- DOMAIN: PLAN TIERS
+-- =============================================================================
+
+-- Plan tiers: subscription plan definitions.
+-- Referenced by tenants.plan column. Stripe price IDs link to billing.
+-- PLATFORM-SCOPED: No RLS — shared across tenants.
+CREATE TABLE plan_tiers (
+  id TEXT PRIMARY KEY, -- 'starter', 'professional', 'enterprise'
+  name TEXT NOT NULL,
+  monthly_price_cents INTEGER NOT NULL,
+  setup_fee_cents INTEGER NOT NULL,
+  max_seats INTEGER NOT NULL,
+  max_agents INTEGER NOT NULL,
+  features JSONB NOT NULL DEFAULT '{}',
+  stripe_price_id TEXT,
+  stripe_setup_price_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Platform-scoped: NO RLS
+COMMENT ON TABLE plan_tiers IS 'Subscription plan definitions. No RLS — shared across all tenants.';
+
+
+-- =============================================================================
+-- HELPER FUNCTION: set_tenant_context
+-- Called by withTenantContext() wrapper in Hono middleware before every
+-- tenant-scoped database operation. Sets the session variable that all
+-- RLS policies reference.
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION SET_tenant_cONtext(p_tenant_id UUID)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+ PERFORM SET_cONfig('app.tenant_id', p_tenant_id::text, true); -- true = local to transactiON
+END;
+$$;
+
+COMMENT ON FUNCTION SET_tenant_cONtext IS 'SETs app.tenant_id fOR RLS policies. Called at the start of every tenant-scoped transactiON.';
+
+
+-- =============================================================================
+-- HELPER FUNCTION: updated_at trigger
+-- Automatically updates the updated_at column on row modification.
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION trigger_SET_UPDATEd_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+ NEW.UPDATEd_at = now();
+ RETURN NEW;
+END;
+$$;
+
+-- Apply updated_at triggers to all tables with an updated_at column
+CREATE TRIGGER SET_UPDATEd_at BEFORE UPDATE ON users
+ FOR EACH ROW EXECUTE FUNCTION trigger_SET_UPDATEd_at();
+
+CREATE TRIGGER SET_UPDATEd_at BEFORE UPDATE ON tenants
+ FOR EACH ROW EXECUTE FUNCTION trigger_SET_UPDATEd_at();
+
+CREATE TRIGGER SET_UPDATEd_at BEFORE UPDATE ON agents
+ FOR EACH ROW EXECUTE FUNCTION trigger_SET_UPDATEd_at();
+
+CREATE TRIGGER SET_UPDATEd_at BEFORE UPDATE ON agent_executiONs
+ FOR EACH ROW EXECUTE FUNCTION trigger_SET_UPDATEd_at();
+
+CREATE TRIGGER SET_UPDATEd_at BEFORE UPDATE ON INtegratiONs
+ FOR EACH ROW EXECUTE FUNCTION trigger_SET_UPDATEd_at();
+
+CREATE TRIGGER SET_UPDATEd_at BEFORE UPDATE ON notificatiON_pREFERENCES
+ FOR EACH ROW EXECUTE FUNCTION trigger_SET_UPDATEd_at();
+
+CREATE TRIGGER SET_UPDATEd_at BEFORE UPDATE ON tenant_members
+ FOR EACH ROW EXECUTE FUNCTION trigger_SET_UPDATEd_at();
+
+```
+
+
+Migration Strategy
+
+
+DDL is the source of truth. Drizzle schema files are generated via `drizzle-kit introspect:pg`. Migrations managed via `supabase migration new` + `supabase db push`. Seed data for staging defined in `packages/backend/seed/`.
+
+
+---

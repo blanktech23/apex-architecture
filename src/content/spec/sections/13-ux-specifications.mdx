@@ -1,0 +1,3113 @@
+---
+title: "13. UX Specifications --- Screens, Flows & Edge Cases"
+slug: "ux-specifications"
+section: "13"
+---
+
+This section defines the product-level UX specifications that complement the architecture described in Sections 1--12. Each subsection covers a discrete functional area: screen layouts, user stories, data flows, RBAC rules, error states, and edge cases. These specs serve as the implementation contract between design and engineering.
+
+
+#### Global UX Conventions
+
+
+The following conventions apply across all screens unless a subsection explicitly overrides them.
+
+
+- **Navigation shell:** All authenticated pages render inside a shared layout with a **collapsible left sidebar** (240px expanded, 64px icon-only collapsed) and a **top bar**. The sidebar contains: logo, primary nav links (Dashboard, Agents, Customers, Projects, Escalations (badge), Approvals (badge), Reports, Business OS, Settings), seat/plan badge, and a collapse toggle. **Contextual sidebar swap:** On `/bos/*` routes, the sidebar replaces main navigation with Business OS grouped navigation (Home, Execution, Strategy, People) and a "Back" button to return to the main nav. On `/settings/*` routes, the sidebar shows settings sub-navigation if applicable. The top bar contains: breadcrumbs (left), notification bell with unread badge (center-right), and user avatar dropdown (right: profile, settings, sign out). On mobile ( link to agent setup; "No integrations connected" -> "Connect your first integration" button; "No team members yet" -> "Invite your first team member").
+
+- **Keyboard accessibility:** All interactive elements are reachable via Tab. Focus indicators use the accent color outline (`2px solid var(--accent)`). Enter/Space activate buttons and toggles. Escape closes modals and dropdowns. Arrow keys navigate within dropdowns, date pickers, and table rows. Skip-to-main-content link is the first focusable element on every page.
+
+- **Help access:** A persistent Help Bot button (`MessageCircleQuestion` icon) in the bottom-right corner of every authenticated page. Clicking opens a slide-out panel with two modes: Quick Help (contextual suggestions matched to current route, search bar, quick links) and AI Chat (Haiku-powered, streamed responses with deep links). Owner/Admin also see a "Schedule a call" option. Full specification in Section 13m.
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Use `h-dvh` not `h-screen` for all full-height layouts. Mobile Safari 100vh includes address bar, causing overflow. `h-dvh` adjusts dynamically.
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Internationalization deferred. US English only for MVP. Date formatting: explicit `en-US` locale. Currency: `Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })`. When needed: adopt `next-intl` with ICU message format.
+
+
+### Screen Inventory
+
+
+| Area | Route | Description | |
+
+
+| **Auth Flows** | `/login` | Email/password & OAuth sign-in | |
+
+| `/login/mfa` | TOTP multi-factor authentication | |
+
+| `/forgot-password`, `/forgot-password/sent` | Password reset request & confirmation | |
+
+| `/reset-password`, `/reset-password/success` | New password entry & success | |
+
+| **Invitation** | `/invite/accept?token=xxx` | Invitation landing & routing | |
+
+| `/invite/register?token=xxx` | New account registration via invitation | |
+
+| `/invite/success` | Invitation acceptance confirmation | |
+
+| **Onboarding** | `/onboard/company` | Company details entry | |
+
+| `/onboard/profile` | Owner profile setup | |
+
+| `/onboard/plan` | Plan selection (Phase 2 only) | |
+
+| `/onboard/payment` | Stripe Checkout payment --- ACH recommended, cards accepted with 2.9% + $0.30 surcharge (Phase 2 only) | |
+
+| `/onboard/team` | Team invitation wizard | |
+
+| `/onboard/complete` | Onboarding completion & provisioning trigger | |
+
+| **Account Settings** | `/settings/profile` | Profile, email, connected accounts | |
+
+| `/settings/security` | Password, MFA, active sessions | |
+
+| `/settings/notifications` | Notification channel preferences | |
+
+| **Team Management** | `/settings/team` | Member list, search, seat counter | |
+
+| `/settings/team/invite` | Invite modal (email, role, message) | |
+
+| `/settings/team/[memberId]` | Member detail, role change, deactivate/remove | |
+
+| **Billing** | `/settings/billing` | Plan overview, invoices, payment method, usage summary | |
+
+| `/settings/billing/usage` | Detailed agent-level usage breakdown | |
+
+| **Dashboard & Agents** | `/dashboard` | Main dashboard (post-login landing page, role-scoped) | |
+
+| `/dashboard/agents` | Agent list with status, scheduling, enable/disable | |
+
+| `/dashboard/agents/:id` | Agent detail: config, execution history, recent outputs | |
+
+| **Customers** | `/customers` | Customer directory with search, filters, contact info, project history. Data synced from QuickBooks/JobTread + manually added contacts | |
+
+| `/customers/:id` | Customer detail: contact info, associated projects, communication history, notes | |
+
+| **Projects** | `/projects` | Project list with status filters, timeline view, search. Data synced from JobTread + manually created | |
+
+| `/projects/:id` | Project detail: tasks, documents, timeline, budget, team, linked estimates | |
+
+| **Escalation Queue** | `/escalations` | Prioritized queue of agent actions awaiting human review | |
+
+| `/escalations/:id` | Escalation detail with diff view, approve/reject/modify | |
+
+| **Approvals** | `/approvals` | Pending approval queue for agent-generated drafts, estimates, emails requiring human sign-off before delivery. Distinct from escalations (agent issues needing intervention) | |
+
+| **Reports** | `/reports` | Report hub: agent performance, customer activity, financial summary, team productivity. Recharts visualizations | |
+
+| `/reports/agent-roi` | Agent ROI analysis: time saved, cost savings, accuracy metrics per agent | |
+
+| **Notifications** | `/notifications` | Full notification history with filters (type, read/unread, date range), mark all read, notification preferences link | |
+
+| **Agent Sub-Pages** | `/dashboard/agents/:id/chat` | Conversational interface with agent. Message thread, agent tools/actions, approval buttons for drafts. Design Agent chat includes embedded K&B canvas | |
+
+| `/dashboard/agents/:id/workspace` | Agent working area: current tasks, recent outputs, knowledge base access, configuration | |
+
+| **Business OS Hub** | `/bos` | BOS landing page with module overview cards, setup wizard, getting started checklist. Stats: team members, active goals, upcoming meetings, open issues | |
+
+| **Integrations** | `/settings/integrations` | Connected service grid with health indicators | |
+
+| *OAuth flow (modal/redirect)* | Connect/disconnect third-party services | |
+
+| **Invited Onboarding** | `/welcome` | Role-specific welcome screen (invited users, shown once) | |
+
+| **Error & Status Pages** | `/404` | Not Found page | |
+
+| `/500` | Server Error page with Sentry reference | |
+
+| `/maintenance` | Scheduled maintenance holding page | |
+
+| **Chat & Communication** | `/chat` | Three-panel chat interface (channel list + messages + thread). Slack/Teams mirroring. See Section 13n | |
+
+| **CRM Module** | `/crm` | CRM dashboard (pipeline stats, recent activities, speed-to-lead metrics) | |
+
+| | `/crm/contacts` | Contact list with filters (type, status, tags), search, bulk actions | |
+
+| | `/crm/contacts/[id]` | Contact detail (profile, deals, activity timeline, emails, notes) | |
+
+| | `/crm/deals/[id]` | Deal detail (stage, value, probability, invoice status, AR aging) | |
+
+| | `/crm/pipeline` | Pipeline kanban (drag-and-drop across 13 stages) | |
+
+| | `/crm/activities` | Activity log with filters (type, contact, date range) | |
+
+| **Onboarding** | `/onboarding` | Full-screen 6-step setup wizard (industry, persona, company, profile, integrations, team) | |
+
+| **Persona: Dealer** | `/contractors` | Contractor management (dealer-specific) | |
+
+| | `/contractors/[id]` | Contractor detail | |
+
+| | `/reps` | Sales rep management | |
+
+| | `/reps/[id]` | Rep detail | |
+
+| **Persona: Rep** | `/territory` | Territory view (assigned regions, prospects, coverage map) | |
+
+| | `/commissions` | Commission tracking (earned, pending, paid, YTD) | |
+
+| **Persona: Manufacturer** | `/production` | Production scheduler (capacity planning, order queue) | |
+
+| | `/dealers` | Dealer network management | |
+
+| | `/distribution` | Distribution management (warehouses, shipping, fulfillment) | |
+
+> **Spec Amendment (Update 2026-03-25):** Screen inventory updated. **57+ routes across 4 personas (Contractor, Dealer, Sales Rep, Manufacturer), 6 roles.** Added: Chat, CRM (6 routes), Onboarding wizard, and persona-specific routes for Dealer (4), Rep (2), and Manufacturer (3).
+
+
+---
+
+
+### 13-UI. Visual Design System
+
+
+This subsection defines the foundational visual language for all Kiptra AI screens. Every screen spec in Section 13 inherits these tokens, components, and conventions unless explicitly overridden. The system is built on **shadcn/ui + Tailwind CSS + Radix UI** primitives.
+
+
+#### Design Foundation
+
+
+**Framework:** shadcn/ui + Tailwind CSS + Radix UI primitives
+
+
+**Philosophy:** Clean, professional, high-contrast for readability on job sites (bright sunlight, dusty screens). Prioritize clarity over decoration. Construction professionals need to glance and understand --- no ambiguity.
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Design token pipeline (deferred post-MVP): Figma Variables → Tokens Studio → Git PR → Style Dictionary → CSS custom properties → `tailwind.config.ts`. For MVP, tokens manually maintained. Token names MUST follow semantic naming (`--color-primary` not `--blue-800`) for future pipeline adoption.
+
+
+#### Color Palette
+
+
+All colors are defined as CSS custom properties and mapped into `tailwind.config.ts`. Dark mode is deferred to post-launch. Token architecture is ready (all colors reference CSS custom properties) but dark mode color values have not been designed. Estimated effort: 1--2 days design + 0.5 day implementation to swap custom property values via `prefers-color-scheme` or a manual toggle.
+
+
+| Token | Hex | Tailwind Key | Usage | |
+
+
+| **Primary** | `#1E3A5F` | `primary.DEFAULT` | Primary buttons, active nav, links | |
+
+| **Primary Light** | `#2563EB` | `primary.light` | Hover states, secondary emphasis | |
+
+| **Secondary** | `#475569` | `secondary.DEFAULT` | Body text, secondary elements | |
+
+| **Accent** | `#F59E0B` | `accent.DEFAULT` | Alerts, badges, attention items (escalations, warnings) | |
+
+| **Success** | `#16A34A` | `success` | Connected, healthy, approved, completed | |
+
+| **Warning** | `#EA580C` | `warning` | Approaching limits, expiring, needs attention | |
+
+| **Error / Danger** | `#DC2626` | `error` | Failed, disconnected, past due, destructive actions | |
+
+| **Background** | `#FFFFFF` | `background.DEFAULT` | Primary page background | |
+
+| **Background Secondary** | `#F8FAFC` | `background.secondary` | Card surfaces, secondary panels | |
+
+| **Surface** | `#FFFFFF` | `background.surface` | White cards on gray background for depth separation | |
+
+| **Border** | `#E2E8F0` | `border.DEFAULT` | Card borders, dividers | |
+
+| **Border Hover** | `#CBD5E1` | `border.hover` | Interactive element borders on hover | |
+
+| **Text** | `#0F172A` | `text.DEFAULT` | Headings, high-emphasis text | |
+
+| **Text Secondary** | `#334155` | `text.secondary` | Body copy | |
+
+| **Text Muted** | `#64748B` | `text.muted` | Labels, placeholders, help text | |
+
+
+#### Typography
+
+
+**Font family:** Inter (Google Fonts) --- clean, highly legible, excellent at small sizes on mobile. **Line height:** 1.5 for body, 1.25 for headings.
+
+
+| Role | Tailwind Classes | Rendered Size | |
+
+
+| Page title | `text-2xl font-bold` | 24px / 700 | |
+
+| Section heading | `text-xl font-semibold` | 20px / 600 | |
+
+| Card heading | `text-lg font-semibold` | 18px / 600 | |
+
+| Body (default) | `text-sm` | 14px / 400 | |
+
+| Small / labels | `text-xs` | 12px / 400 | |
+
+| Monospace (IDs, code) | `font-mono text-xs` | 12px / 400 | |
+
+
+**Why 14px base?** Construction workers often view on phones at arm's length or tablets on job sites. 14px with high contrast is more readable than 13px in bright outdoor conditions.
+
+
+#### Spacing & Layout
+
+
+- **Base unit:** 4px (Tailwind default)
+
+- **Page padding:** `px-6 py-4` (24px / 16px)
+
+- **Card padding:** `p-4` (16px) standard, `p-6` (24px) for detail views
+
+- **Grid:** 12-column CSS Grid. Sidebar (240px fixed) + main content area.
+
+- **Max content width:** 1280px centered for readability on wide monitors
+
+- **Card gap:** `gap-4` (16px) in grid layouts
+
+- **Section spacing:** `space-y-6` (24px) between major sections
+
+
+#### Component Specifications
+
+
+All components map to shadcn/ui primitives with Kiptra-specific overrides.
+
+
+| Component | shadcn/ui Base | Custom Notes | |
+
+
+| Button (primary) | `Button variant=&quot;default&quot;` | Deep blue bg, white text, rounded-md | |
+
+| Button (secondary) | `Button variant=&quot;outline&quot;` | Border only, used for secondary actions | |
+
+| Button (destructive) | `Button variant=&quot;destructive&quot;` | Red bg, requires confirmation dialog | |
+
+| Card | `Card` | White bg, border, rounded-lg, subtle shadow-sm | |
+
+| Table | `Table` | Striped rows (gray-50 alternate), sticky header, responsive horizontal scroll on mobile | |
+
+| Badge (status) | `Badge` | Green = active, Amber = pending, Red = error, Gray = inactive | |
+
+| Dialog (confirmation) | `AlertDialog` | Centered modal with overlay, focus trap | |
+
+| Toast | `Sonner` (shadcn toast) | Bottom-right, stacked, auto-dismiss 5s | |
+
+| Input | `Input` | Full width within form, label above, error message below in red | |
+
+| Select / Dropdown | `Select` | Role dropdowns, filter controls | |
+
+| Tabs | `Tabs` | Settings page navigation (Profile / Security / Notifications) | |
+
+| Sidebar nav | Custom (Radix) | Collapsible, icon + label, active state highlight | |
+
+| Avatar | `Avatar` | Circular, fallback to initials with bg color derived from name hash | |
+
+| Tooltip | `Tooltip` | For icon-only buttons, truncated text, datetime details | |
+
+| Skeleton | `Skeleton` | Pulse animation, matches component dimensions | |
+
+| Progress | `Progress` | Usage meters --- colored by threshold: green / amber / red | |
+
+
+#### Iconography
+
+
+- **Icon set:** Lucide Icons (ships with shadcn/ui)
+
+- **Sizes:** 16px inline with text, 20px in buttons/nav, 24px for feature icons
+
+- **Style:** Stroke icons (not filled), 1.5px stroke weight for consistency
+
+
+| Agent | Lucide Icon | Rationale | |
+
+
+| AI / General Intelligence | `Brain` | Cognitive processing | |
+
+| Estimating Agent | `Calculator` | Estimates and numbers | |
+
+| Leads Agent | `Mail` | Lead intake and communication | |
+
+| Executive Analyst | `BarChart3` | Reporting and analytics | |
+
+| Operations Agent | `Wrench` | Operations tooling | |
+
+| Orchestrator | `Calendar` | Scheduling and coordination | |
+
+| Support Agent | `Headset` | Customer-facing support | |
+
+
+#### Data Visualization (Recharts)
+
+
+- **Chart colors:** Primary Blue, Accent Amber, Success Green --- max 3 colors per chart for clarity
+
+- **Chart types:** Line charts for daily usage trends and cost over time. Bar charts for per-agent execution breakdown and per-user activity. **No donut/pie charts** (hard to read; use bar charts instead).
+
+- **Grid lines:** Light gray (`#E2E8F0`), horizontal only
+
+- **Labels:** Always-visible axis labels; tooltip on hover with exact values
+
+- **Responsive:** Charts resize to container width. On mobile (1024px | Full sidebar, multi-column layouts, data-dense tables | |
+
+
+**Construction-specific:** All touch targets are minimum 44x44px (WCAG). Action buttons on mobile are oversized for gloved or dirty hands.
+
+
+#### Responsive Table Pattern
+
+
+All data tables use a `ResponsiveDataTable` wrapper component that renders as a standard `` on desktop (>768px) and switches to a vertically stacked card layout on mobile (` and `` tags)
+
+
+Each error boundary displays: a user-friendly error message, a "Try again" button (calls `reset()`), and a "Go to dashboard" fallback link. Error details are reported to Sentry automatically via the `useEffect` hook in the error component.
+
+
+#### Accessibility (WCAG 2.1 AA)
+
+
+- **Color contrast:** All text meets 4.5:1 ratio. Verified: `#0F172A` on `#FFFFFF` = 15.4:1; `#334155` on `#FFFFFF` = 8.6:1.
+
+- **Color independence:** Status indicators use icon + color + label (never color alone). Usage meters show percentage text alongside colored bar.
+
+- **Focus indicators:** 2px blue outline on keyboard focus (not visible on mouse click via `:focus-visible`)
+
+- **Screen reader:** All images have `alt` text, all icons have `aria-label`, all form inputs have associated `` elements.
+
+- **Reduced motion:** Respect `prefers-reduced-motion` --- disable all transitions and animations.
+
+- **Live regions for real-time updates:** All Socket.io-driven content updates (agent status changes, escalation alerts, execution progress) must use `aria-live="polite"` regions so screen readers announce changes without requiring page refresh.
+
+- **Role attributes for custom widgets:** Custom components not using native HTML elements must include appropriate `role` attributes: React Flow canvas (`role="img"` with `aria-label`), agent status cards (`role="status"`), and toast notifications (`role="alert"`).
+
+- **Accessible chart names:** All Recharts visualizations must include `aria-label` describing the chart content (e.g., "Monthly revenue trend, January through March 2026") and a visually hidden data table fallback for screen reader users.
+
+- **Keyboard patterns for TanStack Table:** Arrow key navigation between cells, Enter to activate row actions, Escape to exit cell focus. Column sort toggleable via Enter on header cells.
+
+- **320px reflow:** All content must be usable at 320px viewport width (WCAG 1.4.10) without horizontal scrolling for text content. Data tables may scroll horizontally but must provide a card-based alternative view on mobile (see Responsive Table Pattern below).
+
+
+#### Performance Budgets
+
+
+Core Web Vitals targets enforced via Vercel Analytics and CI checks:
+
+
+- **LCP (Largest Contentful Paint):**
+
+### 13a. Login Page
+
+
+Routes: `/login`, `/login/mfa`
+
+
+#### User Stories
+
+
+- Returning user signs in with email/password.
+
+- Returning user signs in via Google or Microsoft OAuth.
+
+- MFA-enabled user enters TOTP code after password authentication.
+
+- User clicks "Forgot password?" to start the reset flow.
+
+
+#### Screen: `/login`
+
+
+**Layout:** Centered card (max-width 420px). Company logo + tagline at top. Clean, single-column form.
+
+
+- **Email input** --- standard text field with validation.
+
+- **Password input** --- with show/hide toggle (eye icon).
+
+- **"Sign in" primary button** --- full-width, accent color.
+
+- **Divider** --- "or continue with" horizontal rule with centered text.
+
+- **OAuth buttons** --- Google and Microsoft, each with provider icon. Outlined style to distinguish from primary CTA.
+
+- **"Forgot password?" link** --- below password field, routes to `/forgot-password`.
+
+- **"Don't have an account? Contact sales"** --- Phase 1: no self-serve signup. Phase 2: becomes a `/signup` link.
+
+
+#### Error States
+
+
+| Condition | Message Shown | Notes | |
+
+
+| Invalid email or password | "Invalid email or password." | Generic message --- never reveal which field is wrong (enumeration prevention). | |
+
+| Account locked (5 failed attempts) | "Account locked. Try again in 15 minutes or contact support." | Lockout duration: 15 min. Counter resets on successful login. Audit log entry written on lock. | |
+
+| OAuth provider error | "Could not connect to [Provider]. Please try again." | Log full error server-side; surface only generic message to user. | |
+
+| Network error | "Network error. Check your connection and try again." | Client-side detection via fetch failure / timeout. | |
+
+
+#### Screen: `/login/mfa`
+
+
+Shown after successful email/password authentication when MFA is enabled on the account.
+
+
+- **"Enter your 6-digit code" heading** --- clear instruction.
+
+- **6-digit TOTP input** --- individual digit boxes with auto-advance on each keystroke. Auto-submit on 6th digit.
+
+- **"Verify" button** --- primary CTA, also triggered by auto-submit.
+
+- **"Use a recovery code instead" link** --- switches to a single text input for the recovery code.
+
+- **"Back to login" link** --- clears partial auth state, returns to `/login`.
+
+
+#### MFA Error States
+
+
+| Condition | Message Shown | Notes | |
+
+
+| Invalid code | "Invalid code. Please try again." | Clear input, refocus first digit. | |
+
+| Expired code (TOTP window passed) | "Code expired. Enter your current code." | TOTP window: 30s. Accept current + previous window to handle clock skew. | |
+
+| Too many attempts (5 failures) | "Too many attempts. Please sign in again." | Invalidate partial auth session. Redirect to `/login`. Audit log entry. | |
+
+
+#### Data Flow
+
+
+**Reads:** `users` table (better-auth), `tenant_members` for org membership lookup.
+
+
+**Writes:** Session token (better-auth managed), audit log entry (login success/failure, IP, user agent).
+
+
+**Post-auth routing:** If user belongs to a single organization -> redirect to `/dashboard`. If multiple organizations (future) -> org picker screen before dashboard.
+
+
+**Multi-org session scoping:** Selected `organization_id` is embedded in the session token at selection time. Switching tenants issues a NEW session token (not a client-side header swap). `withTenantContext()` derives tenant_id exclusively from the session token. **Multi-tab session model:** better-auth sessions are cookie-based and SHARED across all tabs in the same browser. Logging out in one tab logs out all tabs. The plan does NOT claim per-tab session isolation. For multi-org access in separate tabs, users must use different browser profiles (or the future multi-org session switcher must re-scope the shared session cookie).
+
+
+#### Edge Cases
+
+
+| Scenario | Behavior | |
+
+
+| **Multiple organizations** | Org selector shown post-auth. User picks which org to enter. Session scoped to selected org. | |
+
+| **Account locked** | "Try again in 15 minutes" message with support contact link. No hint about which credential failed. | |
+
+| **OAuth-only account** | Password field hidden. Only OAuth buttons rendered. If user somehow reaches password form, show "This account uses Google/Microsoft sign-in." | |
+
+| **Social login email matches existing account** | better-auth handles account linking with a confirmation dialog: "An account with this email already exists. Link your [Provider] account?" | |
+
+
+---
+
+
+### 13b. Password Reset Flow
+
+
+Routes: `/forgot-password`, `/forgot-password/sent`, `/reset-password?token=xxx`, `/reset-password/success`
+
+
+#### User Stories
+
+
+- User who forgot their password initiates a reset via email and sets a new password.
+
+
+#### Screen: `/forgot-password`
+
+
+- **Email input** --- single field.
+
+- **"Send reset link" button** --- primary CTA.
+
+- **"Back to login" link** --- returns to `/login`.
+
+
+**Security:** Always shows the success screen regardless of whether the email exists in the system. This prevents email enumeration attacks. The server returns 200 OK in all cases.
+
+
+#### Screen: `/forgot-password/sent`
+
+
+- **"Check your email" message** --- includes the email address submitted (masked: j***@example.com).
+
+- **"Resend link" button** --- rate limited to 1 request per 60 seconds. Button disabled with countdown timer during cooldown.
+
+- **"Back to login" link**.
+
+
+#### Screen: `/reset-password?token=xxx`
+
+
+- **Token validation on page load** --- server verifies token existence, expiry (1 hour), and single-use status before rendering the form.
+
+- **New password input** --- with strength meter (zxcvbn or equivalent). Shows requirements inline.
+
+- **Confirm password input** --- must match.
+
+- **"Reset password" button** --- primary CTA. Disabled until both fields valid and matching.
+
+
+**Token expiry:** 1 hour from generation. If the token is invalid or expired, show an error page with a "Request new link" CTA that routes back to `/forgot-password`. Never reveal why the token failed (expired vs. invalid vs. already used) --- just "This link is no longer valid."
+
+
+#### Screen: `/reset-password/success`
+
+
+- **"Password updated" confirmation** --- clear success state.
+
+- **"Sign in" button** --- routes to `/login`.
+
+- **All existing sessions revoked** --- server-side, on password change via explicit `auth.api.revokeAllSessions()` call (better-auth does NOT auto-revoke sessions on password change). User must re-authenticate on all devices.
+
+
+#### Edge Cases
+
+
+| Scenario | Behavior | |
+
+
+| **Token already used** | "This link is no longer valid. Request a new one." --- same message as expired (no information leakage). | |
+
+| **Token expired** | "This link is no longer valid." + "Request new link" CTA. | |
+
+| **Email not found** | Still shows "Check your email" on `/forgot-password/sent`. No email sent server-side. | |
+
+| **OAuth-only user** | Email sent says: "Your account uses Google/Microsoft sign-in. Use that provider to access your account." No reset link included. | |
+
+| **Same password as current** | Optionally block with "New password must be different from your current password." Configurable per tenant policy. | |
+
+
+---
+
+
+### 13c. Invitation Acceptance Flow
+
+
+Routes: `/invite/accept?token=xxx`, `/invite/register?token=xxx`, `/invite/success`
+
+
+#### User Stories
+
+
+- Invited team member accepts an invitation and creates a new account.
+
+- Existing user accepts an invitation to join an additional organization with one click.
+
+
+#### Screen: `/invite/accept?token=xxx`
+
+
+Landing page for all invitation links. Shows invitation details and branches based on user state.
+
+
+- **Invitation details** --- Company name, inviter name, role being assigned (e.g., "Sarah invited you to join Slate Design as a Project Manager").
+
+- **If logged in with matching email** -> "Accept Invitation" button (one-click join). No further steps required.
+
+- **If not logged in but account exists** -> "Sign in to accept" button. Routes to `/login` with `redirect=/invite/accept?token=xxx`. After login, returns here for one-click accept.
+
+- **If no account exists** -> "Create account to accept" button. Routes to `/invite/register?token=xxx`.
+
+
+#### Screen: `/invite/register?token=xxx`
+
+
+Registration form scoped to the invitation. The token is validated on load --- if invalid/expired, show error instead of form.
+
+
+- **Email** --- pre-filled from invitation record, **not editable**. Displayed as read-only text.
+
+- **Full name input** --- required.
+
+- **Password input** --- with strength meter (same component as reset flow). Shows requirements inline.
+
+- **OAuth buttons** --- "or sign up with Google / Microsoft" as alternative to password creation.
+
+- **"Create account & join [Company]" button** --- primary CTA. Company name pulled from invitation record.
+
+
+#### Screen: `/invite/success`
+
+
+- **"You've joined [Company] as [Role]" message** --- confirmation with company name and assigned role.
+
+- **Brief role description** --- one sentence explaining what the role can do (e.g., "As a Project Manager, you can manage projects, view estimates, and coordinate with agents.").
+
+- **"Go to Dashboard" button** --- primary CTA, routes to `/dashboard`.
+
+
+#### Edge Cases
+
+
+| Scenario | Behavior | |
+
+
+| **Invitation expired (72h)** | "This invitation has expired. Ask [Inviter Name] to send a new one." Inviter name pulled from invitation record. | |
+
+| **Already accepted** | "You've already joined [Company]." + "Go to Dashboard" link. No error styling --- treat as success. | |
+
+| **Invitation revoked** | "This invitation is no longer valid." No further detail (don't reveal revocation). | |
+
+| **Email mismatch (logged in as different user)** | "This invitation was sent to [invited@email]. Sign in with that email or sign out first." Show both options. | |
+
+| **Seat limit reached** | "[Company] has reached its member limit. Contact the account owner to upgrade." Invitation remains valid --- can be accepted once a seat opens. | |
+
+
+#### Data Flow
+
+
+**Reads:** Invitation record (`token`, `org_id`, `role`, `inviter_id`, `email`, `expires_at`, `status`). User session (if logged in).
+
+
+**Writes:** `users` table (if new account created), `tenant_members` (new membership row with assigned role), invitation `status` updated to `accepted`, audit log entry (invitation accepted, by whom, when).
+
+
+**External:** `better-auth` --- `organization.acceptInvitation()` handles the membership creation and role assignment atomically.
+
+
+#### Cross-references
+
+
+**Related sections:** Section 5 (RBAC roles and team invitation mechanics), Section 12 (rate limiting on auth endpoints and MFA via TOTP), Wave 1 item 4 (invitation system as part of initial auth buildout).
+
+
+---
+
+
+### 13d. Signup & Onboarding Flow
+
+
+Phase Context
+
+
+Phase 1 is founder-led onboarding (remote via Google Meet/Zoom, per Wave 4). Self-serve signup is deferred to Month 5--6 of the GTM timeline. This specification covers both Phase 1 (founder-assisted) and Phase 2 (self-serve) flows. Screens marked **(Phase 2 only)** are not built until the self-serve milestone.
+
+
+#### User Stories
+
+
+- **CEO/owner (Phase 1):** Completes account setup after founder-led sales call. Plan is pre-selected; payment is handled offline via ACH/bank transfer or via a pre-configured Stripe link (ACH recommended, cards accepted with surcharge).
+
+- **CEO/owner (Phase 2):** Self-registers, selects a plan, pays via Stripe Checkout (ACH recommended, cards accepted with 2.9% + $0.30 surcharge), and begins onboarding without human assistance.
+
+- **First user:** Sets up profile and security credentials during the onboarding wizard.
+
+
+#### Onboarding State Machine
+
+
+Flow
+company_details -> industry_selection -> persona_selection -> profile_setup -> plan_selection -> payment -> team_invite -> complete
+                   (NEW — Wave 4)       (NEW — Wave 4)       (Phase 1: skip)  (Phase 1: skip)
+```
+
+
+Each step stores progress to the `tenants.onboarding_step` column. Users can navigate backward freely but cannot skip forward past incomplete steps. If the browser is closed mid-flow, the next login resumes at the last completed step (keyed off `tenants.onboarding_completed` boolean).
+
+
+#### Screen Inventory
+
+
+ 1. `/onboard/company` --- Company Details
+
+
+| Field | Type | Required | Notes | |
+
+
+| Company name | Text input | Yes | No uniqueness constraint --- `tenant_id` (UUID) is the unique key | |
+
+| Industry vertical | Dropdown | Yes | Construction/Remodeling pre-selected; extensible for future verticals | |
+
+| Company size | Radio group | Yes | 1--5, 6--15, 16--50, 50+ | |
+
+| Phone | Tel input | No | Used for onboarding follow-up | |
+
+| Address | Address fields | No | Required later for JobTread/QuickBooks integration setup | |
+
+
+Primary action: **"Continue"** button. Writes to `tenants` table on submission.
+
+
+ 2. `/onboard/industry` --- Industry Selection (NEW --- Wave 4)
+
+
+| Field | Type | Required | Notes | |
+
+
+| Industry vertical | Radio group with icons | Yes | Four large cards: Kitchen & Bath (default), HVAC, General Construction, Landscaping. Each with icon + 1-line description. | |
+
+
+Primary action: **"Continue"** button. Writes `industry_vertical` to `tenants` table. See Section 6b for full specification.
+
+
+ 3. `/onboard/persona` --- Business Role Selection (NEW --- Wave 4)
+
+
+| Field | Type | Required | Notes | |
+
+
+| Business role | Radio group | Yes | Options change based on industry selection. For Kitchen & Bath: Contractor (default), Dealer (Coming Soon), Sales Rep (Coming Soon), Manufacturer (Coming Soon). | |
+
+
+On selection, the template is resolved: `template_id = ${industry}_${tenantType}` (e.g., `kb_contractor`). Template application configures dashboard layout, enables agents, sets sidebar items, and initializes the onboarding checklist and tour. See Section 6b for full template application logic.
+
+Primary action: **"Continue"** button. Writes `tenant_type` to `tenants` table and triggers `POST /api/v1/tenants/apply-template`.
+
+
+ 4. `/onboard/profile` --- Owner Profile
+
+
+| Field | Type | Required | Notes | |
+
+
+| Full name | Text input | Yes | --- | |
+
+| Email | Email input | Yes | Pre-filled if OAuth signup; validated unique against `users` table | |
+
+| Password | Password + strength meter | Conditional | Skipped entirely if user authenticated via OAuth (Google/Microsoft) | |
+
+| Phone | Tel input | No | --- | |
+
+| Avatar | File upload | No | Max 2MB, JPEG/PNG/WebP; stored in Supabase Storage | |
+
+
+Primary action: **"Continue"** button. Writes to `users` table and creates `tenant_members` row with `owner` role.
+
+
+ 5. `/onboard/plan` --- Plan Selection (PHASE 2 ONLY)
+
+Phase 1: Plan is pre-selected by the founder during the sales call and stored on the tenant record before the user begins onboarding. This screen is bypassed entirely.
+
+
+Phase 2: Three plan cards displayed side by side:
+
+
+| Feature | Starter | Professional | Enterprise | |
+
+
+| **Monthly price** | $275/mo | $500/mo | $750/mo | |
+
+| **Setup fee** | $5,000 | $10,000 | $20,000 | |
+
+| **Agent count** | 3 agents | 6 agents (all core) | 6 agents + custom | |
+
+| **Integration limit** | 1 integration | All integrations | Unlimited | |
+
+| **Support level** | Email (48h SLA) | Priority email (24h SLA) | Dedicated Slack + phone | |
+
+| **Users** | Up to 5 | Up to 15 | Unlimited | |
+
+
+**"Most Popular"** badge applied to Professional card. Feature comparison matrix below cards for detailed line-item comparison. See Appendix A for full pricing tier breakdown.
+
+
+ 6. `/onboard/payment` --- Payment (PHASE 2 ONLY)
+
+Stripe Checkout Session (redirect mode or embedded via `@stripe/react-stripe-js`). **ACH recommended, cards accepted with surcharge.** ACH is pre-selected as the default payment method. Credit/debit cards are available with a transparent 2.9% + $0.30 processing surcharge (exempt in CT and MA). Displays setup fee as a one-time line item plus first month's recurring subscription. Bank account verification via Plaid instant verification (primary) or micro-deposit fallback (2 business days).
+
+
+- **Payment method:** `payment_method_types: ['us_bank_account', 'card']` --- ACH preferred, cards accepted. ACH is pre-selected as default. Card surcharge (2.9% + $0.30) applied via line item adjustment, displayed before confirmation. Surcharge exempt in Connecticut and Massachusetts (state restriction).
+
+- **On success:** Stripe fires `checkout.session.completed` webhook -> backend handler creates Stripe subscription record, updates `tenants.stripe_customer_id` and `tenants.stripe_subscription_id`, sets `tenants.plan` and `tenants.billing_status = 'active'`.
+
+- **On failure:** User remains on payment page with a contextual error message ("Bank account verification failed", "Insufficient funds", etc.). Retry is immediate --- no cooldown.
+
+- **ACH settlement:** 4--5 business days. Tenant is provisioned immediately on checkout completion; ACH settlement is asynchronous. If ACH payment fails after settlement attempt, `invoice.payment_failed` webhook triggers the billing state machine.
+
+- **Webhook idempotency:** Deduplicate on `checkout.session.id` to handle Stripe's at-least-once delivery.
+
+
+ 7. `/onboard/team` --- Team Invitations
+
+**"Invite your team"** heading with dynamic invitation rows:
+
+
+- Each row: email input + role dropdown (`admin`, `manager`, `designer`, `bookkeeper`, `viewer`). The `owner` role is auto-assigned to the signup user and not selectable.
+
+- **"Add another"** button appends a new row (no upper limit enforced in UI; plan user cap enforced server-side).
+
+- **"Skip for now"** link advances to completion without sending invitations.
+
+- **"Send invites & finish"** button: calls better-auth Organization plugin `inviteMember()` per row, which generates invitation tokens and triggers SendGrid transactional emails.
+
+- Invitation records are written to the `invitations` table with `status = 'pending'`, `expires_at = NOW() + 72 hours`.
+
+
+ 8. `/onboard/complete` --- Onboarding Complete
+
+
+- Success animation (Lottie or CSS confetti).
+
+- Summary card: company name, selected plan, number of invitees.
+
+- **"Go to Dashboard"** CTA button -> redirects to `/dashboard`.
+
+- **Phase 1 addendum:** Banner below CTA --- "Your onboarding specialist will contact you within 24 hours to schedule your setup session."
+
+
+**Provisioning Trigger:** On reaching the "complete" step, the tenant provisioning saga fires: (1) Supabase row finalization with all onboarding data, (2) NATS subject namespace creation (`TENANT_{tenantId}.{domain}.{name}.{event}`), (3) Valkey key prefix verification (`tenant:{tenant_id}:*`). See Section 5 for the full provisioning saga specification.
+
+
+#### Data Requirements
+
+
+| Direction | Target | Details | |
+
+
+| **Writes** | `tenants` | Company info, plan, `stripe_customer_id`, `stripe_subscription_id`, `onboarding_step`, `onboarding_completed` | |
+
+| **Writes** | `users` | Profile (name, email, avatar URL, hashed password if non-OAuth) | |
+
+| **Writes** | `tenant_members` | Owner role assignment linking user to tenant | |
+
+| **Writes** | `invitations` | Pending invitation records with token, role, and expiry | |
+
+| **Reads** | Stripe price IDs | Loaded from environment config to construct Checkout Session | |
+
+| **External** | Stripe API | Checkout Session creation, webhook receipt | |
+
+| **External** | SendGrid | Team invitation transactional emails | |
+
+
+#### Edge Cases
+
+
+| Scenario | Behavior | |
+
+
+| Email already registered | Show inline error: "This email is already registered. Sign in instead." | |
+
+| ACH payment fails at checkout | Stay on payment page. Display reason ("Bank account verification failed", "Insufficient funds"). Allow immediate retry or micro-deposit fallback. | |
+
+| ACH payment fails after settlement | Stripe fires `invoice.payment_failed` webhook. Billing state machine transitions to `past_due`. Dashboard banner: "Payment failed. Update payment method to avoid service interruption." | |
+
+| Browser closed mid-onboarding | State persisted via `onboarding_step` column on `tenants`. Next login redirects to last incomplete step. | |
+
+| OAuth signup (Google/Microsoft) | Skip password creation on profile step. Email pre-filled and non-editable. | |
+
+| Company name already exists | Allowed --- `tenant_id` (UUID) is the unique key, not company name. | |
+
+| Invitation exceeds plan user cap | Server-side validation rejects. UI shows: "Your plan supports up to N users. Remove invitees or upgrade your plan." | |
+
+| Invitation email bounces | SendGrid webhook updates `invitations.status = 'bounced'`. Owner notified on dashboard. | |
+
+
+Cross-References
+
+
+Wave 1 item 4 (authentication), Wave 4 "Customer onboarding flow", GTM Month 5--6 "self-serve onboarding option", Section 5 (tenant provisioning saga), Appendix A (pricing tiers).
+
+
+---
+
+
+### 13e. Account Settings Dashboard
+
+
+#### `/settings/profile` --- Profile Information
+
+
+- **Avatar:** Circular preview with upload/change overlay. Accepts PNG/JPG/WebP, max 2 MB, cropped to 256x256 on upload. Stored in DigitalOcean Spaces under `avatars/{userId}.webp`.
+
+- **Full name:** Editable text field. Persisted on save.
+
+- **Email:** Editable, but changes require re-verification. On submit: (1) send confirmation link to the *new* address via SendGrid, (2) email remains unchanged until the user clicks the link, (3) link expires after 24 hours.
+
+- **Phone number:** Editable text field with E.164 format validation.
+
+- **Connected accounts:** Section listing OAuth providers (Google, Microsoft). Each row shows provider icon, connected email, and a Connect or Disconnect button.
+
+- **"Save changes" button:** Disabled until a field is modified. Shows inline success/error toast on submit.
+
+- **"Restart product tour" button:** Resets `tenant_members.tour_completed = false` and launches the role-specific tour on next dashboard visit. See Section 13l.
+
+- **"View my permissions" link:** Expands an inline panel showing the user's current role and a summary of what they can access (mirrors the role summary from Section 13l welcome screen). Useful after a role change.
+
+
+**RBAC:** All roles can edit their own profile. No cross-user profile editing.
+
+
+#### `/settings/security` --- Password, MFA, Sessions
+
+
+ Password Section
+
+
+- Fields: Current password, New password, Confirm new password.
+
+- **"Change password"** button. Validates current password server-side before accepting the new one.
+
+- Password strength meter (zxcvbn-based) with minimum score of 3.
+
+- **OAuth-only users** (no password set): Section displays "Set a password" instead, with only New + Confirm fields. Setting a password enables email+password login alongside OAuth.
+
+
+ MFA Section (TOTP)
+
+
+- **Enable flow:** Toggle -> display QR code (`otpauth://` URI) + manual entry key -> user enters first TOTP code to verify -> on success, display recovery codes (8 single-use codes, one-time display, user must copy/download). MFA is not active until the first code is verified.
+
+- **Disable flow:** Requires both current password AND a valid TOTP code. This prevents an attacker with only a stolen session from disabling MFA.
+
+- **Recovery codes:** Each code is single-use. The UI shows remaining count (e.g., "6 of 8 recovery codes remaining"). Users can regenerate all codes (requires password + TOTP), which invalidates previous codes.
+
+
+ Active Sessions
+
+
+- Table listing all active sessions: Device type (icon), Browser, IP address, Last active timestamp, Approximate location (GeoIP city/country).
+
+- Current session highlighted with "This device" badge.
+
+- **"Revoke"** button per session row (except current).
+
+- **"Revoke all other sessions"** button at the top --- invalidates every session except the current one.
+
+
+**RBAC:** All roles manage their own security settings. No cross-user security management.
+
+
+#### `/settings/notifications` --- Notification Preferences
+
+
+Toggle matrix: rows are notification categories, columns are delivery channels.
+
+
+| Category | Email | In-App | Default | |
+
+
+| **Agent alerts** (errors, completions) | Toggle | Toggle | Both on | |
+
+| **Escalation requests** | Toggle | Toggle | Both on | |
+
+| **Daily briefing** | Toggle | Toggle | Email on | |
+
+| **Team activity** (joins, role changes) | Toggle | Toggle | In-app on | |
+
+| **Billing alerts** | Toggle | Toggle | Both on (Owner/Admin locked on) | |
+
+| **Security alerts** (new login, MFA changes) | Toggle | Toggle | Both on (locked on, non-dismissible) | |
+
+
+**RBAC:** All roles manage their own notification preferences. Owner and Admin receive billing alerts by default and cannot disable them. Security alerts are locked on for all roles.
+
+
+#### In-App Notification Center
+
+
+In-app notifications are delivered via Socket.io and displayed through a **notification bell icon** in the top bar (part of the global navigation shell). The bell shows an unread count badge (red circle with number, max "99+").
+
+
+- **Clicking the bell** opens a dropdown panel (max-height 480px, scrollable) listing recent notifications in reverse chronological order.
+
+- **Each notification row:** Category icon (color-coded), title, summary (truncated to 2 lines), relative timestamp, unread indicator (blue dot).
+
+- **Click-through:** Clicking a notification navigates to the relevant screen (e.g., escalation notification -> `/escalations/:id`, agent error -> `/dashboard/agents/:id`).
+
+- **"Mark all as read"** link at the top of the panel.
+
+- **"View all notifications"** link at the bottom -> future dedicated notifications page (Phase 2).
+
+- **Real-time push:** New notifications animate into the panel if open, and increment the badge count if closed. A brief toast appears for high-priority notifications (escalation requests, agent errors, security alerts) even if the panel is closed.
+
+- **Persistence:** Notifications stored in a `notifications` table (`id`, `user_id`, `tenant_id`, `category`, `title`, `body`, `link`, `read`, `created_at`). Retained for 90 days, then auto-pruned.
+
+
+#### Real-Time Update Indicators
+
+
+Socket.io delivers real-time data updates to the UI. The following patterns indicate new data availability:
+
+
+- **Dashboard:** Agent status cards update in-place with a brief highlight animation (border flash) when status changes. New escalations trigger both the notification bell and the escalation alert banner count increment.
+
+- **Escalation queue:** New items push to the top of the list with a slide-in animation and a "New" badge that fades after 10 seconds.
+
+- **Agent detail:** New execution results append to the history table in real-time. A "New results available" pill appears above the table if the user has scrolled down, clicking it scrolls to the top.
+
+- **Integration cards:** Health status badges update reactively when the backend pushes a status change via Socket.io.
+
+- **Connection status:** A persistent indicator in the bottom-right corner of the app shows Socket.io connection state: green dot (connected), red dot with "Reconnecting&hellip;" text (disconnected, auto-reconnecting), gray dot (offline --- show "Refresh" link after 30s of failed reconnection).
+
+
+#### Data & Dependencies
+
+
+- **Database:** `users` table (profile fields, password hash), better-auth `sessions` table, `notification_preferences` table (`user_id`, `tenant_id`, `category`, `in_app`, `email`, `digest_frequency`, unique on `(user_id, tenant_id, category)`).
+
+- **External:** SendGrid (email verification flow, notification delivery), TOTP generation/verification via better-auth's built-in MFA plugin, GeoIP service for session location (MaxMind GeoLite2 or equivalent).
+
+
+#### Edge Cases
+
+
+- **Email change to existing email:** Block with "This email is already associated with another account." Do not reveal which account.
+
+- **Disconnect last OAuth without password:** Block with "You must set a password before disconnecting your last sign-in provider." Prevents account lockout.
+
+- **MFA recovery codes single-use:** Each code is consumed on use. If all 8 are consumed and the user loses their TOTP device, account recovery requires manual identity verification (support flow).
+
+- **Revoke current session:** Triggers immediate logout. The user is redirected to the login page with a "Session ended" message.
+
+- **Email verification link expiry:** After 24 hours, the pending email change is discarded. The user must re-initiate the change. Only one pending email change is allowed at a time.
+
+- **Concurrent session revocation:** If another session is revoked while the user is active, the revoked session receives a Socket.io disconnect event and is redirected to login on next API call (401).
+
+
+---
+
+
+### 13f. Team Management Panel
+
+
+#### `/settings/team` --- Member List
+
+
+- **Table columns:** Avatar, Name, Email, Role (color-coded badge), Status (active / pending / deactivated), Last active, Actions (dropdown).
+
+- **"Invite member"** button in the header (visible to Owner and Admin only).
+
+- **Search & filter:** Text search by name/email, dropdown filters for role and status.
+
+- **Loading state:** Skeleton table rows during initial fetch.
+
+- **Empty state:** When only the owner exists: "You're the only team member. Invite colleagues to start collaborating." with prominent "Invite member" CTA.
+
+- **Pagination:** 25 members per page. Shows total member count in the table footer.
+
+- **Seat count indicator:** "X of Y seats used" displayed below the table header. Seat limits per plan:
+
+
+- Starter: 5 seats
+
+- Professional: 15 seats
+
+- Enterprise: unlimited
+
+
+ RBAC Visibility Rules
+
+
+| Role | Access Level | |
+
+
+| **Owner** | Full access. All actions (invite, edit roles, deactivate, remove, transfer ownership). | |
+
+| **Admin** | Invite, edit roles, deactivate members. Cannot remove the Owner, cannot change own role. | |
+
+| **Manager** | View-only. Can see the team list but cannot modify anything. | |
+
+| **Designer / Bookkeeper / Viewer** | No access. Attempting to navigate to `/settings/team` redirects to the dashboard. | |
+
+
+#### Invite Modal (`/settings/team/invite`)
+
+
+- **Email address:** Text input with real-time format validation.
+
+- **Role:** Dropdown selector. Options: Admin, Manager, Designer, Bookkeeper, Viewer. Owner is not available --- one Owner per tenant is enforced at the database level (unique constraint on `(tenant_id, role)` where `role = 'owner'`).
+
+- **Personal message:** Optional textarea (max 500 characters). Included in the invitation email body.
+
+- **"Send invitation"** button.
+
+
+**Validation (server-side):**
+
+
+- Email format (RFC 5322 via Zod).
+
+- Not already an active or pending member of this tenant.
+
+- Seat limit not exceeded --- if at capacity, the invite button is disabled with tooltip: "Seat limit reached. Upgrade your plan to invite more members."
+
+
+**Flow:** Calls `better-auth organization.inviteMember()` -> creates a `pending` row in `tenant_members` -> sends invitation email via SendGrid with a signed acceptance link (72-hour expiry). Accepting the link: if the invitee has an existing Kiptra account, they are added to the tenant immediately; if not, they are directed to a signup form pre-filled with their email, and upon registration are auto-joined to the tenant.
+
+
+#### Member Detail Modal (`/settings/team/[memberId]`)
+
+
+- **Profile summary:** Name, email, avatar, role badge, date joined, last active timestamp.
+
+- **Role change:** Dropdown (Owner and Admin only). Changing a role takes effect immediately --- the affected user's permissions update on their next API call, and a Socket.io event notifies their active sessions to refresh permissions client-side.
+
+- **"Deactivate member"** -> Sets status to `deactivated`, explicitly revokes all active sessions for that user via `auth.api.revokeAllSessions({ userId })` (Socket.io forced room eviction per Section 5), retains all historical data. Deactivated users cannot log in but their past activity remains visible in audit logs.
+
+- **"Reactivate member"** (visible for deactivated members) -> Restores status to `active`. The user can log in again with their existing credentials. Counts toward seat limit.
+
+- **"Remove member"** (Owner only) -> Permanent removal from the tenant. All sessions explicitly revoked via `auth.api.revokeAllSessions({ userId })` (better-auth does NOT auto-clear sessions on member removal --- without explicit revocation, removed users retain access until session expiry). The user retains their Kiptra account but loses access to this tenant's data. Confirmation modal: "This will permanently remove [Name] from your team. This cannot be undone."
+
+- **"Transfer ownership"** (Owner only, on their own profile) -> Requires password confirmation + TOTP code (if MFA enabled). Transfers the Owner role to a selected Admin. The original Owner is demoted to Admin. Only one Owner per tenant at all times --- the transfer is atomic (single transaction).
+
+
+#### RBAC Permission Matrix
+
+
+| Action | Owner | Admin | Manager | Designer | Bookkeeper | Viewer | |
+
+
+| **View team list** | &check; | &check; | &check; | &cross; | &cross; | &cross; | |
+
+| **Invite members** | &check; | &check; | &cross; | &cross; | &cross; | &cross; | |
+
+| **Change roles** | &check; | &check;* | &cross; | &cross; | &cross; | &cross; | |
+
+| **Deactivate members** | &check; | &check; | &cross; | &cross; | &cross; | &cross; | |
+
+| **Remove members** | &check; | &cross; | &cross; | &cross; | &cross; | &cross; | |
+
+| **Transfer ownership** | &check; | &cross; | &cross; | &cross; | &cross; | &cross; | |
+
+
+**Admin cannot change the Owner's role or their own role.*
+
+
+#### Edge Cases
+
+
+- **Invite existing user in different tenant:** Allowed. The user can belong to multiple tenants (future multi-org support). They select their active tenant from a tenant switcher after login.
+
+- **Last Admin changes own role:** Blocked. The system requires at least one Admin (or Owner) per tenant. If the last Admin attempts to change their role to Manager or below, the request is rejected with "At least one Admin is required."
+
+- **Owner removes self:** Blocked. The Owner must transfer ownership first. The "Remove member" action is hidden on the Owner's own profile --- only "Transfer ownership" is available.
+
+- **Seat limit reached:** The "Invite member" button is disabled. A banner displays: "You've used all X seats on your [Plan] plan." with an "Upgrade plan" link to `/settings/billing`.
+
+- **Pending invitation:** Shown in the member table with status badge "Pending." Actions available: "Resend invitation" (resets the 72-hour timer) and "Revoke invitation" (deletes the pending row, frees the seat).
+
+- **Expired invitation (72 hours):** Status changes to "Expired." The row remains visible with a "Resend" action. Expired invitations do not count toward the seat limit.
+
+- **Deactivated member reactivation at seat limit:** Blocked. Reactivating a deactivated member counts as filling a seat. If at capacity, the reactivation is rejected with the same upgrade prompt.
+
+
+Cross-References
+
+
+**Section 5** --- Six RBAC roles (Owner, Admin, Manager, Designer, Bookkeeper, Viewer), team hierarchy, tenant isolation, forced Socket.io room eviction on member removal/role change. **Section 12** --- MFA (TOTP) implementation via better-auth, referenced by the ownership transfer confirmation flow. **Wave 1 Item 4** --- Team invitation and role assignment as a Day 1 deliverable. **Wave 5** --- "Full multi-tenant admin panel + team management" as the complete implementation milestone.
+
+
+---
+
+
+### 13g. Billing & Subscription Management
+
+
+#### User Stories
+
+
+- Owner/admin views current plan and usage
+
+- Owner manages subscription (upgrade/downgrade/cancel) via Stripe Customer Portal
+
+- Owner/admin sees invoice history and downloads receipts
+
+- Owner sees AI usage meters and approaching-limit alerts
+
+
+#### `/settings/billing` --- Billing Overview
+
+
+**Current plan card:** Plan name, monthly price, setup fee (paid/pending), renewal date, status (`active` / `past_due` / `canceled`).
+
+
+**Quick actions:**
+
+
+- "Manage subscription" -> Stripe Customer Portal (handles upgrade, downgrade, cancel, payment method)
+
+- "Download latest invoice" button
+
+
+**Usage summary:** Agent execution count (this period), AI token usage vs limit, seat usage (X/Y).
+
+
+**AI spending alert indicators:**
+
+
+| Threshold | Color | Behavior | |
+
+
+| Green** | Normal --- no indicator | |
+
+| 60--79% | Yellow** | Subtle usage badge in sidebar | |
+
+| 80--99% | Orange** | "Approaching limit" banner at page top | |
+
+| 100% | Red** | Starter/Pro: "Limit reached" --- agent execution blocked. Enterprise: "Overage billing active" | |
+
+
+**Invoice history table:** Date, Amount, Status (`paid` / `pending` / `failed`), PDF download link. Paginated (25 per page). Filterable by status and date range. Sortable by date and amount.
+
+
+**Payment method:** Bank account (ACH) or credit/debit card (last 4 digits, bank name or card brand/expiry). Customer can switch payment method at any time. "Update" -> Stripe Customer Portal. Card payments include 2.9% + $0.30 surcharge (exempt in CT/MA). Monthly subscription renewals: customer's choice of ACH or card. Same surcharge applies to card renewals.
+
+
+RBAC
+
+
+**Owner:** full access (view + manage subscription + portal redirect). **Admin:** view-only (usage, invoices, plan details --- no mutation). **All other roles:** no access; `/settings/billing` is hidden from navigation.
+
+
+#### `/settings/billing/usage` --- Detailed Usage Breakdown
+
+
+- **Date range picker:** Current period, last 30/60/90 days
+
+- **Agent-level breakdown table:** Agent name, execution count, token usage, estimated cost
+
+- **Daily usage chart** (Recharts line chart): tokens per day with cursor tooltip
+
+- **Per-user breakdown:** Which team members triggered how many executions
+
+- **Empty state:** When no usage data exists (new tenant, first billing period): "No usage data yet. Usage will appear here after your agents run their first executions." with a link to the agent configuration page.
+
+- **Loading state:** Skeleton chart placeholder and skeleton table rows during data fetch. The daily usage chart shows a pulsing placeholder until data loads.
+
+- **"Export CSV" button:** Exports the current filtered view (date range + breakdown) as a CSV file. Shows a brief spinner during generation.
+
+
+RBAC
+
+
+Owner and Admin only. Enforced via Hono RPC middleware `requireRole(['owner','admin'])`.
+
+
+#### Stripe Customer Portal Integration
+
+
+Portal sessions are created server-side and the user is redirected:
+
+
+TypeScript
+const session = await stripe.billingPortal.sessions.create({
+ customer: tenant.stripe_customer_id,
+ return_url: `${APP_URL}/settings/billing`,
+});
+// redirect user to session.url
+```
+
+
+**Portal handles:** payment method update, plan changes (with proration preview), cancellation (with survey), invoice downloads.
+
+
+**Portal configuration:**
+
+
+- Enable plan switching (between Starter / Professional / Enterprise products)
+
+- Enable cancellation with exit survey
+
+- Disable subscription pause (not supported in our billing model)
+
+
+**Webhook events to handle:**
+
+
+- `customer.subscription.updated`
+
+- `customer.subscription.deleted`
+
+- `invoice.payment_failed`
+
+- `invoice.paid`
+
+
+#### Billing State Machine
+
+
+State Machine
+active -> past_due // payment failed
+ past_due -> canceled // after 3 retry attempts over 7 days
+
+active -> canceling // user-initiated, runs until period end
+ canceling -> canceled // period end reached
+
+active -> upgraded/downgraded // via portal, immediate proration
+```
+
+
+#### Webhook-Driven State Sync
+
+
+| Stripe Event | System Action | |
+
+
+|
+ `invoice.paid` |
+ Update tenant `status = active`, record payment in `invoice_history` |
+ |
+
+|
+ `invoice.payment_failed` |
+ Set tenant `status = past_due`, send alert email to owner, restrict non-essential features after 3 days |
+ |
+
+|
+ `customer.subscription.updated` |
+ Sync plan tier, seat limits, and feature flags from Stripe subscription metadata |
+ |
+
+|
+ `customer.subscription.deleted` |
+ Set tenant `status = canceled`, trigger offboarding countdown (90-day data retention per Section 5) |
+ |
+
+
+#### Usage Tracking Architecture
+
+
+- **Ingestion:** Agent executions logged to `agent_executions` table with token counts (populated via AI SDK response metadata + costTrackingMiddleware)
+
+- **Aggregation:** Daily aggregation job (BullMQ scheduled, `0 2 * * *`) computes per-tenant usage summaries
+
+- **API:** Usage data exposed via internal endpoint: `GET /api/v1/usage?period=current` --- tenant_id derived from authenticated session via `withTenantContext()`. Never accept client-supplied tenant IDs in URLs for data queries.
+
+- **Alerting:** Approaching-limit check runs hourly; triggers Socket.io notification + email at 80% and 100% thresholds
+
+
+SQL
+-- Daily aggregation query (runs via BullMQ cron)
+INSERT INTO tenant_usage_daily (tenant_id, date, execution_count, tokens_input, tokens_output, cost_usd)
+SELECT
+ tenant_id,
+ DATE(created_at) AS date,
+ COUNT(*) AS execution_count,
+ SUM(tokens_used) AS tokens_input,
+ 0 AS tokens_output,
+ SUM(cost_usd) AS cost_usd
+FROM agent_executions
+WHERE created_at >= NOW() - INTERVAL '1 day'
+GROUP BY tenant_id, DATE(created_at)
+ON CONFLICT (tenant_id, date) DO UPDATE SET
+ execution_count = EXCLUDED.execution_count,
+ tokens_input = EXCLUDED.tokens_input,
+ tokens_output = EXCLUDED.tokens_output,
+ cost_usd = EXCLUDED.cost_usd;
+```
+
+
+#### Data Requirements
+
+
+| Direction | Source | Details | |
+
+
+|
+ **Reads** |
+ Supabase |
+ `tenants` (plan, `stripe_customer_id`, status), `agent_executions` (aggregation), `tenant_usage_daily` |
+ |
+
+|
+ **Reads** |
+ Stripe API |
+ Subscription details, invoices list, upcoming invoice preview |
+ |
+
+|
+ **Reads** |
+ Vercel AI SDK |
+ Real-time token usage data (via response metadata, persisted to `agent_executions`) |
+ |
+
+|
+ **Writes** |
+ None from UI |
+ Stripe Customer Portal handles all subscription mutations. Webhooks update the `tenants` table server-side. |
+ |
+
+|
+ **External** |
+ Stripe |
+ Customer Portal session URL, Invoice PDF URLs (hosted by Stripe) |
+ |
+
+
+#### Edge Cases
+
+
+| Scenario | UI Behavior | |
+
+
+|
+ Payment failed (`past_due`) |
+ Red banner: "Payment failed. Update payment method to avoid service interruption." + CTA button to Stripe Portal |
+ |
+
+|
+ Canceled but active until period end |
+ "Cancels on [date]" with "Reactivate" button (creates new portal session with reactivation flow) |
+ |
+
+|
+ Mid-cycle plan change |
+ Stripe handles proration automatically via portal; webhook syncs new plan to `tenants` table |
+ |
+
+|
+ Enterprise overage |
+ Show real-time accumulating overage amount: "Current overage: $X.XX" with link to usage detail |
+ |
+
+|
+ No invoices yet (new tenant) |
+ "First invoice on [date]" placeholder in invoice history section |
+ |
+
+|
+ Setup fee separate from recurring |
+ Clearly labeled in invoice history: "Setup Fee" vs "Monthly Subscription" line items |
+ |
+
+|
+ Free trial (future) |
+ "Trial ends on [date], X days remaining" banner above plan card |
+ |
+
+
+Cross-References
+
+
+**Wave 2 item 15** (Stripe Checkout + webhooks + customer portal) --- implements the backend infrastructure this screen depends on. **Section 5** (AI spending limits, daily usage sync, tenant offboarding) --- defines the limit thresholds and offboarding flow triggered by cancellation. **Appendix A** (pricing tiers) --- source of truth for plan names, prices, and feature gates.
+
+
+---
+
+
+### 13h. Dashboard & Agent Overview
+
+
+#### User Stories
+
+
+- Owner/admin views a comprehensive dashboard with all agent statuses, escalation queue summary, and revenue snapshot.
+
+- Manager views assigned agent statuses and their scoped escalation queue.
+
+- Designer checks Design Agent status and pending reviews.
+
+- Bookkeeper reviews financial summary from Bookkeeping Agent.
+
+- Viewer sees a read-only dashboard with agent status and project summaries.
+
+- First-time user sees a welcome message with a setup checklist.
+
+
+#### `/dashboard` --- Main Dashboard
+
+
+**Layout:** Role-scoped dashboard layout. Content adapts based on the authenticated user's role within the current tenant.
+
+
+ Role-Scoped Layout
+
+
+| Role | Visible Components | |
+
+
+| **Owner / Admin** | All agent status cards, escalation queue summary, daily briefing card, revenue snapshot (from Bookkeeping Agent), team activity feed | |
+
+| **Manager** | Assigned agent status cards, escalation queue for their scope, task list | |
+
+| **Designer** | Design Agent status, active project specs, pending reviews | |
+
+| **Bookkeeper** | Bookkeeping Agent financial summary, invoice status, payment alerts | |
+
+| **Viewer** | Read-only dashboard with agent status and project summaries (no action buttons) | |
+
+
+ Dashboard Components
+
+
+- **Agent status cards:** Agent name, status (`active` / `paused` / `error`), last execution time, today's execution count. Color-coded border: green (active), gray (paused), red (error).
+
+- **Escalation alert banner:** "X items need your attention" with link to `/escalations`. Shown when pending escalation count > 0. Amber background, dismissible per session.
+
+- **Daily briefing card:** AI-generated morning summary from CEO Agent. Collapsed by default after first read. Timestamp of generation shown.
+
+- **Real-time updates:** Via Socket.io --- agent status changes, new escalations, and completed drafts push updates to the dashboard without page reload. Connection status indicator in the bottom-right corner (green dot = connected, red dot = disconnected with auto-reconnect).
+
+
+ Empty State (First Login)
+
+
+**Layout:** Welcome message with tenant name. Setup checklist card with progress indicator.
+
+
+- **Checklist items:** Connect integrations (link to `/settings/integrations`), invite team members (link to `/settings/team`), review first agent output (link to `/escalations`).
+
+- Each item shows a checkbox that auto-completes when the action is performed. Checklist persists until all items are completed or the user explicitly dismisses it.
+
+
+#### `/dashboard/agents` --- Agent List View
+
+
+- **Table columns:** Agent name, Status (color-coded badge), Last run (relative timestamp), Next scheduled run, Execution count (today), Actions.
+
+- **Enable/disable toggle:** Per agent. Writes to `feature_flags` JSONB column. Toggling off shows confirmation: "Pausing [Agent] will stop all scheduled executions. Continue?"
+
+- **Click-through:** Row click navigates to `/dashboard/agents/:id`.
+
+- **Search & filter:** Text search by agent name, dropdown filter by status (all / active / paused / error).
+
+- **Empty state:** When no agents are configured: illustration with "No agents set up yet. Your onboarding specialist will configure your first agents." (Phase 1) or "No agents configured. Contact support to get started." (Phase 2).
+
+- **Loading state:** Skeleton cards matching the agent card layout during initial data fetch.
+
+
+RBAC
+
+
+**Owner / Admin:** Full access including enable/disable toggles and configuration. **Manager:** View assigned agents only; no toggle access. **Designer / Bookkeeper:** View agents relevant to their scope only. **Viewer:** Read-only view of all agents.
+
+
+#### `/dashboard/agents/:id` --- Agent Detail
+
+
+- **Agent header:** Name, description, current status badge, enable/disable toggle (Owner/Admin only).
+
+- **Configuration panel** (Owner/Admin only): Prompt version selector, model routing configuration, execution limits (max runs/day, max tokens/run). Changes require confirmation and are audit-logged.
+
+- **Execution history table:** Timestamp, trigger type (scheduled / manual / webhook), duration, token cost, status (`success` / `failed` / `timeout`). Paginated (25 per page), sortable by any column. Filterable by status and trigger type. Date range picker for historical queries. "Export CSV" button (Owner/Admin only) exports filtered results with a progress indicator during generation.
+
+- **Recent outputs:** Last 10 drafts/actions. Each shows a summary, timestamp, and status. Pending items show Approve / Reject buttons (for users with escalation permissions). Clicking an output expands inline to show full content.
+
+
+#### Error States
+
+
+| Condition | Message Shown | Notes | |
+
+
+| Agent in error state | Red status badge with "Error" label. Expandable error detail below the agent card. | Auto-recovered errors clear after next successful execution. | |
+
+| No execution history | "No executions yet. This agent will run on its next scheduled trigger." | Shown for newly configured agents. | |
+
+| Socket.io disconnected | "Live updates paused. Reconnecting&hellip;" banner at top of dashboard. | Auto-reconnect with exponential backoff. Manual refresh link provided. | |
+
+| Agent not found | Redirect to `/dashboard/agents` with toast: "Agent not found." | Handles deleted agents or invalid IDs. | |
+
+
+Cross-References
+
+
+**Section 7b** (Agent Execution Patterns) --- defines the six agents whose status is displayed here. **Section 5** (Socket.io rooms, tenant isolation) --- powers the real-time dashboard updates. **Section 3** (Tech Stack, NATS entry) and **Section 7b** (NATS event bus patterns) --- agent execution events that feed the execution history table.
+
+
+---
+
+
+### 13i. Escalation Queue
+
+
+#### User Stories
+
+
+- Owner/admin reviews all pending agent escalations and approves, rejects, or modifies them.
+
+- Manager reviews escalations within their scope and takes action.
+
+- User views the full audit trail of an escalation to understand what the agent proposed and what happened.
+
+
+#### `/escalations` --- Escalation Queue
+
+
+- **Table columns:** Priority (high / medium / low --- color-coded: red / amber / blue), Agent name, Summary (truncated to 120 chars), Created (relative timestamp), Status (`pending` / `approved` / `rejected` / `modified`).
+
+- **Filters:** Agent (multi-select dropdown), Priority (multi-select), Status (multi-select), Date range (date picker).
+
+- **Bulk actions toolbar** (visible when rows selected): "Approve selected", "Reject selected" (with reason modal). Available to Owner, Admin, and Manager (scoped).
+
+- **Sort:** Default by priority (high first), then by created date (oldest first). Sortable by any column.
+
+- **Pagination:** 25 items per page.
+
+- **Real-time:** New escalations push to the top of the list via Socket.io with a subtle highlight animation.
+
+
+RBAC
+
+
+**Owner / Admin:** See all escalations, full action permissions. **Manager:** See scope-relevant escalations only, can approve/reject within scope. **Designer / Bookkeeper / Viewer:** No access. Navigating to `/escalations` redirects to `/dashboard`.
+
+
+#### `/escalations/:id` --- Escalation Detail
+
+
+- **Agent-generated draft:** Full content of the proposed action, displayed in a structured format. For multi-field changes, a diff view highlights what the agent wants to modify (before/after columns).
+
+- **Source context panel:** What triggered this escalation --- source event type (email received, scheduled job, webhook event), original payload summary, timestamp.
+
+- **Action buttons:**
+
+
+- **"Approve"** --- Execute the agent's proposed action as-is. Confirmation modal: "This will execute the action immediately. Continue?"
+
+- **"Modify & Approve"** --- Opens an inline editor to adjust the draft before execution. Modified content is stored alongside the original for audit purposes.
+
+- **"Reject"** --- Opens a reason modal (required text field, 500 char max). Rejection reason is stored and visible in audit trail.
+
+- **"Reassign"** --- Dropdown of eligible team members (Owner, Admin, Manager). Sends a notification to the assignee.
+
+
+- **Audit trail:** Timeline of all actions taken on this escalation --- who created it (agent), who viewed it, who approved/rejected/modified it, timestamps, and any modifications made. Immutable log.
+
+
+#### Error States
+
+
+| Condition | Message Shown | Notes | |
+
+
+| Escalation already actioned | "This escalation was [approved/rejected] by [Name] on [date]." Action buttons disabled. | Prevents double-action race conditions. | |
+
+| Escalation expired (configurable TTL) | "This escalation has expired and can no longer be actioned." | Expired escalations are auto-rejected with reason "Expired". | |
+
+| Execution failure after approval | "Approved action failed to execute. Error: [details]. Retry?" | Retry button re-queues the action. Failure is logged in audit trail. | |
+
+| Empty queue | "All clear! No escalations need your attention." | Illustrated empty state with a checkmark icon. | |
+
+
+Cross-References
+
+
+**Section 7b** (Agent escalation patterns) --- defines when and why each agent escalates. **Section 5** (Socket.io notifications) --- powers real-time escalation alerts. **Section 7b** (NATS subject naming) --- `agent.*.escalation` subjects route escalation events.
+
+
+---
+
+
+### 13j. Integration Setup
+
+
+#### User Stories
+
+
+- Owner/admin connects a third-party service (QuickBooks, Google Calendar, Gmail, SendGrid) via OAuth, or connects JobTread via grant key (paste from app.jobtread.com/grants with guided walkthrough).
+
+- Owner/admin monitors integration health and reconnects if a token has expired.
+
+- Non-admin users view integration connection status but cannot modify connections.
+
+
+#### `/settings/integrations` --- Connected Integrations
+
+
+**Layout:** Card grid (responsive: 3 columns on desktop, 2 on tablet, 1 on mobile). One card per integration.
+
+
+- **Per card:** Service logo, service name, connection status badge (`connected` / `disconnected` / `error`), last sync timestamp (relative), primary action button.
+
+- **Health indicators:**
+
+
+- Green** --- Healthy. Last sync within expected interval.
+
+- Yellow** --- Sync delayed > 1 hour. "Sync delayed" subtitle.
+
+- Red** --- Auth expired or error. "Reconnection required" subtitle with "Reconnect" button.
+
+
+- **"Connect" button** (disconnected state) --- Initiates OAuth flow.
+
+- **"Disconnect" button** (connected state) --- Confirmation modal: "Disconnecting [Service] will stop all automated syncing. Existing data will be retained. Continue?" Requires typing the service name to confirm.
+
+- **Empty state:** When no integrations are available for the current plan: "Your Starter plan includes 1 integration. Choose which service to connect." When all available integrations are already connected: "All integrations connected" with health status summary.
+
+- **Loading state:** Skeleton cards matching the integration card layout during initial data fetch. Individual cards show a spinner overlay during connect/disconnect operations.
+
+
+RBAC
+
+
+**Owner / Admin:** Full access --- connect, disconnect, reconnect. **All other roles:** View connection status only. Connect/disconnect buttons are hidden.
+
+
+#### OAuth Connection Flow
+
+
+Modal-initiated flow with provider redirect:
+
+
+- **Step 1:** User clicks "Connect [Service]" -> client calls backend endpoint that generates the OAuth authorization URL with required scopes -> user is redirected to the provider's OAuth consent screen.
+
+- **Step 2:** User grants consent -> provider redirects to callback URL -> backend exchanges authorization code for access/refresh tokens -> tokens stored with envelope encryption (per Section 12).
+
+- **Step 3:** Initial sync triggered -> progress indicator shown on the integration card ("Syncing&hellip;" with spinner) -> on completion: "Connected successfully" toast notification, card updates to green/connected state.
+
+
+#### Error States
+
+
+| Condition | Message Shown | Notes | |
+
+
+| OAuth denied by user | "Connection was not authorized. You can try again at any time." | No tokens stored. Card remains in disconnected state. | |
+
+| Token refresh failure | "[Service] connection expired. Please reconnect." | Card switches to red/error state. "Reconnect" button initiates fresh OAuth flow. | |
+
+| Initial sync failure | "Connected but initial sync failed. Retrying automatically&hellip;" | Auto-retry with exponential backoff (3 attempts). After 3 failures: "Sync failed. Please disconnect and reconnect." | |
+
+| Provider API outage | "[Service] is experiencing issues. Sync will resume automatically." | Health indicator switches to yellow. No user action required. | |
+
+
+Cross-References
+
+
+**Section 7** (Integration architecture) --- defines the OAuth flows, token storage, and sync mechanisms. **Section 12** (Envelope encryption) --- covers how OAuth tokens are encrypted at rest. **Wave 4** (JobTread adapter) and **Wave 5** (QuickBooks integration) --- implementation milestones.
+
+
+---
+
+
+### 13k. Error & Status Pages
+
+
+#### User Stories
+
+
+- User navigates to a non-existent page and sees a helpful 404 page with navigation options.
+
+- User encounters a server error and sees a friendly message with a support reference ID.
+
+- User visits during scheduled maintenance and sees an informative holding page.
+
+- User sees a contextual banner when a backend service is degraded.
+
+
+#### `/404` --- Not Found
+
+
+**Layout:** Centered card, consistent with auth page styling.
+
+
+- **Heading:** "Page not found"
+
+- **Subheading:** "The page you're looking for doesn't exist or has been moved."
+
+- **Navigation links:** "Go to Dashboard" (primary button), "Contact Support" (text link).
+
+- **Search bar:** Optional --- text input with "Search" button for finding content.
+
+
+#### `/500` --- Server Error
+
+
+**Layout:** Centered card, same styling as 404.
+
+
+- **Heading:** "Something went wrong"
+
+- **Subheading:** "Our team has been notified and is working on it."
+
+- **"Try again" button:** Reloads the previous route.
+
+- **"Go to Dashboard" link:** Fallback navigation.
+
+- **Sentry error ID:** Displayed in small text at the bottom: "Reference: [error-id]". Useful for support tickets.
+
+
+#### `/maintenance` --- Maintenance Mode
+
+
+**Layout:** Full-screen centered content, no navigation chrome.
+
+
+- **Heading:** "Scheduled Maintenance"
+
+- **Subheading:** "We're performing scheduled maintenance to improve your experience. We'll be back shortly."
+
+- **Estimated completion:** "Expected back by [time] [timezone]" (if available). Otherwise: "Check back soon."
+
+- **Status page link:** External link to status page (if configured).
+
+
+#### Degraded State Banners
+
+
+Injected via the global layout component. Displayed at the top of every page when a backend dependency is degraded. Non-dismissible while the condition persists.
+
+
+| Dependency | Banner Message | Banner Color | |
+
+
+| **Supabase** | "Some features are temporarily unavailable. Your data is safe." | Amber | |
+
+| **NATS** | "Agent automation is temporarily paused. Manual operations are available." | Amber | |
+
+| **AI Gateway** | "AI features are temporarily limited. We're working on it." | Amber | |
+
+
+**Detection:** Health check endpoints polled every 30 seconds by the backend. Degraded status pushed to connected clients via Socket.io. Banner renders/hides reactively based on a global state atom.
+
+
+Cross-References
+
+
+**Section 12** (Health checks and monitoring) --- defines the health check endpoints and alerting thresholds. **Section 5** (Socket.io) --- pushes degraded state events to clients. **Section 12** (Sentry integration) --- provides the error IDs displayed on the 500 page.
+
+
+---
+
+
+### 13l. Onboarding, Product Tours & Guided First-Run Experience
+
+
+This section defines the complete onboarding architecture: welcome screen for invited users, multi-tour system for all user types, onboarding checklist, tour state persistence, everboarding, and construction-specific adaptations. It replaces the original invited-user-only scope with a platform-wide onboarding system informed by industry research (complete patterns: `product-tour-engineering-kb/` and `saas-onboarding-ux-kb/`).
+
+
+#### User Stories
+
+
+- Invited user logs in for the first time and sees a personalized welcome screen explaining their role.
+
+- All users (owners and invited) receive a context-appropriate product tour on first login or first module visit.
+
+- Users see a persistent onboarding checklist tracking setup progress with auto-completing items.
+
+- Users can skip any non-mandatory tour and re-trigger it from account settings at any time.
+
+- When tour content is updated (new version), returning users who completed the old version are re-prompted.
+
+- When a user's role changes, a role-appropriate tour is triggered for newly accessible features.
+
+
+#### Screen: `/welcome` --- Role-Specific Welcome (Invited Users)
+
+
+**Layout:** Centered card (max-width 560px), consistent with auth page styling. Shown once after first login for invited users (gated on `tenant_members.onboarding_completed = false`).
+
+
+- **Heading:** "Welcome to [Company Name], [First Name]!"
+
+- **Subheading:** "You've been added as a **[Role]**."
+
+- **Role-specific summary:** 3--4 bullet points explaining what the user can do, varying by role:
+
+
+| Role | Summary Bullets | |
+
+
+|
+ **Admin** |
+
+
+- Manage team members and invitations
+
+- Configure agents and integration connections
+
+- View all reports and dashboards
+
+- Approve or reject agent escalations
+
+
+ |
+ |
+
+|
+ **Manager** |
+
+
+- Approve agent drafts within your scope
+
+- Manage escalation queue items
+
+- View project status and agent activity
+
+- Coordinate team tasks
+
+
+ |
+ |
+
+|
+ **Designer** |
+
+
+- Access the Design Agent
+
+- Review and collaborate on design specs
+
+- View project timelines and status
+
+
+ |
+ |
+
+|
+ **Bookkeeper** |
+
+
+- View financial summaries from Bookkeeping Agent
+
+- Monitor invoice status and payments
+
+- Track payment alerts and reconciliation
+
+
+ |
+ |
+
+|
+ **Viewer** |
+
+
+- View dashboards and project status (read-only)
+
+- See agent activity summaries
+
+- Access reports shared with you
+
+
+ |
+ |
+
+
+**Actions:**
+
+
+- **"Take a quick tour" button** --- Primary CTA. Starts the Platform Orientation tour (overlay). Sets `tenant_members.onboarding_completed = true`.
+
+- **"Skip and go to dashboard" link** --- Secondary action. Sets `tenant_members.onboarding_completed = true` and redirects to `/dashboard`.
+
+
+---
+
+
+#### 13l.1 Product Tour Architecture
+
+
+##### Library Selection
+
+**Primary: Driver.js v1.4+** (MIT license, ~5KB gzipped, React 19 compatible, 25K+ GitHub stars).
+
+- Installation: `pnpm add driver.js`
+- No React wrapper needed --- vanilla JS API called from `useEffect` with manual ref management.
+- Imported via `dynamic(() => import(...), { ssr: false })` to avoid SSR hydration errors (`window`/`document` access).
+- **Known issues to mitigate:** Mobile horizontal scrollbar (issue #286 --- fix with `overflow-x: hidden` on `body` during active tour), tooltip overlapping highlighted element on small screens (issue #524 --- force `side: 'bottom'` on mobile), scroll position bugs inside `overflow-y: auto` containers (issue #112 --- use `scrollIntoView` with offset before step activation).
+- **Upgrade path:** Migrate to Onborda (Next.js native, Framer Motion animations) when its React 19 issues resolve (issues #28, #44, #35 are currently open). Alternatively, build custom with Floating UI + Zustand if Driver.js mobile limitations prove unacceptable in production.
+
+##### Tour Definition Types
+
+```typescript
+/** Tenant roles eligible for tour filtering */
+type TenantRole = 'owner' | 'admin' | 'manager' | 'designer' | 'bookkeeper' | 'viewer';
+
+interface TourDefinition {
+  id: 'platform' | 'bos' | 'kb_canvas' | 'integrations';
+  version: number; // Increment to re-trigger for users who completed older version
+  steps: TourStep[];
+  roles: TenantRole[]; // Which roles see this tour
+  trigger: 'first_login' | 'first_visit' | 'manual';
+  triggerRoute?: string; // For first_visit triggers (e.g., '/bos')
+  mandatory: boolean; // false = show "Skip tour" on all steps
+}
+
+interface TourStep {
+  element: string; // CSS selector or data-tour attribute (e.g., '[data-tour="dashboard-overview"]')
+  popover: {
+    title: string;
+    description: string;
+    side: 'top' | 'bottom' | 'left' | 'right';
+    actionButton?: { label: string; href: string }; // Optional deep-link CTA
+  };
+  roleFilter?: TenantRole[]; // Show only to these roles (omit = all roles)
+}
+```
+
+##### Tour Definitions (4 Tours)
+
+**Tour 1: Platform Orientation** (`id: 'platform'`, `version: 1`, `trigger: 'first_login'`, `mandatory: true` for first login only)
+
+| Step | Element Selector | Title | Description | Role Filter |
+|------|-----------------|-------|-------------|-------------|
+| 1 | `[data-tour="dashboard-overview"]` | "Your Command Center" | "Everything starts here --- agent status, KPIs, and recent activity at a glance." | All |
+| 2 | `[data-tour="agents-section"]` | "Your AI Agents" | "Your agents handle tasks automatically. Check their status and outputs here." | All except Viewer |
+| 3 | `[data-tour="notifications-bell"]` | "Stay in the Loop" | "Real-time updates on agent actions, escalations, and approvals appear here." | All |
+| 4 | `[data-tour="help-bot-button"]` | "Help When You Need It" | "Tap here anytime for instant answers about any feature." | All |
+| 5 | `[data-tour="sidebar-nav"]` | "Navigate Your Workspace" | "Switch between modules --- agents, reports, settings, and more." | All |
+
+**Tour 2: Business OS** (`id: 'bos'`, `version: 1`, `trigger: 'first_visit'`, `triggerRoute: '/bos'`, `mandatory: false`)
+
+| Step | Element Selector | Title | Description | Role Filter |
+|------|-----------------|-------|-------------|-------------|
+| 1 | `[data-tour="bos-hub"]` | "Business OS at a Glance" | "Your operating system hub --- scorecards, goals, meetings, and issues in one view." | All |
+| 2 | `[data-tour="bos-kpi"]` | "Track What Matters" | "Your scorecard shows the metrics that drive your business, updated weekly." | Owner, Admin, Manager |
+| 3 | `[data-tour="bos-meetings"]` | "Run Better Meetings" | "Weekly sync meetings with structured agendas --- no more wasted time." | All |
+| 4 | `[data-tour="bos-goals"]` | "Set Quarterly Goals" | "Define 90-day priorities and track progress across your team." | Owner, Admin, Manager |
+| 5 | `[data-tour="bos-issues"]` | "Surface & Solve Issues" | "Capture blockers as they arise. IDS (Identify, Discuss, Solve) keeps things moving." | All |
+
+**Tour 3: K&B Canvas** (`id: 'kb_canvas'`, `version: 1`, `trigger: 'first_visit'`, `triggerRoute: '/design'`, `mandatory: false`)
+
+| Step | Element Selector | Title | Description | Role Filter |
+|------|-----------------|-------|-------------|-------------|
+| 1 | `[data-tour="canvas-toolbar"]` | "Your Design Tools" | "Select cabinets, appliances, and fixtures from the toolbar to place on your layout." | Designer, Owner, Admin |
+| 2 | `[data-tour="canvas-2d3d-toggle"]` | "Switch Perspectives" | "Toggle between floor plan view and immersive 3D --- see your design come to life." | Designer, Owner, Admin |
+| 3 | `[data-tour="canvas-ai-chat"]` | "Design with AI" | "Describe what you want --- 'L-shaped kitchen with island' --- and AI generates it." | Designer, Owner, Admin |
+| 4 | `[data-tour="canvas-properties"]` | "Fine-Tune Everything" | "Edit materials, dimensions, and finishes in the properties panel." | Designer, Owner, Admin |
+| 5 | `[data-tour="canvas-bom"]` | "Instant Bill of Materials" | "See your BOM update in real-time as you design --- pricing and quantities included." | Designer, Owner, Admin, Bookkeeper |
+
+**Tour 4: Integration Setup** (`id: 'integrations'`, `version: 1`, `trigger: 'first_visit'`, `triggerRoute: '/settings/integrations'`, `mandatory: false`)
+
+| Step | Element Selector | Title | Description | Role Filter |
+|------|-----------------|-------|-------------|-------------|
+| 1 | `[data-tour="integration-cards"]` | "Connect Your Tools" | "Link the services you already use --- data flows automatically, no manual entry." | Owner, Admin, Bookkeeper |
+| 2 | `[data-tour="integration-quickbooks"]` | "Sync Your Finances" | "Connect QuickBooks to sync invoices, payments, and financial reports." | Owner, Admin, Bookkeeper |
+| 3 | `[data-tour="integration-calendar"]` | "Unify Your Schedule" | "Link Google Calendar or Outlook to sync meetings and appointments." | Owner, Admin, Manager |
+
+##### Tour Trigger Hook
+
+```typescript
+'use client';
+import { useEffect, useRef } from 'react';
+import { usePathname } from 'next/navigation';
+
+/**
+ * Hook that evaluates whether a tour should start for the current user.
+ * Loaded via dynamic import (ssr: false) to avoid hydration errors.
+ *
+ * Decision logic:
+ * 1. Query tour_progress table for this user + tourId
+ * 2. If status = 'completed' and tour_version matches current version -> skip
+ * 3. If status = 'dismissed' and dismissed_at < 24h ago -> skip (cooldown)
+ * 4. If another tour is already active (global ref) -> skip (max 1 per session)
+ * 5. If trigger = 'first_login' and this is not first login -> skip
+ * 6. If trigger = 'first_visit' and pathname !== triggerRoute -> skip
+ * 7. If user role not in tour.roles -> skip
+ * 8. Otherwise -> start tour
+ */
+function useTourTrigger(tourId: string, triggerRoute?: string): void {
+  const pathname = usePathname();
+  const hasTriggeredRef = useRef(false);
+
+  useEffect(() => {
+    if (hasTriggeredRef.current) return;
+
+    async function evaluate() {
+      // Fetch tour progress from API
+      const res = await fetch('/api/v1/tours/progress');
+      const progress = await res.json();
+      const tourProgress = progress.find((p: { tour_id: string }) => p.tour_id === tourId);
+
+      // Check completion, cooldown, active tour, route match
+      // Implementation details per decision logic above
+      // If all checks pass:
+      hasTriggeredRef.current = true;
+      const { driver } = await import('driver.js');
+      await import('driver.js/dist/driver.css');
+      // Initialize and start tour with steps from tour registry
+    }
+
+    evaluate();
+  }, [tourId, triggerRoute, pathname]);
+}
+```
+
+##### Tour Fatigue Prevention
+
+```typescript
+const TOUR_CONFIG = {
+  /** Maximum automatic tours per login session */
+  maxToursPerSession: 1,
+  /** Hours between automatic tour triggers (completed or dismissed) */
+  cooldownHours: 24,
+  /** Tours that ignore cooldown on first login only */
+  mandatoryTours: ['platform'] as const,
+  /** Tours that trigger on first visit to their route (not on login) */
+  selfTriggeredTours: ['bos', 'kb_canvas', 'integrations'] as const,
+  /** Dismissal escalation thresholds */
+  dismissalPolicy: {
+    firstDismiss: { reshowAfterDays: 7 },
+    secondDismiss: { reshowAfterDays: 30 },
+    thirdDismiss: { neverAutoShow: true, contextualTooltipsOnly: true },
+  },
+} as const;
+```
+
+**Rationale:** Industry data shows maximum 1 automatic tour per session prevents tour fatigue (Chameleon 2025: self-triggered tours have 2--3x higher completion than auto-triggered). Self-triggered module tours (`first_visit`) outperform auto-triggered tours because the user has context and intent when they navigate to a module. The 24-hour cooldown prevents "Welcome to Module X!" from firing immediately after "Welcome to the Platform!" --- a pattern that causes permanent tour dismissal behavior.
+
+##### SSR Safety
+
+All tour components must be loaded client-side only:
+
+```typescript
+import dynamic from 'next/dynamic';
+
+const TourProvider = dynamic(() => import('@/components/tours/TourProvider'), {
+  ssr: false,
+  loading: () => null, // Tours are non-essential --- no placeholder
+});
+```
+
+This prevents `ReferenceError: window is not defined` during build and avoids hydration mismatches. Every tour library (Driver.js, Onborda, Shepherd, etc.) requires this pattern in Next.js App Router.
+
+##### Element Targeting Strategy
+
+Use `data-tour` attributes instead of CSS class selectors or IDs:
+
+```tsx
+<div data-tour="dashboard-overview" className={styles.dashboardCard}>
+  {/* Dashboard content */}
+</div>
+```
+
+**Rationale:** `data-tour` attributes survive CSS refactors, className changes, and component restructuring. CSS selectors and IDs break when styling is updated. All tour-targeted elements must include `data-tour` attributes --- enforce via ESLint custom rule or PR review checklist.
+
+**Missing element handling:** Before starting a tour, validate that all step selectors resolve to DOM elements. If a selector is missing (lazy-loaded component, conditional render, API-dependent content), gracefully skip that step rather than crashing the tour. Use a `MutationObserver` with 5-second timeout for elements expected to load asynchronously:
+
+```typescript
+const waitForElement = (selector: string, timeout = 5000): Promise<Element | null> => {
+  return new Promise((resolve) => {
+    const el = document.querySelector(selector);
+    if (el) return resolve(el);
+    const observer = new MutationObserver(() => {
+      const el = document.querySelector(selector);
+      if (el) { observer.disconnect(); resolve(el); }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    setTimeout(() => { observer.disconnect(); resolve(null); }, timeout);
+  });
+};
+```
+
+---
+
+
+#### 13l.2 Onboarding Checklist Component
+
+
+A persistent sidebar widget visible on all authenticated pages until dismissed. Tracks 7 setup tasks with auto-completion detection.
+
+```typescript
+import type { LucideIcon } from 'lucide-react';
+
+interface ChecklistItem {
+  id: string;
+  label: string;
+  description: string;
+  completed: boolean;
+  /** SQL condition or API endpoint that determines auto-completion */
+  autoCompleteTrigger: string;
+  /** Route to navigate when user clicks the item */
+  href: string;
+  /** Icon displayed next to the item */
+  icon: LucideIcon;
+}
+```
+
+**Checklist Items (7 items):**
+
+| # | ID | Label | Auto-Complete Trigger | Route |
+|---|-----|-------|----------------------|-------|
+| 1 | `profile_complete` | Complete your profile | `users.avatar_url IS NOT NULL AND users.phone IS NOT NULL` | `/settings/profile` |
+| 2 | `first_agent_review` | Review your first agent output | `EXISTS (SELECT 1 FROM escalations WHERE tenant_id = ? AND reviewed_at IS NOT NULL)` | `/escalations` |
+| 3 | `invite_team` | Invite a team member | `(SELECT COUNT(*) FROM tenant_members WHERE tenant_id = ?) > 1` | `/settings/team` |
+| 4 | `connect_integration` | Connect an integration | `EXISTS (SELECT 1 FROM integrations WHERE tenant_id = ? AND status = 'active')` | `/settings/integrations` |
+| 5 | `explore_bos` | Explore Business OS | `EXISTS (SELECT 1 FROM page_visits WHERE user_id = ? AND route LIKE '/bos%')` | `/bos` |
+| 6 | `first_meeting` | Schedule your first meeting | `EXISTS (SELECT 1 FROM eos_meetings WHERE tenant_id = ?)` | `/bos/meetings` |
+| 7 | `help_bot_used` | Ask the Help Bot a question | `EXISTS (SELECT 1 FROM support_messages WHERE user_id = ? AND source = 'help_bot')` | N/A (opens help bot) |
+
+**Pre-completed item:** Item #1 shows "Create account" as already checked (Zeigarnik effect / endowed progress --- increases completion by 20--30% per Stanford Persuasive Tech Lab research). The visible progress bar starts at "1 of 7 complete."
+
+**Behavior:**
+
+- **Widget location:** Right sidebar, collapsible. Persists across page navigations.
+- **Progress bar:** Linear progress indicator showing "X of 7 complete" with percentage.
+- **Auto-evaluation:** Checklist state is re-evaluated on every page load via the `GET /api/v1/onboarding/checklist` endpoint (evaluates SQL triggers server-side).
+- **Click-to-complete:** Each incomplete item links to the relevant route. Completed items show a green checkmark.
+- **Dismissible:** After 80% completion (6 of 7 items) or explicit "Dismiss checklist" action. Dismissal is persisted to `tour_progress` table with `tour_id = 'checklist'`.
+- **Re-accessible:** Available via **Settings -> Onboarding -> "Show setup checklist"** at any time.
+
+---
+
+
+#### 13l.3 Tour State DDL
+
+```sql
+-- Tour progress tracking (per user, per tour, per tenant)
+CREATE TABLE tour_progress (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  tour_id TEXT NOT NULL, -- 'platform', 'bos', 'kb_canvas', 'integrations', 'checklist'
+  tour_version INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'not_started'
+    CHECK (status IN ('not_started', 'in_progress', 'completed', 'dismissed')),
+  current_step INTEGER NOT NULL DEFAULT 0,
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  dismissed_at TIMESTAMPTZ,
+  dismiss_count INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, user_id, tour_id)
+);
+
+-- RLS: Users can only read/write their own tour progress within their tenant
+ALTER TABLE tour_progress ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY tour_progress_select ON tour_progress
+  FOR SELECT USING (
+    user_id = auth.uid()
+    AND tenant_id = (SELECT tenant_id FROM tenant_members WHERE user_id = auth.uid() LIMIT 1)
+  );
+
+CREATE POLICY tour_progress_insert ON tour_progress
+  FOR INSERT WITH CHECK (
+    user_id = auth.uid()
+    AND tenant_id = (SELECT tenant_id FROM tenant_members WHERE user_id = auth.uid() LIMIT 1)
+  );
+
+CREATE POLICY tour_progress_update ON tour_progress
+  FOR UPDATE USING (
+    user_id = auth.uid()
+    AND tenant_id = (SELECT tenant_id FROM tenant_members WHERE user_id = auth.uid() LIMIT 1)
+  );
+
+-- Performance indexes
+CREATE INDEX idx_tour_progress_user ON tour_progress(user_id);
+CREATE INDEX idx_tour_progress_tenant_tour ON tour_progress(tenant_id, tour_id);
+CREATE INDEX idx_tour_progress_status ON tour_progress(user_id, status)
+  WHERE status IN ('in_progress', 'not_started');
+```
+
+**Relationship to existing columns:** The `tenant_members.onboarding_completed` and `tenant_members.tour_completed` boolean columns (Section 5) remain for the welcome screen gate (`/welcome` redirect logic). The `tour_progress` table provides granular per-tour tracking for the multi-tour system. When the Platform Orientation tour completes, both `tour_progress.status = 'completed'` (for `tour_id = 'platform'`) AND `tenant_members.tour_completed = true` are set in the same transaction.
+
+---
+
+
+#### 13l.4 API Routes
+
+```typescript
+// --- Tour Progress ---
+
+/** GET /api/v1/tours/progress — All tour progress for current user in current tenant */
+// Returns: TourProgress[] (tour_id, tour_version, status, current_step, timestamps)
+// Auth: Any authenticated user (RLS scopes to own records)
+
+/** POST /api/v1/tours/:tourId/start — Mark tour as started */
+// Body: { tour_version: number }
+// Effect: Upserts tour_progress with status='in_progress', started_at=now()
+// Returns: { success: boolean }
+
+/** POST /api/v1/tours/:tourId/step — Update current step position */
+// Body: { step: number }
+// Effect: Updates current_step on existing tour_progress record
+// Returns: { success: boolean }
+
+/** POST /api/v1/tours/:tourId/complete — Mark tour as completed */
+// Body: { tour_version: number }
+// Effect: Sets status='completed', completed_at=now()
+// Side effect: If tourId='platform', also sets tenant_members.tour_completed=true
+// Returns: { success: boolean }
+
+/** POST /api/v1/tours/:tourId/dismiss — Mark tour as dismissed */
+// Effect: Sets status='dismissed', dismissed_at=now(), increments dismiss_count
+// Returns: { success: boolean, next_eligible_at: string } // ISO timestamp
+
+// --- Onboarding Checklist ---
+
+/** GET /api/v1/onboarding/checklist — Get checklist state with auto-evaluated triggers */
+// Returns: { items: ChecklistItem[], progress: number, total: number, dismissed: boolean }
+// Server evaluates each autoCompleteTrigger SQL condition and returns current state
+
+/** POST /api/v1/onboarding/checklist/dismiss — Dismiss the checklist widget */
+// Effect: Creates/updates tour_progress with tour_id='checklist', status='dismissed'
+// Returns: { success: boolean }
+```
+
+All routes are scoped to the Hono API router under `/api/v1/` with the standard authentication and tenant middleware chain (Section 6). Zod request/response schemas follow the patterns established in Section 14.
+
+---
+
+
+#### 13l.5 Accessibility
+
+All tour interactions must meet WCAG 2.2 AA and construction-field usability standards:
+
+| Requirement | Implementation |
+|-------------|---------------|
+| **Tooltip semantics** | All tour tooltips render with `role="dialog"` and `aria-label="Tour step {n} of {total}: {title}"` |
+| **Focus management** | Focus is trapped within the active tooltip during tour. `Tab` cycles through tooltip controls (Previous, Next, Skip). Focus returns to the highlighted element on tour completion. |
+| **Keyboard navigation** | `Escape` dismisses the current tour. `Enter` activates the focused button. `Tab`/`Shift+Tab` cycle tooltip controls. |
+| **Screen reader announcements** | Step changes announced via an `aria-live="polite"` region: "Step {n} of {total}: {title}" |
+| **Reduced motion** | `prefers-reduced-motion: reduce` disables tooltip transition animations and spotlight fade effects. The spotlight overlay remains (no motion, just visibility toggle). |
+| **Touch targets** | Tour navigation buttons (Next, Previous, Skip): 60x60px minimum (construction field standard, exceeds WCAG 24px and Apple HIG 44px minimums). 16px minimum spacing between adjacent buttons. |
+| **Contrast** | Tooltip background must meet 7:1 contrast ratio against text (construction sunlight readability). Tooltip background: `#1A1A1A` with `#FFFFFF` text, or inverse for light mode. |
+| **Overlay interaction** | Clicking outside the highlighted area during a non-mandatory tour dismisses the tour (not blocked). Mandatory tours (Platform Orientation on first login) block outside clicks. |
+
+---
+
+
+#### 13l.6 Everboarding (Ongoing Onboarding)
+
+Onboarding is not a one-time event. The following mechanisms keep users discovering value over their entire lifecycle:
+
+**Tour Versioning:** The `tour_version` column on `tour_progress` enables re-triggering tours when content updates. When a tour definition's `version` field is incremented (e.g., after adding a new step for a new feature), users who completed the previous version see the tour again. Users who dismissed the previous version are NOT re-triggered --- they opted out intentionally.
+
+**"What's New" Component:** A monthly changelog modal accessible via a "What's New" badge on the help/notifications area. Implementation:
+
+- Badge appears when `last_seen_changelog_version < current_changelog_version` (stored in `user_preferences` JSONB column).
+- Modal shows 2--3 most impactful changes with benefit-focused copy ("You can now do X" not "We shipped Y").
+- Each change optionally links to a 2--3 step micro-tour for the new feature.
+- "Don't show me updates" preference available in Settings (stored in `user_preferences`).
+- Cadence: major releases (quarterly) get a modal; minor updates get a badge-only changelog entry.
+
+**Role Change Detection:** When a user's role changes, the NATS event `TENANT_{id}.member.role_changed` is published (Section 8). A subscriber evaluates whether the new role grants access to modules the old role did not have. If so, the relevant module tour's `tour_progress` record is reset to `not_started` (only if the user had NOT previously dismissed that tour 3+ times). Example: a Viewer promoted to Manager gets the BOS tour re-triggered on their next `/bos` visit.
+
+---
+
+
+#### 13l.7 Construction-Specific UX Rules
+
+These rules apply to all tour and onboarding UI elements. They are derived from field-tested construction software research (Procore, ServiceTitan, Buildertrend, Glance UX) and apply because Kiptra serves construction/remodeling businesses:
+
+| Rule | Specification | Rationale |
+|------|--------------|-----------|
+| **Touch targets** | 60x60px minimum for all interactive tour elements; 72x72px for primary action buttons | Gloved/calloused hands, ruggedized device screens |
+| **Contrast ratio** | 7:1 minimum (vs standard 4.5:1 AA) | Job site sunlight, truck cab glare |
+| **Copy style** | Action verbs, benefit-focused, 15 words maximum per tour step | 30-second attention window for field workers |
+| **Total tour time** | Under 45 seconds per tour (30ms avg reading time x 15 words x 5 steps = 37.5 seconds) | Field workers have 30--60 seconds between tasks |
+| **No swipe gestures** | Tour navigation uses tap-only buttons, never swipe-to-advance | Swipe fails with work gloves |
+| **Bottom-sheet fallback** | On viewports under 640px width, tour tooltip content renders as a bottom sheet instead of a floating tooltip | Mobile tooltip positioning is unreliable (Driver.js issues #524, #286) |
+
+---
+
+
+#### 13l.8 Data Requirements
+
+
+| Direction | Target | Details | |
+
+
+| **Reads** | `tenant_members` | User role, `onboarding_completed`, `tour_completed` | |
+
+| **Reads** | `tenants` | Company name (for welcome message) | |
+
+| **Reads** | `users` | User first name | |
+
+| **Reads** | `tour_progress` | All tour progress records for current user | |
+
+| **Writes** | `tenant_members` | `onboarding_completed` (boolean), `tour_completed` (boolean) | |
+
+| **Writes** | `tour_progress` | Tour status, step position, timestamps, dismiss count | |
+
+
+---
+
+
+#### 13l.9 Edge Cases
+
+
+| Scenario | Behavior | |
+
+
+| **Role changed after onboarding** | Do NOT re-show the welcome screen. Show a "Your permissions have been updated" toast notification on next login. If the new role grants access to new modules, reset relevant module tour progress (see 13l.6 Everboarding). | |
+
+| **User belongs to multiple orgs (future)** | Show the welcome screen per organization on the user's first visit to each org. `onboarding_completed` is scoped per `tenant_members` row (per org). `tour_progress` is scoped per `tenant_id`. | |
+
+| **Tour dismissed mid-way** | `tour_progress.status` set to `'dismissed'`, `dismiss_count` incremented. Do not re-show automatically. User can restart via Settings. After 3 dismissals, never auto-show --- switch to contextual tooltips only. | |
+
+| **Owner/Admin (org creator)** | Owners go through Section 13d onboarding first, then receive the Platform Orientation tour on first `/dashboard` visit (not the `/welcome` screen). | |
+
+| **Browser closed during welcome screen** | `onboarding_completed` remains `false`. Welcome screen re-appears on next login. | |
+
+| **Browser closed during tour** | `tour_progress` records current step. Tour does NOT auto-resume on next login (disruptive). User can restart from Settings. | |
+
+| **Tour target element missing** | Step is gracefully skipped. If 3+ steps in a row are missing, tour is auto-dismissed with a "Tour unavailable --- some features are still loading" toast. | |
+
+| **Two tours eligible simultaneously** | Only the highest-priority tour runs (priority: `platform` > `bos` > `kb_canvas` > `integrations`). Lower-priority tour is queued for next eligible session (respects 24-hour cooldown). | |
+
+| **Stacking context / z-index conflicts** | Tour overlay renders via a React portal to `document.body` (root stacking context). z-index set to `2147483646` (one below Radix UI max). If Radix portals (Dialog, Popover) are open during tour, tour pauses until the Radix component closes. | |
+
+| **Mobile viewport** | Tour tooltips forced to `side: 'bottom'` on viewports < 768px. Bottom-sheet rendering on viewports < 640px. Touch targets enlarged to 60x60px. | |
+
+| **Checklist dismissed early** | Checklist hidden from sidebar. Re-accessible via Settings. Auto-completed items continue tracking silently (for analytics). | |
+
+
+---
+
+
+#### 13l.10 Routing Logic
+
+
+**Post-login onboarding routing (Server Component --- NOT middleware):**
+
+
+**Important:** This check MUST NOT run in `middleware.ts`. Querying `tenant_members.onboarding_completed` requires a database call, which adds ~150ms blocking latency and kills Partial Prerendering (PPR). Middleware should only check cookie presence and JWT decode (no DB). Instead, implement this as a Server Component check behind a `<Suspense>` boundary in the authenticated layout.
+
+
+- The authenticated layout's Server Component reads `tenant_members.onboarding_completed` from Supabase and calls `redirect('/welcome')` if `false` AND user was created via invitation (not org owner).
+
+- If `onboarding_completed = true` -> render the layout children (e.g., `/dashboard`) as normal.
+
+- The `/welcome` route's Server Component checks `onboarding_completed`; if already `true`, redirects to `/dashboard`.
+
+- PPR sends the static shell (nav, sidebar skeleton) immediately while the onboarding check resolves behind a `<Suspense>` boundary.
+
+
+---
+
+
+#### 13l.11 Testing Specifications
+
+```typescript
+// --- Playwright E2E Tests ---
+
+test('platform tour completes on first login', async ({ page }) => {
+  // 1. Create new tenant + user via API seed
+  // 2. Login as new user
+  // 3. Welcome screen appears -> click "Take a quick tour"
+  // 4. Verify tour overlay appears with step 1/5
+  // 5. Click "Next" through all 5 steps
+  // 6. Verify tour_progress record: status='completed', tour_id='platform'
+  // 7. Verify tenant_members.tour_completed = true
+  // 8. Verify checklist widget is visible in sidebar
+});
+
+test('bos tour triggers on first /bos visit', async ({ page }) => {
+  // 1. Login as user with platform tour already completed
+  // 2. Navigate to /bos for the first time
+  // 3. Verify BOS tour starts automatically
+  // 4. Complete tour -> verify tour_progress record
+});
+
+test('tour does not retrigger after completion', async ({ page }) => {
+  // 1. Login as user who completed platform tour
+  // 2. Refresh page / navigate away and back
+  // 3. Verify no tour overlay appears
+  // 4. Verify tour_progress.status remains 'completed'
+});
+
+test('tour respects role filtering', async ({ page }) => {
+  // 1. Login as user with role='designer'
+  // 2. Navigate to /design -> KB Canvas tour starts
+  // 3. Verify all 5 steps are shown (designer is in roleFilter)
+  // 4. Login as user with role='viewer'
+  // 5. Navigate to /design -> verify tour does NOT start (viewer not in roles)
+});
+
+test('tour respects fatigue prevention', async ({ page }) => {
+  // 1. Complete platform tour
+  // 2. Navigate to /bos immediately
+  // 3. Verify BOS tour does NOT start (cooldown active, max 1 per session)
+  // 4. Login in a new session 25 hours later (mock time)
+  // 5. Navigate to /bos -> verify BOS tour starts
+});
+
+test('checklist auto-completes items', async ({ page }) => {
+  // 1. Login as new user
+  // 2. Verify checklist shows 1/7 complete (pre-completed "Create account")
+  // 3. Complete profile (upload avatar, add phone)
+  // 4. Refresh -> verify checklist shows 2/7 complete
+  // 5. Invite a team member
+  // 6. Refresh -> verify checklist shows 3/7 complete
+});
+
+test('tour handles missing elements gracefully', async ({ page }) => {
+  // 1. Start tour with step targeting a lazy-loaded component
+  // 2. Verify step is skipped (not crashed)
+  // 3. Tour continues to next step with valid target
+  // 4. Progress indicator updates correctly (e.g., "Step 2 of 4" not "Step 2 of 5")
+});
+
+test('tour keyboard navigation works', async ({ page }) => {
+  // 1. Start platform tour
+  // 2. Press Tab -> verify focus moves to "Next" button
+  // 3. Press Enter -> verify tour advances to step 2
+  // 4. Press Escape -> verify tour is dismissed
+  // 5. Verify tour_progress.status = 'dismissed'
+});
+
+test('tour accessibility attributes present', async ({ page }) => {
+  // 1. Start platform tour
+  // 2. Verify tooltip has role="dialog"
+  // 3. Verify aria-label contains step number and title
+  // 4. Verify aria-live region announces step changes
+});
+```
+
+---
+
+
+#### 13l.12 Verification Gates
+
+| ID | Claim | Acceptance Criteria | Wave | Owner | Method | |
+|----|-------|-------------------|------|-------|--------|---|
+| V-23 | Platform Orientation tour completes end-to-end | New user first login -> tour starts -> 5 steps navigate correctly -> `tour_progress` record shows `status='completed'` and `tour_version=1`; `tenant_members.tour_completed = true`; no console errors; tour does not restart on page refresh | Wave 3b | Joseph | E2E test | |
+| V-24 | Tour fatigue prevention enforced | Complete platform tour -> navigate to `/bos` in same session -> BOS tour does NOT start; login 25+ hours later -> navigate to `/bos` -> BOS tour starts; dismiss BOS tour 3x -> BOS tour never auto-shows again | Wave 3b | Joseph | E2E test | |
+| V-25 | Onboarding checklist auto-completes | 7 checklist items evaluated server-side; completing each trigger action (profile, escalation review, team invite, integration connect, BOS visit, meeting schedule, help bot query) updates checklist state within 1 page load; checklist dismissible at 80%+ | Wave 3b | Joseph | E2E test | |
+| V-35 | Onboarding wizard industry/persona selection applies correct template | Select "Kitchen & Bath" + "Contractor" -> `kb_contractor` template applied; dashboard layout = `contractor`; sidebar shows K&B Canvas + Business OS; 7 agents enabled (all core); onboarding tour matches contractor flow. Select different combo -> correct template resolved. Disabled personas show "Coming Soon" and are not selectable. Template application is idempotent (re-apply same template = no-op). `tenants.industry_vertical` and `tenants.tenant_type` columns written correctly. | Wave 4 | Joseph | E2E test | |
+
+
+---
+
+
+#### 13l.13 Build Order
+
+| Deliverable | Wave | Dependencies |
+|-------------|------|-------------|
+| `tour_progress` table + RLS + indexes | Wave 3b | Supabase schema (Wave 1) |
+| Tour progress API routes (6 endpoints) | Wave 3b | Hono API (Wave 1) |
+| Driver.js integration + `TourProvider` component | Wave 3b | Next.js app shell (Wave 1) |
+| Platform Orientation tour (5 steps) | Wave 3b | Dashboard UI (Wave 2) |
+| Onboarding checklist component + API | Wave 3b | Dashboard UI (Wave 2) |
+| `data-tour` attributes on dashboard elements | Wave 3b | Dashboard UI (Wave 2) |
+| BOS tour (5 steps) | Wave 4 | BOS module (Wave 3a) |
+| K&B Canvas tour (5 steps) | Wave 4 | K&B Design Tool (Wave 4) |
+| Integration Setup tour (3 steps) | Wave 4 | Integration UI (Wave 2) |
+| Everboarding: "What's New" component | Wave 4 | Tour infrastructure (Wave 3b) |
+| Everboarding: role-change tour re-trigger | Wave 4 | NATS events (Wave 2), tour infrastructure (Wave 3b) |
+| Tour version migration (re-trigger on version bump) | Wave 4 | Tour infrastructure (Wave 3b) |
+
+
+---
+
+
+#### Cross-References
+
+
+**Section 13c** --- Invitation acceptance flow that precedes this onboarding. **Section 13d** --- Signup & onboarding flow for org creators (owners). **Section 13h** --- Dashboard that the user lands on after onboarding. **Section 5** --- RBAC roles that determine tour content and filtering. **Section 13e** --- Account settings where "Restart product tour" and "Show setup checklist" buttons live. **Section 13m** --- Help Bot (global) --- not duplicated here; help bot button is a tour step target only. **Section 15.4.9** --- BOS onboarding wizard (separate from this platform-wide tour system; the BOS wizard handles module-specific setup, this section handles orientation tours).
+
+
+---
+
+
+### 13m. Help Bot (Global)
+
+
+The Help Bot is a lightweight in-app assistant present on every authenticated page. It reuses the Support Agent RAG infrastructure (Section 7c) with a separate Kiptra-product-specific knowledge base and Haiku-only model routing.
+
+
+#### Trigger & Panel
+
+- **Floating button:** Fixed position, bottom-right corner (`bottom-20 right-6` mobile, `bottom-6 right-6` desktop). 48x48 mobile / 56x56 desktop, `z-50`, `MessageCircleQuestion` icon, `bg-primary`. Present on ALL authenticated pages (rendered in root authenticated layout).
+- **Panel:** Slide-out from right, full-height, `max-w-[400px]`, glass/frosted background (`bg-black/30 backdrop-blur-[2px]`). Semi-transparent backdrop overlay.
+- **Close:** Click backdrop, click X button, or press Escape.
+
+
+#### Mode 1: Quick Help (Default)
+
+- **Search bar:** Full-text search across all contextual suggestions and KB articles.
+- **Contextual suggestions:** 2--3 route-aware questions based on current page. Uses longest-prefix matching against 16+ route contexts: dashboard, agents, billing, integrations, team, approvals, escalations, projects, customers, bos, reports, onboarding, notifications, design/kitchen-bath, profile, security.
+- **Quick links:** 6 items --- Getting Started, Agent Config, Integrations, Team, Billing, Reports.
+- **AI Assistant CTA:** Gradient-bordered card leading to Chat mode.
+- **Contact Support:** Email link + "Schedule a call" (Owner/Admin only via RBAC).
+
+
+#### Mode 2: AI Chat
+
+- **Welcome state:** Bot intro + 3 suggestion chips from current route context.
+- **Streaming:** AI SDK v6 `streamText` -> SSE to chat panel (same pattern as agent execution streaming). 30ms-per-word text effect with animated cursor.
+- **Typing indicator:** 3 bouncing dots with staggered animation delays.
+- **Deep links:** Action buttons in responses (e.g., "Go to Billing ->") that navigate within the app.
+- **Feedback:** ThumbsUp/ThumbsDown after each response ("Was this helpful?"). Stored in `support_messages` with `source: 'help_bot'`.
+- **Backend:** `POST /api/v1/help` --- takes `{ message, route, role }`, returns streamed response with optional `actionLinks`. Uses `support_conversations` / `support_messages` tables with `source: 'help_bot'` discriminator (no new tables).
+
+
+#### RBAC
+
+- All authenticated roles see the Help Bot button and can use both modes.
+- "Schedule a call" link visible to Owner/Admin only.
+
+
+#### Accessibility
+
+- `role="dialog"`, `aria-modal="true"`, `aria-label="Help panel"`.
+- Focus trapped inside panel when open. Auto-focus on search input.
+- Escape key closes the panel.
+- All interactive elements keyboard-accessible.
+
+
+#### Cost Model
+
+~$0.005/response (Haiku only, short answers). Estimated $10--20/mo across all tenants at scale (infrequent usage pattern --- most users check Quick Help, few enter AI Chat).
+
+
+#### Cross-References
+
+**Section 7c** --- Support Agent RAG infrastructure that powers the Help Bot backend. **Section 14** --- API contract for `POST /api/v1/help`.
+
+
+---
+
+
+### 13n. Team Chat & Multi-Platform Messaging
+
+> **Spec Amendment (Update 2026-03-25):** New section. Adds three-panel chat interface with Slack/Teams message mirroring for cross-platform communication.
+
+
+#### Overview
+
+
+Three-panel chat interface (channel list, message area, thread panel) with Slack/Teams message mirroring. Enables cross-platform communication --- messages sent in Kiptra appear in linked Slack/Teams channels and vice versa. Supports project-linked channels, construction-specific message types (submittals, change orders, milestones), and rich file attachments including CAD files and design renders.
+
+
+#### Type Definitions
+
+
+```typescript
+/** Chat platform source */
+type ChatPlatform = 'kiptra' | 'slack' | 'teams';
+
+/** Channel classification */
+type ChannelType = 'project' | 'general' | 'dm' | 'group_dm';
+
+/** Message content types --- includes construction-specific types */
+type MessageType = 'text' | 'file' | 'system' | 'submittal' | 'change_order' | 'milestone';
+
+/** Channel member roles (mirrors tenant roles + external participants) */
+type MemberRole = 'owner' | 'admin' | 'designer' | 'contractor' | 'homeowner' | 'dealer' | 'rep';
+```
+
+
+#### Core Data Model
+
+
+**ChatChannel:**
+
+```typescript
+interface ChatChannel {
+  id: string;
+  name: string;                          // URL-safe slug (e.g., "elm-street-kitchen")
+  displayName: string;                   // Human-readable (e.g., "Elm Street Kitchen Remodel")
+  type: ChannelType;
+  projectId?: string;                    // Links channel to a project (optional)
+  platform: ChatPlatform;               // Primary platform
+  slackChannelId?: string;              // Linked Slack channel ID
+  teamsChannelId?: string;              // Linked Teams channel ID
+  members: ChatMember[];
+  unreadCount: number;
+  isMuted: boolean;
+  isArchived: boolean;
+  topic?: string;                        // Channel description / current topic
+  pinnedMessages: string[];             // Array of pinned message IDs
+  createdAt: string;                     // ISO 8601
+}
+```
+
+
+**ChatMember:**
+
+```typescript
+interface ChatMember {
+  id: string;
+  name: string;
+  avatar?: string;
+  initials: string;                      // Fallback when no avatar
+  role: MemberRole;
+  platform: ChatPlatform;               // Which platform this member is connected from
+  isOnline: boolean;
+  lastSeen: string;                      // ISO 8601
+  isTyping: boolean;
+}
+```
+
+
+**ChatMessage (discriminated union):**
+
+```typescript
+interface ChatMessageBase {
+  id: string;
+  channelId: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar?: string;
+  senderInitials: string;
+  platform: ChatPlatform;               // Source platform of this message
+  source: ChatPlatform;                 // Original platform (for dedup)
+  timestamp: string;                     // ISO 8601
+  editedAt?: string;
+  isEdited: boolean;
+  threadId?: string;                     // Parent message ID if this is a reply
+  reactions: { emoji: string; users: string[]; count: number }[];
+  readBy: string[];                      // User IDs who have read this message
+}
+
+interface TextMessage extends ChatMessageBase {
+  type: 'text';
+  content: string;                       // Markdown-supported text
+  mentions: string[];                    // User IDs mentioned
+  attachments: ChatAttachment[];
+}
+
+interface SystemMessage extends ChatMessageBase {
+  type: 'system';
+  systemAction:
+    | 'member_joined'
+    | 'member_left'
+    | 'channel_created'
+    | 'channel_archived'
+    | 'submittal_created'
+    | 'submittal_approved'
+    | 'submittal_rejected'
+    | 'change_order_approved'
+    | 'change_order_rejected'
+    | 'delivery_scheduled'
+    | 'estimate_attached'
+    | 'milestone_completed';
+  content: string;                       // Human-readable description
+}
+
+interface FileMessage extends ChatMessageBase {
+  type: 'file';
+  content?: string;                      // Optional caption
+  attachments: ChatAttachment[];         // At least one attachment
+}
+
+type ChatMessage = TextMessage | SystemMessage | FileMessage;
+```
+
+
+**ChatAttachment:**
+
+```typescript
+interface ChatAttachment {
+  id: string;
+  name: string;
+  fileType: 'image' | 'pdf' | 'document' | 'spreadsheet' | 'design_render' | 'cad';
+  url: string;
+  size: number;                          // Bytes
+  thumbnailUrl?: string;                 // Pre-generated thumbnail for inline preview
+}
+```
+
+
+**ChatThread:**
+
+```typescript
+interface ChatThread {
+  rootMessageId: string;
+  channelId: string;
+  entityType: 'submittal' | 'change_order' | 'milestone' | 'general';
+  entityId?: string;                     // Links thread to a domain entity
+  replyCount: number;
+  participants: string[];                // User IDs
+  lastReplyAt: string;                   // ISO 8601
+}
+```
+
+
+#### Features
+
+
+- **Read receipts:** `readBy[]` array per message, batch-updated every 2 seconds to reduce write load.
+- **Threading:** Messages can have replies via `threadId`. Thread panel slides in from the right side of the message area.
+- **Multi-platform mirroring:** Slack channel linked to Teams channel linked to Kiptra channel. Messages flow bidirectionally across all connected platforms.
+- **Message reactions:** Emoji reactions with user tracking. Reactions sync across platforms (Slack emoji -> Kiptra, Kiptra emoji -> Slack/Teams).
+- **System events:** 12 auto-generated event types (see `SystemMessage.systemAction`). System messages are generated by NATS event consumers when domain events occur.
+- **Integration status tracking:** Per-platform connection status (`connected` | `disconnected` | `pending`) displayed in channel header.
+- **File attachments:** Inline preview for images, PDFs, and CAD files. Files uploaded to Supabase Storage with signed URLs. Max file size: 25MB (matches Slack free tier limit).
+- **Typing indicators:** Debounced at 500ms. Broadcast via Socket.io to channel members only.
+- **Channel search:** Full-text search across all channels the user has access to. Powered by PostgreSQL `tsvector` on channel name + topic.
+- **DM and group DM support:** Direct messages between 2 users. Group DMs for 3--8 users. Both use the same `ChatChannel` model with `type: 'dm' | 'group_dm'`.
+
+
+#### Construction-Specific Features
+
+
+- **Project-linked channels:** `projectId` on `ChatChannel` links a channel to a project. Creating a project auto-creates a corresponding chat channel. Channel inherits project team membership.
+- **Submittal message type:** Submittal approval/rejection workflows generate system messages and auto-create threads. Thread `entityType: 'submittal'` links to the submittal record for context.
+- **Change order notifications:** Change order creation triggers a system message in the project channel. Auto-creates a thread for discussion. Approval/rejection generates follow-up system messages.
+- **Milestone completion notifications:** Milestone status changes generate system messages in the project channel.
+- **Estimate attachment sharing:** Estimates can be shared as file attachments with inline preview. System message generated when an estimate is attached to a channel.
+- **Delivery scheduling notifications:** Delivery date changes generate system messages with the new date prominently displayed.
+
+
+#### Integration Architecture
+
+
+- **Slack:** Bot token (`xoxb-*`) + Events API (`/api/v1/webhooks/slack/events`) for bidirectional sync. Scopes: `channels:history`, `channels:read`, `chat:write`, `users:read`. Events subscribed: `message`, `reaction_added`, `reaction_removed`, `member_joined_channel`, `member_left_channel`.
+- **Teams:** Bot Framework SDK + Adaptive Cards for rich message rendering. Messages from Kiptra render as Adaptive Cards in Teams with action buttons. Teams messages are received via Bot Framework webhook and relayed to Kiptra via NATS.
+- **Kiptra:** Native Socket.io WebSocket connection. Messages emitted to channel-specific rooms (`chat:channel:{channelId}`). Typing indicators emitted to the same room.
+- **Cross-platform deduplication:** Each message has a `source` field indicating the originating platform. When a message arrives from Slack that was originally sent from Kiptra (mirrored back), the `source` field prevents re-mirroring. Dedup key: `(source, externalMessageId)`.
+
+
+#### RBAC
+
+
+All authenticated roles can access chat. Channel membership is separate from platform roles --- managed per-channel by channel owner/admin. Channel owners can add/remove members, mute channels, and archive channels. DMs are unrestricted between any two authenticated users within the same tenant.
+
+
+#### Layout
+
+
+- **Desktop (>=1024px):** Three-panel layout. Left panel: channel list (280px fixed width, collapsible). Center panel: message area (flex, fills remaining space). Right panel: thread view (400px, slides in when a thread is opened).
+- **Mobile (<1024px):** Single-panel with navigation. Channel list is the default view. Tapping a channel navigates to message view. Thread view is full-screen overlay.
+- **Channel list panel:** Search bar at top, section dividers (Channels, Direct Messages), unread indicators, muted channels dimmed.
+- **Message area:** Message input at bottom with attachment button, emoji picker, and mention autocomplete (`@` trigger). Messages grouped by date with sticky date headers.
+
+
+#### Performance Notes
+
+
+- Messages paginated at 50 per load with infinite scroll (older messages load on scroll-up).
+- Channel list sorted by `lastActivityAt` descending.
+- Typing indicators debounced at 500ms, auto-expire after 5 seconds of no input.
+- Read receipts batch-updated every 2 seconds (collected client-side, flushed to server).
+- Socket.io rooms scoped to channels --- users only receive events for channels they are members of.
+- Message search uses PostgreSQL full-text search (`tsvector` on `content` column) with GIN index.
+
+
+#### Cross-References
+
+
+**Section 7** --- Integration Architecture (Slack/Teams adapters). **Section 7b** --- Agent Execution Patterns (system events that generate chat messages). **Section 12** --- Socket.io WebSocket infrastructure. **Section 13n** --- this section supplements the existing notification system (Section 13k) with real-time messaging.
+
+
+---
+
+
+### 13o. CRM Module
+
+> **Spec Amendment (Update 2026-03-25):** New section. Full CRM replacing the previous "Customers" tab with pipeline kanban, contact management, deal tracking, and activity log.
+
+
+#### Overview
+
+
+Full CRM module replacing the previous "Customers" tab. Provides pipeline kanban, contact management, deal tracking, and activity log --- all integrated with AI agents. The CRM is the single source of truth for customer relationships, with agents automatically creating contacts from inbound emails, moving deals through pipeline stages, and logging all interactions.
+
+
+#### Type Definitions
+
+
+```typescript
+/** Contact classification by relationship type */
+type ContactType =
+  | 'homeowner'
+  | 'contractor_gc'
+  | 'dealer_showroom'
+  | 'manufacturer_rep'
+  | 'manufacturer'
+  | 'subcontractor';
+
+/**
+ * Pipeline stages (13 stages).
+ * Linear progression with allowed skip-forward and revert.
+ */
+type PipelineStage =
+  | 'new_lead'
+  | 'qualifying'
+  | 'consultation_scheduled'
+  | 'consultation_complete'
+  | 'design_retainer'
+  | 'in_design'
+  | 'estimating'
+  | 'proposal_sent'
+  | 'contract_signed'
+  | 'pre_construction'
+  | 'in_construction'
+  | 'warranty';
+
+/** Activity types --- covers all touchpoints in a K&B project lifecycle */
+type ActivityType =
+  | 'email'
+  | 'call'
+  | 'site_visit'
+  | 'design_presentation'
+  | 'material_selection'
+  | 'change_order'
+  | 'inspection'
+  | 'meeting'
+  | 'note';
+
+/** Deal outcome */
+type DealStatus = 'open' | 'won' | 'lost' | 'on_hold';
+```
+
+
+#### Core Data Model
+
+
+**Contact:**
+
+```typescript
+interface Contact {
+  id: string;
+  name: string;
+  company?: string;
+  email: string;
+  phone?: string;
+  address?: {
+    city: string;
+    state: string;
+    zip: string;
+  };
+  website?: string;
+  initials: string;                      // Auto-generated from name
+  type: ContactType;
+  status: 'active' | 'lead' | 'inactive';
+  tags: string[];
+  referralSource?: string;               // How they found us
+  referredBy?: string;                   // Contact ID of referrer
+  totalRevenue: number;                  // Lifetime revenue from this contact
+  yoyGrowth: number;                     // Year-over-year growth percentage
+  since: string;                         // ISO 8601 date — first interaction
+  lastContactDate: string;               // ISO 8601 date
+  speedToLead?: number;                  // Minutes from first touch to scheduled consultation
+  assignedRep?: string;                  // User ID of assigned sales rep
+  jobTitle?: string;
+  notes?: string;
+}
+```
+
+
+**Deal:**
+
+```typescript
+interface Deal {
+  id: string;
+  name: string;
+  contactId: string;                     // FK to Contact
+  stage: PipelineStage;
+  dealStatus: DealStatus;
+  value: number;                         // Total deal value in USD
+  grossProfit: number;                   // Gross profit percentage (0-100)
+  probability: number;                   // Win probability percentage (0-100)
+  expectedCloseDate: string;             // ISO 8601 date
+  createdDate: string;                   // ISO 8601 date
+  lastActivityDate: string;              // ISO 8601 date
+  projectId?: string;                    // FK to Project (linked after contract_signed)
+  assignedTo: string;                    // User ID
+  description?: string;
+  invoiceStatus: 'none' | 'draft' | 'sent' | 'partial' | 'paid' | 'overdue';
+  arAging?: number;                      // Days outstanding for unpaid invoices
+  contractAmount?: number;               // Final contract amount (may differ from deal value)
+  billedToDate?: number;                 // Cumulative billed amount
+}
+```
+
+
+**Activity:**
+
+```typescript
+interface Activity {
+  id: string;
+  contactId: string;                     // FK to Contact
+  dealId?: string;                       // FK to Deal (optional — not all activities are deal-related)
+  type: ActivityType;
+  description: string;                   // Brief summary
+  notes?: string;                        // Detailed notes
+  createdAt: string;                     // ISO 8601
+  dueDate?: string;                      // ISO 8601 (for scheduled activities)
+}
+```
+
+
+#### Screens
+
+
+1. **CRM Dashboard** (`/crm`) --- Pipeline stats (deals per stage, total pipeline value, weighted forecast), open deals count, won this month count + revenue, speed-to-lead metrics (average, P90), recent activities feed. Top-level KPI cards with sparkline trends.
+
+2. **Contacts List** (`/crm/contacts`) --- Filterable by `type`, `status`, `tags`, and `assignedRep`. Full-text search across name, company, email. Bulk actions: assign rep, add tags, export CSV. TanStack Table with sortable columns: Name, Type, Status, Total Revenue, Last Contact, Assigned Rep.
+
+3. **Contact Detail** (`/crm/contacts/[id]`) --- Profile header (name, company, type badge, status, contact info). Tabs: Overview (deals summary, revenue chart), Deals (associated deals list), Activity Timeline (chronological feed), Emails (synced email history), Notes (free-form notes with timestamps).
+
+4. **Pipeline Kanban** (`/crm/pipeline`) --- Drag-and-drop deal cards across 13 stage columns. Cards show: deal name, contact name, value, probability, days in stage, assigned rep avatar. Column headers show count and total value. Filter by assignedTo, value range, expected close date. Drag uses `@dnd-kit/core` (same library as BOS kanban in Section 15).
+
+5. **Deal Detail** (`/crm/deals/[id]`) --- Stage progress bar (visual indicator of current stage in 13-stage pipeline). Key metrics: value, gross profit %, probability, expected close date. Invoice status card: invoice status badge, AR aging, contract amount, billed-to-date. Activity timeline. Associated project link (if `projectId` is set).
+
+6. **Activities** (`/crm/activities`) --- Full activity log with filters by type, contact, date range. Grouped by date. Each entry shows: type icon, description, contact name (linked), deal name (if applicable), timestamp, assigned user.
+
+
+#### Agent Integration
+
+
+- **Leads Agent:** Auto-creates contacts from inbound emails (via SendGrid Inbound Parse). Sets `status: 'lead'`, `type: 'homeowner'` (default, adjustable). Logs `email` activity. Creates deal at `new_lead` stage if lead score >= warm threshold.
+- **Sales Agent:** Creates deals and moves them through pipeline stages based on interaction outcomes. Updates `probability` based on stage-specific defaults (configurable per tenant). Logs `call`, `meeting`, and `design_presentation` activities.
+- **Bookkeeping Agent:** Updates `invoiceStatus` and `arAging` from QuickBooks sync. Updates `billedToDate` and `contractAmount` from invoice data. Logs financial activities.
+- **Project Management Agent:** Links deals to projects when stage reaches `contract_signed`. Updates deal stage to `pre_construction` when project is created. Logs `site_visit` and `inspection` activities.
+- **Activity log captures all agent actions automatically:** Every agent execution that touches a contact or deal generates an `Activity` record with `description` prefixed by the agent name (e.g., "Leads Agent: Scored lead as hot, scheduled follow-up email").
+
+
+#### RBAC
+
+
+| Role | CRM Access |
+|------|-----------|
+| **Owner** | Full CRM access (all contacts, deals, activities, settings) |
+| **Admin** | Full CRM access (can assign reps, manage pipeline configuration) |
+| **Manager** | Full CRM access (can assign reps within their team, manage pipeline) |
+| **Designer** | Read-only contact access (for project context --- sees name, company, project history; no financials) |
+| **Bookkeeper** | Deal financials and invoice status only (value, gross profit, invoice status, AR aging, billed-to-date) |
+| **Viewer** | Read-only (all CRM data visible, no edit/create/delete) |
+
+
+#### Performance Notes
+
+
+- Contacts list paginated at 50 per page with server-side filtering.
+- Pipeline kanban loads all open deals (typically <200 per tenant) in a single query for smooth drag-and-drop. Archived/closed deals excluded.
+- Activity timeline paginated at 25 per load with infinite scroll.
+- Deal stage changes emit NATS events consumed by CEO Agent for daily briefing aggregation.
+- Contact search uses PostgreSQL `tsvector` on `name`, `company`, `email` columns with GIN index.
+
+
+#### Cross-References
+
+
+**Section 7b** --- Agent Execution Patterns (agent integration with CRM). **Section 7** --- Integration Architecture (QuickBooks sync for invoice data). **Section 13h** --- Dashboard (CRM summary widgets on main dashboard). **Section 14** --- API contracts for CRM endpoints.
+
+
+---
+
+
+### Consolidated RBAC Permission Matrix
+
+
+The following matrix provides a single reference for role-based access across all product features. This consolidates the per-section RBAC rules defined above into one authoritative table.
+
+
+| Capability | Owner | Admin | Manager | Designer | Bookkeeper | Viewer | |
+
+
+| **View dashboard** | Full | Full | Scoped | Scoped | Scoped | Read-only | |
+
+| **Manage agents (enable/disable, configure)** | &check; | &check; | &cross; | &cross; | &cross; | &cross; | |
+
+| **View agent output** | &check; | &check; | Scoped | Scoped | Scoped | &check; | |
+
+| **Approve/reject escalations** | &check; | &check; | Scoped | &cross; | &cross; | &cross; | |
+
+| **Connect/disconnect integrations** | &check; | &check; | &cross; | &cross; | &cross; | &cross; | |
+
+| **View integration status** | &check; | &check; | &check; | &check; | &check; | &check; | |
+
+| **Team management** | Full | Limited* | View | &cross; | &cross; | &cross; | |
+
+| **Billing management** | Full | View | &cross; | &cross; | &cross; | &cross; | |
+
+| **Account settings (own profile)** | Own | Own | Own | Own | Own | Own | |
+
+| **Invited user onboarding & tour** | N/A* | &check; | &check; | &check; | &check; | &check; | |
+
+| **Help Bot (Quick Help + AI Chat)** | &check; | &check; | &check; | &check; | &check; | &check; | |
+
+| **Help Bot "Schedule a call"** | &check; | &check; | &cross; | &cross; | &cross; | &cross; | |
+
+| **View/manage customers** | Full | Full | Full | Read-only | Read-only (financial view) | Read-only | |
+
+| **View/manage projects** | Full | Full | Full | Read + assigned tasks | Financial view | Read-only | |
+
+| **Approve agent outputs** | &check; | &check; | Scoped | &cross; | &cross; | &cross; | |
+
+| **View reports** | All | All | Team | Personal | Financial | Personal | |
+
+| **View notifications (full page)** | Own | Own | Own | Own | Own | Own | |
+
+| **Agent chat & workspace** | &check; | &check; | Scoped | Scoped | Scoped | Read-only | |
+
+| **Business OS hub** | &check; | &check; | &check; | &check; | &check; | &check; | |
+
+
+**Admin cannot remove the Owner or change their own role. Owner uses Section 13d onboarding (not invited user flow).*
+
+
+Cross-References
+
+
+**Section 5** --- defines the six RBAC roles, their hierarchy, and enforcement via Hono middleware. **Section 13f** --- team management RBAC details. **Section 13g** --- billing RBAC details. **Section 13l** --- invited user onboarding and product tour. Each subsection above (13h--13k) includes per-feature RBAC callouts that align with this matrix.

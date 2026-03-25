@@ -1,0 +1,366 @@
+---
+title: "7d. Agent Memory Architecture"
+slug: "agent-memory"
+section: "07d"
+---
+
+> Complete architecture: `kiptra-memory-v2.md` (1,800+ lines, 40+ research sources, full SQL schema, TypeScript implementation, prompt templates, cost model).
+
+### Design Philosophy
+
+Derived from production analysis of Intercom Fin, Glean, Harvey AI, Salesforce Einstein, Notion AI, and vendor guidance from Anthropic/OpenAI. Universal meta-pattern: **the CRM is the source of truth --- memories supplement, never override**. Extract selectively (only durable, actionable, explicit facts). Fail transparently ("I don't remember" beats "I remember wrong"). Timestamp everything (bi-temporal). Audit everything (never delete, only invalidate).
+
+### Architecture Diagram
+
+```
+                        +-------------------------------------+
+                        |         CONVERSATION LAYER          |
+                        |   (Agent handles chat with client)  |
+                        +----------------+--------------------+
+                                         |
+                    +--------------------+--------------------+
+                    |                    |                    |
+                    v                    v                    v
+         +----------------+   +------------------+   +-----------------+
+         |  MEMORY WRITER |   |  MEMORY READER   |   |  CRM / DB       |
+         |  (async, non-  |   |  (sync, <100ms)  |   |  (Source of     |
+         |   blocking)    |   +--------+---------+   |   Truth)        |
+         +-------+--------+           |              +--------+--------+
+                 |                     |                       |
+                 |                     |    +------------------+
+                 |                     |    | Cross-reference
+                 |                     v    v
+                 |             +------------------+
+                 |             |  CONTEXT          |
+                 |             |  ASSEMBLER        |
+                 |             |  (validates +     |
+                 |             |   formats for LLM)|
+                 |             +------------------+
+                 |
+        +--------+-------------------------------------+
+        |         EXTRACTION PIPELINE (async)           |
+        |                                               |
+        |  +---------+   +----------+   +-----------+  |
+        |  | Buffer   |-->| Classify |-->| Extract   |  |
+        |  | (5 min   |   | (nano)   |   | (mini)    |  |
+        |  |  window) |   | has new  |   | JSON      |  |
+        |  +---------+   | facts?   |   | facts     |  |
+        |                 +----------+   +-----+-----+  |
+        |                                      |        |
+        |                           +----------v--+     |
+        |                           | Validate +  |     |
+        |                           | Score       |     |
+        |                           | confidence  |     |
+        |                           +----------+--+     |
+        |                                      |        |
+        +--------------------------------------+--------+
+                                               |
+                    +--------------------------+
+                    v
+        +-----------------------------------------------+
+        |              STORAGE LAYER                     |
+        |                                                |
+        |  +------------------+  +--------------------+  |
+        |  |  Supabase        |  |  Valkey             |  |
+        |  |  (PostgreSQL +   |  |  (Hot cache:        |  |
+        |  |   pgvector +     |  |   recent memories,  |  |
+        |  |   tsvector BM25) |  |   active client     |  |
+        |  |                  |  |   context)           |  |
+        |  |  - memories      |  |                      |  |
+        |  |  - audit_log     |  |  TTL: 1 hour         |  |
+        |  |  - hybrid search |  |                      |  |
+        |  |  - RLS per tenant|  |                      |  |
+        |  +------------------+  +--------------------+  |
+        +-----------------------------------------------+
+```
+
+### SQL Schema --- `memories` Table
+
+```sql
+CREATE TABLE memories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+
+    -- What this memory is about
+    entity_type TEXT NOT NULL CHECK (entity_type IN (
+        'client', 'project', 'property', 'preference', 'interaction'
+    )),
+    entity_id UUID NOT NULL,
+
+    -- The memory itself
+    category TEXT NOT NULL CHECK (category IN (
+        'budget', 'timeline', 'preference', 'contact_info',
+        'property_detail', 'material_choice', 'style_preference',
+        'communication_preference', 'decision', 'constraint'
+    )),
+    fact TEXT NOT NULL,
+    structured_value JSONB,
+    embedding VECTOR(1536),
+    embedding_model TEXT DEFAULT 'text-embedding-3-small',
+
+    -- BM25 full-text search (hybrid retrieval from day one)
+    search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', fact)) STORED,
+
+    -- Sentiment tracking
+    sentiment TEXT CHECK (sentiment IN ('positive', 'negative', 'neutral', 'mixed')),
+
+    -- Confidence and provenance
+    confidence FLOAT NOT NULL CHECK (confidence BETWEEN 0 AND 1),
+    is_valid BOOLEAN NOT NULL DEFAULT true,
+    quarantined_at TIMESTAMPTZ,
+    source_type TEXT NOT NULL CHECK (source_type IN (
+        'llm_extraction', 'user_correction', 'crm_sync',
+        'agent_observation', 'user_confirmed'
+    )),
+    source_message_id UUID,
+    extraction_reasoning TEXT,
+
+    -- Temporal validity (bi-temporal)
+    valid_from TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    valid_until TIMESTAMPTZ,
+
+    -- Lifecycle
+    superseded_by UUID REFERENCES memories(id),
+    pinned BOOLEAN DEFAULT false,  -- Pinned preferences NEVER decay
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN (
+        'active', 'superseded', 'invalidated', 'archived'
+    )),
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- HNSW index for vector similarity search
+CREATE INDEX idx_memories_embedding
+    ON memories USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 128);
+
+-- Tenant-scoped active lookups
+CREATE INDEX idx_memories_tenant_entity_active
+    ON memories (tenant_id, entity_type, entity_id)
+    WHERE status = 'active';
+
+-- Category-based lookups
+CREATE INDEX idx_memories_category
+    ON memories (tenant_id, entity_id, category)
+    WHERE status = 'active';
+
+-- BM25 full-text search
+CREATE INDEX idx_memories_search_vector
+    ON memories USING gin (search_vector);
+
+-- Temporal queries
+CREATE INDEX idx_memories_temporal
+    ON memories (tenant_id, valid_from DESC)
+    WHERE status = 'active';
+
+-- RLS
+ALTER TABLE memories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE memories FORCE ROW LEVEL SECURITY;
+CREATE POLICY memories_tenant_isolation ON memories
+  USING (tenant_id = (SELECT current_setting('app.tenant_id', true))::uuid)
+  WITH CHECK (tenant_id = (SELECT current_setting('app.tenant_id', true))::uuid);
+```
+
+Supporting tables: `memory_audit_log` (append-only audit trail, hard-deletable only for CCPA), `extraction_queue` (buffered messages awaiting extraction). Both have RLS policies. See `kiptra-memory-v2.md` for full DDL.
+
+### Hybrid Search --- `search_memories_hybrid` RRF Function
+
+```sql
+CREATE OR REPLACE FUNCTION search_memories_hybrid(
+    p_tenant_id UUID,
+    p_entity_id UUID,
+    p_query_embedding VECTOR(1536),
+    p_query_text TEXT,
+    p_limit INT DEFAULT 10,
+    p_min_confidence FLOAT DEFAULT 0.6,
+    p_rrf_k INT DEFAULT 60
+)
+RETURNS TABLE (
+    id UUID, category TEXT, fact TEXT, structured_value JSONB,
+    confidence FLOAT, sentiment TEXT, rrf_score FLOAT, valid_from TIMESTAMPTZ
+)
+LANGUAGE sql SECURITY DEFINER SET search_path = public
+AS $$
+    WITH vector_results AS (
+        SELECT m.id, ROW_NUMBER() OVER (
+            ORDER BY m.embedding <=> p_query_embedding
+        ) AS rank_v
+        FROM memories m
+        WHERE m.tenant_id = p_tenant_id
+          AND m.entity_id = p_entity_id
+          AND m.status = 'active' AND m.is_valid = true
+          AND m.confidence >= p_min_confidence
+          AND m.embedding IS NOT NULL
+        ORDER BY m.embedding <=> p_query_embedding
+        LIMIT p_limit * 3
+    ),
+    bm25_results AS (
+        SELECT m.id, ROW_NUMBER() OVER (
+            ORDER BY ts_rank_cd(m.search_vector,
+                plainto_tsquery('english', p_query_text)) DESC
+        ) AS rank_b
+        FROM memories m
+        WHERE m.tenant_id = p_tenant_id
+          AND m.entity_id = p_entity_id
+          AND m.status = 'active' AND m.is_valid = true
+          AND m.confidence >= p_min_confidence
+          AND m.search_vector @@ plainto_tsquery('english', p_query_text)
+        ORDER BY ts_rank_cd(m.search_vector,
+            plainto_tsquery('english', p_query_text)) DESC
+        LIMIT p_limit * 3
+    ),
+    fused AS (
+        SELECT COALESCE(v.id, b.id) AS id,
+            COALESCE(1.0 / (p_rrf_k + v.rank_v), 0)
+          + COALESCE(1.0 / (p_rrf_k + b.rank_b), 0) AS rrf_score
+        FROM vector_results v
+        FULL OUTER JOIN bm25_results b ON v.id = b.id
+    )
+    SELECT m.id, m.category, m.fact, m.structured_value,
+           m.confidence, m.sentiment, f.rrf_score, m.valid_from
+    FROM fused f JOIN memories m ON m.id = f.id
+    ORDER BY f.rrf_score DESC
+    LIMIT p_limit * 3;  -- Over-fetch for RLS; trim client-side
+$$;
+```
+
+### Memory Injection Defense (TypeScript)
+
+```typescript
+const INJECTION_PATTERNS = /\b(IGNORE|DISREGARD|FORGET|OVERRIDE|SYSTEM:|ASSISTANT:|HUMAN:)\b/gi;
+
+function sanitizeMemoryFact(fact: string): string {
+  let sanitized = fact.replace(INJECTION_PATTERNS, '[REDACTED]');
+  if (sanitized.length > 500) {
+    sanitized = sanitized.slice(0, 497) + '...';
+  }
+  return sanitized;
+}
+
+function formatContextForAgent(context: ClientContext): string {
+  let prompt = '';
+
+  // Profile section (YAML frontmatter --- highest authority)
+  prompt += `---\nclient_profile:\n  name: ${context.profile.name}\n` +
+    `  company: ${context.profile.company}\n  email: ${context.profile.email}\n` +
+    `  phone: ${context.profile.phone}\n  active_projects: ${context.profile.activeProjects}\n---\n\n`;
+
+  // Memories section (markdown --- supplementary)
+  if (context.memories.length > 0) {
+    prompt += `## Client Context (from previous interactions)\n`;
+    const byCategory = groupBy(context.memories, 'category');
+    for (const [category, memories] of Object.entries(byCategory)) {
+      prompt += `\n### ${formatCategory(category)}\n`;
+      for (const m of memories) {
+        const age = daysSince(m.lastConfirmed);
+        const freshness = age > 60 ? ' (from 2+ months ago --- may need reconfirmation)' : '';
+        const sentimentTag = m.sentiment && m.sentiment !== 'neutral'
+          ? ` (${m.sentiment})` : '';
+        prompt += `<memory_fact category="${category}" confidence="${m.confidence}"` +
+          `${freshness ? ' stale="true"' : ''}>\n` +
+          `${sanitizeMemoryFact(m.fact)}${sentimentTag}${freshness}\n</memory_fact>\n`;
+      }
+    }
+  }
+
+  // Contradictions section
+  if (context.contradictions.length > 0) {
+    prompt += `\n## Data Discrepancies (verify with client)\n`;
+    for (const c of context.contradictions) {
+      prompt += `- Memory says: "${c.memory}" but CRM shows: "${c.crmValue}"\n`;
+      prompt += `  -> ${c.recommendation}\n`;
+    }
+  }
+
+  return prompt;
+}
+```
+
+### Per-Agent Context Filter Mapping
+
+| Agent | Memory Categories | Rationale |
+|-------|-------------------|-----------|
+| **Leads Agent** | `preference`, `property_detail`, `contact_info` | Client wants + property context for initial engagement |
+| **Sales Agent** | `budget`, `material_choice`, `constraint` | Financial and scope data for accurate estimates |
+| **Design Agent** | `material_choice`, `style_preference`, `property_detail` | Aesthetic and dimensional data for design work |
+| **Project Management Agent** | `timeline`, `decision`, `constraint` | Scheduling and dependency data |
+| **Bookkeeping Agent** | `budget`, `contact_info`, `decision`, `constraint` | Financial and vendor data for business ops |
+| **CEO Agent** | *(all categories)* | Full picture for strategic oversight |
+| **Support Agent** | `contact_info`, `preference`, `communication_preference` | Account context and issue history |
+
+### 3-Layer Extraction Pipeline
+
+| Layer | Tool | Cost (100 tenants) | Purpose |
+|-------|------|-------------------|---------|
+| 1. Pre-filter | spaCy NER + regex (local) | $0 | Detect entities (MONEY, DATE, ORG, PERSON), keyword triggers. Filters 50--60% of messages. |
+| 2. Classify | GPT-4.1-nano ($0.02/MTok) | ~$6/mo | "Does this batch contain new facts?" YES/NO. 5-min buffer windows. |
+| 3. Extract | GPT-4.1-mini ($0.40/MTok) | ~$72/mo | Structured JSON extraction with confidence, sentiment, provenance. |
+
+Extraction trigger: BullMQ `memory.extract` job enqueued after agent execution with 5-minute delay for batching. Uses `FlowProducer` for job chaining (classify -> extract -> store). See `kiptra-memory-v2.md` Appendix F for full implementation.
+
+### 5-Layer Validation
+
+1. **Confidence scoring at extraction:** 0.0--1.0 based on explicitness. Below 0.6 = quarantined (stored, not served).
+2. **CRM cross-reference:** Memories checked against structured CRM data before injection. Contradictions flagged; CRM value takes precedence.
+3. **User confirmation prompts:** High-impact + lower-confidence facts trigger natural confirmation. Only when stakes justify it.
+4. **Contradiction detection:** Embedding similarity threshold 0.85. Resolution: recency + confidence. Never silently overwrite.
+5. **Periodic memory audit:** Monthly. >90 days without reconfirmation = -0.1 confidence. Below 0.3 = archived. Pinned memories exempt.
+
+### Cost Model Summary
+
+| Component | Monthly (100 tenants) |
+|-----------|-----------------------|
+| Supabase Pro (pgvector + tsvector) | $25 |
+| Extraction classifier (GPT-4.1-nano) | ~$6 |
+| Extraction extractor (GPT-4.1-mini) | ~$72 |
+| Embedding generation (text-embedding-3-small) | ~$1 |
+| Retrieval compute | ~$4 |
+| Valkey cache | $15 |
+| **Total** | **~$123/mo** |
+
+Scaling: ~$440--480/mo at 500 tenants; ~$1,500--1,600/mo at 1,000 tenants (Supabase Team $599/mo upgrade at 500+). Compared to naive GPT-4o approach: $123/mo vs. $9,000/mo (98.7% reduction).
+
+### Failure Mode Catalog
+
+| Mode | Cause | Recovery |
+|------|-------|----------|
+| 1. Extraction fails | LLM API timeout/rate limit | Buffer + retry (3x exponential); agent continues stateless |
+| 2. Retrieval fails | Supabase outage | Valkey cache fallback -> stateless mode with transparent acknowledgment |
+| 3. Wrong memory stored | LLM hallucination | CRM cross-ref at query time; user correction = highest-confidence source |
+| 4. Memory poisoning | Adversarial content in ingested data | Provenance tagging, injection pattern detection, trust-weighted retrieval |
+| 5. Memory bloat | >500 memories per client | Automated consolidation, stale archival, summary compression |
+| 6. Embedding API failure | OpenAI endpoint down | Store without embeddings; BullMQ retry every 15 min; BM25 still works |
+| 7. Valkey failure | Cache down, DB healthy | Circuit breaker (3 failures/60s) routes to Supabase directly |
+
+**Golden rule:** "Wrong memories are worse than no memories."
+
+### Monitoring Metrics
+
+| Metric | Alert Threshold | Severity |
+|--------|----------------|----------|
+| `memory_extraction_queue_depth` | >10,000 jobs | P2 |
+| `memory_extraction_latency_p95` | >5 seconds | P2 |
+| `memory_retrieval_latency_p95` | >200ms | P2 |
+| `memory_extraction_error_rate` | >5% over 15 min | P1 |
+| `memory_quarantine_rate` | >20% of extractions | P2 |
+| `memory_valkey_cache_hit_rate` | <60% over 1 hour | P3 |
+| `memory_embedding_backlog` | >1,000 unembedded facts | P2 |
+| `memory_contradiction_rate` | >10% of new facts | P2 |
+
+### Test Strategy
+
+- **Unit (Vitest):** `sanitizeMemoryFact()`, `resolveContradiction()`, `calculateConfidenceDecay()`, cost calculation helpers
+- **Integration (Vitest + Supabase test instance):** `search_memories_hybrid()` RRF results, RLS tenant isolation (adversarial 2-tenant test), `hard_delete_for_compliance()` purge verification, extraction round-trip
+- **Extraction accuracy (monthly):** Sample 100 conversations, human-annotated ground truth, measure precision >90%, recall >80%, F1 >85%
+- **Load (k6):** 100 concurrent retrievals, P95 <200ms (cache hit) / <500ms (cache miss), extraction throughput 50/sec sustained 10 min
+
+### Implementation Timeline (1--2 Engineers)
+
+| Week | Deliverable |
+|------|------------|
+| 1 | Database schema, RLS policies, basic CRUD API |
+| 2 | Extraction pipeline (classifier + extractor + BullMQ queue), embedding generation |
+| 3 | Retrieval + validation layer, Valkey caching, context injection into agents |
+| 4 | Failure handling (circuit breakers, stateless fallback), monitoring, testing |
+| 5 | Consolidation jobs, memory audit, confidence decay, admin dashboard |

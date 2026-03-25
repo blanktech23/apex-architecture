@@ -1,0 +1,228 @@
+---
+title: "5. Multi-Tenancy Architecture"
+slug: "multi-tenancy"
+section: "05"
+---
+
+### Scale Target
+
+
+- **Phase 1:** 10-50 customers (Slate + early adopters)
+
+- **Phase 2:** 50-500 customers (construction vertical)
+
+- **Phase 3:** 1,000-10,000+ customers (multi-vertical expansion)
+
+- **Tenant types:** Individual users (solopreneurs) AND team accounts (companies with employees/roles)
+
+- **Supabase compute planning:** Phase 1 (10–50 tenants) requires Small compute add-on (90 direct / 400 pooler connections). Phase 2 (50–500) requires Medium or Large compute. Connection budget must account for per-tenant semaphore (3 connections/tenant/node) plus background workers.
+
+
+### Database Schema (Supabase + RLS)
+
+
+SQL
+-- Core tables (all have tenant_id + RLS)
+tenants -- id (uuid PK), name, industry_vertical (kitchen_bath|hvac|general_construction|landscaping), tenant_type (contractor|dealer|rep|manufacturer), company_size, plan (starter|professional|enterprise), billing_status (active|past_due|canceling|canceled), stripe_customer_id, stripe_subscription_id, onboarding_step (company|industry|persona|profile|plan|payment|team|complete), onboarding_completed (boolean), feature_flags (JSONB), timezone, created_at, updated_at
+tenant_members -- users per company (RBAC: owner, admin, manager, designer, bookkeeper, viewer)
+agents -- active agents per tenant (instantiated from templates)
+agent_executions -- run history, input/output, cost tracking. status column: QUEUED | RUNNING | COMPLETED | FAILED | TIMED_OUT | AWAITING_APPROVAL | REJECTED | CANCELLED | DEAD_LETTER | BILLING_PAUSED (CHECK constraint, indexed on tenant_id + status)
+event_bus_log -- full audit trail
+integrations -- OAuth tokens for external tools (encrypted)
+escalations -- human-in-the-loop approval queue
+drafts -- agent-generated drafts pending approval
+conversation_turns -- AI conversation history per tenant
+tenant_usage_daily -- daily usage aggregation per tenant
+webhook_events -- webhook deduplication per tenant
+invitations -- team invitations per tenant (managed by better-auth Organization plugin)
+notification_preferences -- user notification settings (tenant-scoped via user)
+support_conversations -- Support Agent chat history, messages, and feedback per tenant user
+
+-- Table classification: Tenant-scoped tables (RLS enforced): all tables listed above.
+-- Platform-scoped tables (service-role access, no tenant RLS):
+-- agent_templates -- industry-specific agent configs (shared across tenants by design)
+-- agent_prompt_versions -- prompt history (platform-scoped, shared across tenants)
+-- tenant_keys -- envelope encryption DEKs (service-role only, never exposed via RLS)
+-- prompt_versions -- prompt version tracking
+-- system_config -- platform-wide configuration
+```
+
+
+CI Migration Check (Mandatory)
+
+
+Every new table migration MUST include either an RLS policy or an explicit platform-scoped whitelist entry. CI lint rule enforces this --- migrations without RLS classification are rejected.
+
+
+RLS Performance Optimization (Mandatory)
+
+
+ALL RLS policies MUST wrap `current_setting()` in a subselect: `tenant_id = (SELECT current_setting('app.tenant_id', true))::uuid`. This triggers PostgreSQL’s InitPlan optimization, evaluating the setting once per query instead of per-row. Without the `(SELECT ...)` wrapper, 10–100x performance degradation occurs on tables with >10K rows.
+
+
+RLS Indexing Requirement (Mandatory)
+
+
+CI migration lint: every tenant-scoped table MUST have `CREATE INDEX` on `tenant_id`. Composite indexes for frequently queried combinations (e.g., `(tenant_id, status)`, `(tenant_id, created_at)`).
+
+
+RLS WITH CHECK Clause (Mandatory)
+
+
+All tenant-scoped RLS policies include both `USING (...)` for reads AND `WITH CHECK (...)` for inserts/updates. This prevents a tenant from inserting rows with a different `tenant_id`.
+
+
+FORCE ROW LEVEL SECURITY (Mandatory)
+
+
+Every tenant-scoped table MUST include `ALTER TABLE ... FORCE ROW LEVEL SECURITY` in the migration. Without `FORCE`, table owners bypass RLS policies entirely.
+
+
+### Agent Template System (Key to Scaling Beyond Slate)
+
+
+- Each industry vertical has a **template** (set of pre-configured agents)
+
+- Customers can enable/disable agents from their template
+
+- Templates define: agent roles, trigger conditions, escalation rules, integration requirements
+
+- Slate's 6-agent config = "Construction Remodeling" template
+
+- Future templates: General Contracting, HVAC, Plumbing, Landscaping, etc.
+
+
+### Team Hierarchy & Role-Based Access
+
+
+Every tenant is a **team** (company). Within each team:
+
+
+| Role | Access | Example (Slate) | |
+
+
+| **Owner/CEO** | Full visibility: all agents, all employee activity, all financials, CEO Agent | Adam | |
+
+| **Admin** | Manage integrations, view all agents, manage team members | Office Manager | |
+
+| **Manager/PM** | Interact with assigned agents (Project Management Agent, Sales Agent), approve drafts/escalations | Project Manager | |
+
+| **Designer** | Design Agent only, submit selections, view own project specs | Designer | |
+
+| **Bookkeeper** | Bookkeeping Agent only, billing memos, AP/AR views, lien waivers | Bookkeeper | |
+
+| **Viewer** | Read-only dashboards, no agent interaction | Subcontractor portal (future) | |
+
+
+**Key behaviors:**
+
+
+- CEO sees a **unified dashboard** across all agents + employee activity log
+
+- Employees see only agents relevant to their role (scoped by RBAC permissions)
+
+- Agent outputs are scoped: CEO Agent outputs -> CEO only (spec requirement)
+
+- Employee actions are logged and visible to CEO (who approved what, when)
+
+- Onboarding flow: CEO signs up -> invites employees -> assigns roles -> employees get scoped access
+
+
+### Tenant Isolation
+
+
+- **Database**: RLS policies use `current_setting('app.tenant_id', true)` (with `missing_ok` parameter) set via a `set_tenant_context()` PostgreSQL function called at the start of each transaction. This function reads the user's `activeOrganizationId` from the better-auth session (injected into a custom JWT claim via a session hook). A custom `accessToken.customClaim` hook is required since better-auth's Organization plugin stores this in the session table, not JWT claims by default. The extracted organization ID is then mapped to the internal `tenant_id`. When the setting is unset, `current_setting` returns NULL --- the RLS predicate `tenant_id = current_setting(...)::uuid` evaluates to NULL (falsy), returning zero rows rather than raising an exception. Adversarial test required: verify that queries without `set_tenant_context()` return zero rows, not PostgreSQL exceptions. This approach is compatible with Supavisor (which replaced PgBouncer on the Supabase platform) transaction-mode pooling and avoids the `auth.uid()` session-variable limitation. **Supavisor SET LOCAL requirement:** `set_tenant_context()` MUST use `SET LOCAL` (transaction-scoped), NOT session-scoped `SET`. This prevents tenant context leaking across Supavisor connection reuse. All database queries must be wrapped in explicit transactions --- no bare queries allowed. Connection state isolation relies on `SET LOCAL` (transaction-scoped) semantics. Verify Supavisor’s connection return behavior clears session state — Supavisor does not document a `server_reset_query` parameter. **Per-tenant safeguards:** `statement_timeout` set per-transaction alongside `set_tenant_context()` (30s default, 120s for Sales Agent). Application-layer semaphore limits concurrent database connections to 3 per tenant per node, preventing connection pool exhaustion from expensive queries.
+
+- **API Keys**: Per-tenant spending enforcement via Valkey counters + AI SDK middleware (all tenants share provider API keys; spending isolation is at the application layer)
+
+- **Secrets**: AES-256-GCM encryption for stored OAuth tokens
+
+- **Event Bus**: NATS subject namespacing (`TENANT_{id}.agent.{name}.{event}`) with per-tenant authorization rules (user/NKey credentials scoped to `TENANT_{id}.>` publish/subscribe permissions). **Simplification:** Since tenants never connect to NATS directly (only backend services publish/subscribe), a single internal NATS user for backend services is sufficient. Subject namespacing (`TENANT_{id}.agent.{name}.{event}`) is enforced at the application layer. Per-tenant NKey credentials are deferred to post-100-tenant scale if multi-service isolation requires it.
+
+
+**Canonical NATS subject format:** `TENANT_{tenantId}.{domain}.{name}.{event}`. All publish/subscribe calls MUST use the `buildSubject(tenantId, domain, name, event)` helper. The `buildSubject()` helper validates that the `tenantId` parameter matches the current request context — preventing a compromised or buggy code path from publishing to another tenant’s subject namespace. CI lint rule rejects raw string subjects.
+
+
+- **Job Queue**: BullMQ uses shared priority queues (`agent-jobs:high`, `agent-jobs:medium`, `agent-jobs:low`) with `tenant_id` as job data, not queue name. Tenant isolation is enforced at the worker level: each job's `tenant_id` is validated before processing, with per-tenant rate limiting within the queue processor. This avoids the O(N) Valkey overhead of Nx7 individual queues at scale. Fair scheduling: Workers process at most 5 consecutive jobs from the same tenant before yielding to the next tenant in the queue, preventing high-volume Enterprise tenants from starving Starter tenants.
+
+- **Real-time**: Socket.io server-side room join validation checks authenticated `tenant_id` before allowing room subscription --- clients cannot join another tenant's rooms. **Forced room eviction:** When `tenant_members` is updated (user removed or role changed), publish an event that triggers the WebSocket server to forcibly remove that user's socket from tenant rooms and disconnect the socket. This prevents removed users from receiving real-time updates on existing connections.
+
+- **Cache**: Redis 6+ ACLs with keyspace pattern permissions (`~tenant:{id}:*`) enforce isolation at the engine level. Each logical tenant group receives a Redis ACL user with restricted key patterns --- not purely application-layer prefix enforcement. A CI lint rule prevents cache calls without the tenant prefix wrapper as an additional defense layer. A dedicated provisioning service (not the application tier) holds the Redis admin credential for `ACL SETUSER`. ACL lifecycle includes provisioning on tenant creation, credential rotation schedule, and revocation on tenant offboarding. **Implementation note:** DigitalOcean Managed Valkey (Redis-compatible) does NOT expose ACL configuration. Per-tenant Redis ACLs require self-hosted Redis/Valkey, which contradicts the managed Valkey mandate. **Resolution:** Use application-layer key prefix enforcement (`tenant:{id}:*`) with CI lint rules as the PRIMARY isolation mechanism. Redis ACLs are deferred to a future self-hosted Redis migration if tenant isolation requirements demand kernel-level enforcement. The CI lint rule scanning for unprefixed Valkey key access is the Wave 1 deliverable.
+
+- **Agent Execution**: Tenant context injected at request boundary, never trusted from client
+
+
+**API Rate Limiting (per tenant):** Hono middleware enforces per-tenant rate limits via Valkey sliding window counters --- 100 req/min/tenant for standard endpoints, 10 req/min/tenant for agent execution endpoints, 30 req/min/user for escalation approvals. Rate limit headers are included in API responses for integration back-off. This is distinct from the per-agent AI spending limits, which control cost, not request volume.
+
+**Spec Amendment (Attack Audit 2026-03-22):** Additional rate limits required: (1) Global per-IP rate limit: 100 req/min/IP for authenticated requests, 20 req/min/IP for unauthenticated requests (login, password reset, public endpoints). (2) Webhook endpoints: 1000 req/min per source IP (higher ceiling to avoid dropping legitimate webhook bursts from SendGrid/Stripe/JobTread). (3) Data export endpoints: 1 req/tenant/hour (prevents bulk data exfiltration by compromised accounts). All implemented via Valkey sliding window counters. Rate limit responses include `Retry-After` header per RFC 6585.
+
+**Spec Amendment (Attack Audit 2026-03-22):** All list endpoints MUST implement cursor-based pagination. Standard response envelope: `{ data: T[], cursor: string | null, hasMore: boolean }`. Max `limit` enforced server-side at 100. Never return unbounded result sets. Cursor-based pagination is stable under concurrent inserts/deletes (unlike offset-based), critical for real-time agent data.
+
+**Spec Amendment (Attack Audit 2026-03-22):** All mutating endpoints (POST, PUT, PATCH, DELETE) MUST accept `idempotency-key` header. Implement via Valkey with 24-hour TTL. Prevents double-sends, duplicate approvals, and duplicate estimate creation on network retry. Note: header key must be lowercase per Hono convention (`idempotency-key` not `Idempotency-Key` --- uppercase keys return `undefined` in Hono header validation).
+
+**Spec Amendment (Attack Audit 2026-03-22):** Adopt RFC 7807 Problem Details as the API error response standard. Shape: `{ type: string, title: string, status: number, detail: string, instance: string, requestId: string }`. Include `requestId` (from OpenTelemetry trace ID) in all error responses for support correlation. Define shape in `@kiptra/shared` as Zod schema. The `app.onError()` handler produces this shape. The `{ data, error }` envelope is the success/RPC shape; RFC 7807 is the error shape.
+
+
+**Co-design note (rate limit intersection):** The inbound execution rate limit (10/min/tenant) x per-execution outbound call depth (up to `stopWhen: stepCountIs(17)`) can produce up to 170 outbound API calls/min/tenant. The per-tenant JobTread token bucket (60 req/min starting budget) must account for this multiplier. **AI SDK v6 warning:** If `stopWhen` is not explicitly set, v6 defaults to `stepCountIs(20)`, changing this calculation to 200 outbound calls/min/tenant --- exceeding the JobTread budget. Explicit `stopWhen` is mandatory. Workers check remaining token budget before making outbound calls and back-pressure the execution if budget is exhausted.
+
+
+**Webhook routing:** Webhook endpoints use cryptographic URL tokens (`/webhooks/:service/:webhookToken`) rather than tenant IDs in the URL path. The `webhookToken` is a 32-byte random hex value mapped to `tenant_id` server-side at integration setup time. Signature validation is performed per-service before any tenant routing --- see Section 7 for per-service validation mechanisms.
+
+
+**Webhook deduplication:** A `webhook_events` table with a unique index on `(service, external_event_id, tenant_id)` deduplicates at-least-once delivery from all webhook providers. On receipt: INSERT with ON CONFLICT DO NOTHING --- if no row inserted, the event is a duplicate and returns 200 without publishing to NATS. Retention: 7-day TTL on `webhook_events` rows (matching DLQ retention). A pg_cron job purges rows older than 7 days. Partial index `WHERE created_at > NOW() - INTERVAL '7 days'` keeps deduplication lookups fast.
+
+
+### Tenant Offboarding
+
+
+On churn, a `TenantOffboardingService` executes: (1) mark tenant as churned, (2) export all tenant data to a signed DigitalOcean Spaces URL delivered to the tenant (**Export encryption:** The tenant data archive is encrypted with AES-256 using a one-time key. The download link (signed DigitalOcean Spaces URL, 24-hour expiration) and the decryption key are delivered via separate channels (download link via in-app notification, decryption key via email to the account owner)), (3) queue a 90-day deletion job per the data retention policy, (4) immediately revoke OAuth tokens and clear Valkey spending counters, (5) purge Valkey keys matching `tenant:{id}:*`, (6) expire NATS credentials, (7) verify Valkey key prefix cleanup (all `tenant:{id}:*` keys deleted), (8) Queue backup purge --- daily pg_dump backups containing tenant data are retained for the standard backup window (30 days) then automatically aged out; document this retention as a CCPA-permitted exception under the 'unreasonable effort' clause, (9) Anonymize tenant PII in Grafana Loki logs at ingest time: a Promtail pipeline stage strips PII fields (names, emails, phone numbers) from log entries before they reach Loki. Tenant IDs are replaced with opaque hashes in logs. This eliminates the need for post-hoc deletion, which Loki does not reliably support, (10) The 90-day deletion queue is processed by a BullMQ cron job that performs hard DELETE operations on all tenant rows in Supabase. This is a compliance requirement for CCPA data deletion (Risk Register Item 10).
+
+
+**Integration-specific cleanup:** (a) Call Google Calendar `channels.stop` for all active watches, (b) Delete Microsoft Graph subscriptions via `DELETE /subscriptions/{id}` for all active Outlook email/calendar watches, (c) Remove SendGrid Inbound Parse webhook configuration, (d) Revoke JobTread grant key, (e) Cancel Stripe subscription via API. Each integration adapter implements a `disconnect(tenantId)` method.
+
+
+**Tenant provisioning saga:** Tenant provisioning is implemented as a saga: (1) Create Supabase tenant row with RLS-enabled records, (2) Configure NATS subject namespace (application-layer subject prefix `TENANT_{id}.>`), (3) Verify tenant key prefix in Valkey (`tenant:{id}:*`). Note: Per-tenant NKey credentials and Valkey ACL users are added post-100-tenant scale. If any step fails, preceding steps are rolled back. A health check verifies the new tenant can publish/receive a test NATS message before onboarding is marked complete.
+
+
+### Integration API Reality (Researched Mar 2026)
+
+
+| Service | Auth | API Type | Rate Limit | Free Tier | Key Gotcha | |
+
+
+| **JobTread** | API Key | REST | Undocumented | Trial | Limited support --- won't debug your code | |
+
+| **QuickBooks Online** | OAuth 2.0 | REST | 100 req/10s | Sandbox | Refresh token expires after 100 days of non-use | |
+
+| **Google Calendar** | OAuth 2.0 | REST | Generous | Yes | `freebusy` scope = no event titles (privacy by design, perfect for spec) | |
+
+| **Google Drive** | OAuth 2.0 | REST | 10 req/s | Yes | Shared drives don't allow external sharing | |
+
+| **HubSpot (CRM)** | OAuth 2.0 | REST | 100 req/10s | Free tier | Free sufficient for lead capture | |
+
+| **OpenWeatherMap** | API Key | REST | 60 req/min | 1K calls/day | Returns UTC, need local timezone conversion | |
+
+| **Gmail (send)** | OAuth 2.0 | REST | Generous | Yes | `gmail.send` (sensitive scope) --- drafts stored in Kiptra UI, not Gmail drafts folder | |
+
+| **Outlook Email** | OAuth 2.0 (Microsoft Graph) | REST | Generous | Yes | `Mail.Send` + `Mail.Read` (standard delegated scopes --- no security assessment needed, simpler than Google's sensitive scope review) | |
+
+| **Outlook Calendar** | OAuth 2.0 (Microsoft Graph) | REST | Generous | Yes | `Calendars.Read` (standard delegated scope). Webhook subscriptions max ~3 days (vs Google's 7); renew every 2 days via BullMQ cron | |
+
+| **SendGrid (inbound)** | API Key | Webhook | Unlimited | 100/day | Needs MX record for leads@ email parsing | |
+
+
+**Critical Integration Decisions:**
+
+
+- **QB read-only enforcement**: QB API allows writes, but Slate spec forbids it. Enforce at app layer with read-only wrapper.
+
+- **Email pattern**: Gmail API (`gmail.send` scope) or Microsoft Graph (`Mail.Send` scope) for outbound email + SendGrid Inbound Parse for leads@ inbox. Drafts are stored in the Kiptra `drafts` table for human approval, not in the customer's email drafts folder. Customer chooses Google or Microsoft during onboarding. Agent code is provider-agnostic via `EmailProvider` / `CalendarProvider` interfaces. No single tool does both inbound and outbound.
+
+- **Calendar privacy**: Google: Use `calendar.freebusy` scope (no event details visible) + `calendar.events` scope for creating consultation events. Microsoft: Use `Calendars.Read` scope via Microsoft Graph.
+
+- **Microsoft 365 provider abstraction**: All email and calendar operations go through provider-agnostic interfaces (`EmailProvider`, `CalendarProvider`) with implementations for both Google (`GoogleEmailProvider`, `GoogleCalendarProvider`) and Microsoft (`MicrosoftEmailProvider`, `MicrosoftCalendarProvider`). Agent code never calls provider APIs directly.
+
+- **Drive structure**: Shared Drive per customer -> Project folders -> Room -> Category (Submittals, Cut Sheets, Warranties).
+
+
+---

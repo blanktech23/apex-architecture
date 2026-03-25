@@ -1,0 +1,505 @@
+---
+title: "11. Verification"
+slug: "verification"
+section: "11"
+---
+
+Every verification item has a quantitative pass/fail threshold, assigned wave, owner, and automation status. Items without a passing result block deployment of the associated wave.
+
+
+### 11.1 Infrastructure & Deployment
+
+
+| # | Verification | Pass Criteria | Wave | Owner | Automated? | |
+
+
+| V-01 | Docker Compose deploys cleanly on both VPS nodes | Exit code 0 on `docker compose up -d` on primary + secondary; all containers healthy within 60s | Wave 1 | Joseph | CI (deploy script) | |
+
+| V-02 | Deployment health check (rolling) | Rolling deploy to secondary -> health endpoint returns 200 within 30s -> deploy to primary -> health 200 within 30s; zero downtime confirmed via LB health log | Wave 1 | Joseph | CI (deploy script) | |
+
+| V-03 | Failover test | Kill primary VPS process; LB routes 100% traffic to secondary within 90s; **active agent execution** in progress on primary resumes on secondary via BullMQ job recovery (stalled job picked up within 120s); NATS JetStream processing confirmed suspended (no false delivery); zero HTTP 5xx during failover window | Wave 2 | Joseph | Manual (quarterly) | |
+
+| V-04 | BullMQ job recovery after failover | In-progress jobs on killed node marked stalled within 30s; secondary worker picks up stalled jobs within 120s; zero jobs lost (DLQ count unchanged) | Wave 2 | Joseph | Manual (quarterly) | |
+
+| V-05 | NATS suspension confirmation during failover | When primary (NATS hub) is killed, secondary leaf node logs `connection lost` within 10s; no JetStream consumers process messages on secondary; events queue in NATS once primary recovers; zero duplicate deliveries after recovery | Wave 2 | Joseph | Manual (quarterly) | |
+
+| V-06 | Socket.io cross-node delivery | Client connected to VPS-2 receives event published from VPS-1 within 500ms; verified with 10 sequential test events, 100% delivery rate | Wave 2 | Joseph | Integration test | |
+
+
+### 11.2 Security & Tenant Isolation
+
+
+| # | Verification | Pass Criteria | Wave | Owner | Automated? | |
+
+
+| V-07 | Supabase RLS blocks cross-tenant data access | 3 test tenants; each tenant's SELECT/INSERT/UPDATE/DELETE returns only own data; cross-tenant query returns 0 rows (not error); tested across all RLS-protected tables | Wave 1 | Joseph | Integration test | |
+
+| V-08 | Cross-tenant RLS adversarial test | 3 test tenants; SQL injection via RPC, direct REST with forged JWT, and Supabase client with wrong tenant context --- all return 0 rows or 403; 0 cross-tenant leaks across all CRUD operations | Wave 2 | Joseph | Integration test | |
+
+| V-09 | Per-tenant NATS subject namespace isolation | Tenant A subscribes to `tenant.B.*` --- receives 0 messages; 10 events published to Tenant B's namespace, Tenant A receives none | Wave 2 | Joseph | Integration test | |
+
+| V-10 | Prompt injection defense | 10 crafted injection payloads (OWASP LLM Top 10 categories) submitted; Layer 1 classifier blocks >=9/10 before reaching agent; 0 reach agent execution unfiltered | Wave 3a | Joseph | Integration test | |
+
+| V-11 | OAuth token refresh (QuickBooks) | QB refresh token exchange produces new access + refresh token pair; both persisted atomically (single DB transaction); old tokens invalidated; verified with 3 consecutive refresh cycles | Wave 2 | Joseph | Integration test | |
+
+| V-12 | Microsoft OAuth end-to-end | User connects Outlook account via OAuth 2.0 + PKCE; sends test email via Mail.Send; receives calendar events via Calendars.Read; refresh token persisted with AES-256-GCM encryption; admin consent fallback tested (simulate AADSTS65001 error, verify admin consent URL displayed); Microsoft Graph subscription created and webhook notification received within 60s of calendar change | Wave 2 | Joseph | Integration test | |
+
+| V-13 | Provider abstraction parity | Same agent workflow (draft email -> approve -> send) succeeds via both GoogleEmailProvider and MicrosoftEmailProvider; same calendar availability check returns consistent format via both GoogleCalendarProvider and MicrosoftCalendarProvider; provider swap requires zero agent code changes | Wave 2 | Joseph | Integration test | |
+
+
+### 11.3 Agent & AI Quality
+
+
+| # | Verification | Pass Criteria | Wave | Owner | Automated? | |
+
+
+| V-14 | Agent quality baseline | >=85% accuracy on 5-sample rubric per agent, scored by 2 independent reviewers; inter-rater agreement >=80% (Cohen's kappa >=0.6) | Wave 3a | Joseph | Manual | |
+
+| V-15 | End-to-end agent execution | Trigger agent -> executes -> result appears in dashboard; total latency fallback model fires within 2s for single-step calls; multi-step agents return graceful error (not hang); verified with 5 consecutive fallback triggers | Wave 2 | Joseph | Integration test | |
+
+| V-16 | Spending limit enforcement | Agent execution paused when tenant hits spending limit (within $0.50 of limit); tenant notified via dashboard toast + email within 60s; no further LLM calls made after limit hit | Wave 3a | Joseph | Integration test | |
+
+| V-17 | Per-tenant spending limit enforcement via Valkey counters (AI SDK middleware) | Per-tenant Valkey counter tracks cumulative spend; exceeding limit returns 429 (not 500); dashboard shows accurate spend within $0.10 of actual | Wave 2 | Joseph | Integration test | |
+
+
+### 11.4 Frontend & Real-Time
+
+
+| # | Verification | Pass Criteria | Wave | Owner | Automated? | |
+
+
+| V-18 | React Flow mind map renders correctly | Mind map renders 7 agents (6 operational + 1 Support Agent) + integration nodes; all edges visible; no overlapping nodes; renders in invoice -> payment -> active status verified end-to-end; webhook signature validation rejects tampered payloads; idempotency key prevents duplicate processing (replay same event 3x, only 1 DB write) | Wave 2 | Joseph | Integration test | |
+
+| V-19 | Help Bot returns context-aware responses | Help Bot returns route-contextual response on 3+ different routes (dashboard, billing, integrations); deep links in responses navigate to correct route; ThumbsUp/ThumbsDown feedback captured in `support_messages` table with `source: 'help_bot'` | Wave 3b | Joseph | E2E test | |
+
+
+### 11.5 BullMQ & Event Processing
+
+
+| # | Verification | Pass Criteria | Wave | Owner | Automated? | |
+
+
+| V-20 | NATS events route to correct tenant | Publish 10 events across 3 tenants; each tenant's subscriber receives only its own events; 0 cross-tenant deliveries; 0 dropped events | Wave 2 | Joseph | Integration test | |
+
+| V-21 | BullMQ dead letter queue | Failed job (after max retries) appears in DLQ within 30s; admin panel surfaces DLQ jobs with error message and stack trace; DLQ jobs are re-processable via admin action | Wave 2 | Joseph | Integration test | |
+
+
+### 11.6 Business Operating System
+
+
+| # | Verification | Pass Criteria | Wave | Owner | Automated? | |
+
+
+| V-22 | Core 5 Business OS modules render data correctly with RLS isolation | Scorecards, Quarterly Goals, Weekly Sync, Org Chart, and Issue Tracker each render correct data for 3 test tenants; cross-tenant queries return 0 rows; all CRUD operations function with =40% reply rate from first 50 Tier A contacts (20+ replies) | Month 1 | Joseph | Revise messaging; A/B test 3 subject lines; consult sales advisor | |
+
+| V-23 | Platform Orientation tour completes end-to-end | New user first login -> tour starts -> 5 steps navigate correctly -> `tour_progress` record shows `status='completed'` and `tour_version=1`; `tenant_members.tour_completed = true`; no console errors; tour does not restart on page refresh | Wave 3b | Joseph | E2E test | |
+
+| V-24 | Tour fatigue prevention enforced | Complete platform tour -> navigate to `/bos` in same session -> BOS tour does NOT start; login 25+ hours later -> navigate to `/bos` -> BOS tour starts; dismiss BOS tour 3x -> BOS tour never auto-shows again | Wave 3b | Joseph | E2E test | |
+
+| V-25 | Onboarding checklist auto-completes | 7 checklist items evaluated server-side; completing each trigger action (profile, escalation review, team invite, integration connect, BOS visit, meeting schedule, help bot query) updates checklist state within 1 page load; checklist dismissible at 80%+ | Wave 3b | Joseph | E2E test | |
+
+| V-35 | Onboarding wizard industry/persona selection applies correct template | Select "Kitchen & Bath" + "Contractor" -> `kb_contractor` template applied; dashboard layout = `contractor`; sidebar shows K&B Canvas + Business OS; 7 agents enabled (all core); onboarding tour matches contractor flow. Select different combo -> correct template resolved. Disabled personas show "Coming Soon" and are not selectable. Template application is idempotent (re-apply same template = no-op). `tenants.industry_vertical` and `tenants.tenant_type` columns written correctly. | Wave 4 | Joseph | E2E test | |
+
+| G-02 | Demo-to-proposal conversion | >=40% of demos result in a proposal sent (minimum 8 demos conducted) | Month 2 | Joseph | Review demo script; add ROI calculator to demo flow; survey non-converters | |
+
+| G-03 | First closes | >=3 signed contracts (any tier) | Month 3 | Joseph | Offer founder pricing ($199/mo first year); extend free trial to 30 days; consider pilot program | |
+
+| G-04 | Active customer count | >=15 active paying customers | Month 6 | Joseph | If below 10: activate paid channels (Google Ads for "construction project management", LinkedIn Ads targeting GC owners); allocate $2,000/mo ad budget | |
+
+
+### 11.11 Acceptance Criteria (Given/When/Then)
+
+
+BDD-style acceptance criteria for all critical user flows. These scenarios serve as the source of truth for integration test implementation and manual QA verification. Each scenario maps to a specific verification item (V-xx) or feature area defined above.
+
+
+#### Agent Execution (Trigger → Result)
+
+
+Gherkin
+Feature: Agent Execution
+
+Scenario: Successful user-triggered agent execution
+ Given a tenant &quot;Slate&quot; with an active Professional subscription
+ And the &quot;Sales Agent&quot; agent is enabled for this tenant
+ And the tenant's monthly AI spend is below 100% of their limit
+ When a user with role &quot;Manager&quot; clicks &quot;Run Estimate&quot; for project &quot;Kitchen Reno&quot;
+ Then a BullMQ job is queued with tenant_id, agent_type, and project context
+ And an agent_executions record is created with status &quot;QUEUED&quot;
+ And status transitions to &quot;RUNNING&quot; when the worker picks up the job
+ And the agent executes with stopWhen: stepCountIs(17) and max_tokens: 8000
+ And on success, status transitions to &quot;COMPLETED&quot; with output stored
+ And a NATS event is published on &quot;TENANT_{id}.agent.sales-agent.completed&quot;
+ And the user receives a real-time update via Socket.io
+
+Scenario: Agent execution blocked by spending limit
+ Given a tenant whose monthly AI spend is >= 100% of their plan limit
+ When any user triggers an agent execution
+ Then the API returns HTTP 429 with error code &quot;AGENT_BUDGET_EXCEEDED&quot;
+ And no BullMQ job is queued
+ And the dashboard shows &quot;Monthly AI budget reached — upgrade your plan&quot;
+
+Scenario: Agent execution timeout
+ Given an agent execution that has been running for 300 seconds
+ When the wall-clock timeout fires
+ Then the execution status is set to &quot;TIMED_OUT&quot;
+ And the BullMQ job is moved to the dead letter queue
+ And the user is notified via Socket.io with error code &quot;AGENT_EXECUTION_TIMEOUT&quot;
+ And the event is logged to Sentry with the agent_execution_id
+```
+
+
+#### Escalation Approval Flow
+
+
+Gherkin
+Feature: Escalation Approval
+
+Scenario: Agent creates an escalation
+ Given the Leads Agent detects a lead mentioning a legal dispute
+ When the agent triggers an escalation
+ Then an escalation record is created with severity, context, and recommended action
+ And the agent_execution status transitions to &quot;AWAITING_APPROVAL&quot;
+ And the escalation appears in the dashboard's approval queue
+ And the Owner/Admin receives a Socket.io notification
+ And an email notification is sent if enabled in notification_preferences
+
+Scenario: Owner approves an escalation
+ Given a pending escalation in the approval queue
+ When the Owner clicks &quot;Approve&quot;
+ Then the agent executes the recommended action
+ And the escalation status updates to &quot;approved&quot;
+ And the agent_execution status transitions to &quot;COMPLETED&quot;
+ And an audit log entry is created with approver, timestamp, and action taken
+
+Scenario: Owner rejects an escalation
+ Given a pending escalation in the approval queue
+ When the Owner clicks &quot;Reject&quot; with a reason
+ Then the agent_execution status transitions to &quot;REJECTED&quot;
+ And the rejection reason is stored in the escalation record
+ And an audit log entry is created
+```
+
+
+#### Draft Approval Flow
+
+
+Gherkin
+Feature: Draft Approval
+
+Scenario: Agent creates an email draft
+ Given the Leads Agent has scored a lead and composed a follow-up email
+ When the agent stores the draft
+ Then a record is created in the drafts table with type &quot;email&quot;, content, and metadata
+ And the draft appears in the user's pending approvals queue
+ And a Socket.io notification is sent to the user's dashboard
+
+Scenario: User approves a draft email
+ Given a pending email draft in the approval queue
+ When an authorized user (Owner/Admin/Manager) clicks &quot;Send&quot;
+ Then the email provider API (Gmail or Microsoft Graph, based on tenant's connected provider) is called with the draft content using the tenant's OAuth credentials
+ And the draft status updates to &quot;sent&quot; with a timestamp
+ And if the email API fails, the draft status updates to &quot;send_failed&quot;
+ And a new escalation is created with the failure context
+
+Scenario: User edits and approves a draft
+ Given a pending email draft
+ When a user modifies the draft content and clicks &quot;Send&quot;
+ Then the original draft content is preserved in version history
+ And the modified content is sent via the tenant's email provider API (Gmail or Microsoft Graph)
+ And the draft record reflects both original and edited versions
+```
+
+
+#### User Login + MFA
+
+
+Gherkin
+Feature: User Authentication
+
+Scenario: Successful login without MFA
+ Given a registered user with verified email and MFA disabled
+ When they submit valid email and password
+ Then better-auth creates a session with httpOnly cookie
+ And the user is redirected to their tenant's dashboard
+ And a Socket.io connection is established in room &quot;tenant:{tenant_id}&quot;
+
+Scenario: Successful login with MFA
+ Given a registered user with MFA enabled
+ When they submit valid email and password
+ Then they are prompted for their TOTP code
+ When they submit a valid TOTP code
+ Then the session is created and they are redirected to the dashboard
+
+Scenario: Failed login — locked account
+ Given a user who has failed login 5 times in 15 minutes
+ When they attempt to log in again
+ Then the API returns error code &quot;AUTH_ACCOUNT_LOCKED&quot;
+ And the lockout duration is 15 minutes
+ And a security email is sent to the user's registered email
+```
+
+
+#### Team Invitation + Acceptance
+
+
+Gherkin
+Feature: Team Invitation
+
+Scenario: Owner invites a new team member
+ Given an Owner of tenant &quot;Slate&quot; with member count below plan limit
+ When they enter an email and select role &quot;Designer&quot;
+ Then an invitation record is created via better-auth Organization plugin
+ And an invitation email is sent with a unique token
+ And the invitation appears as &quot;pending&quot; in the team management page
+
+Scenario: Invitee accepts invitation
+ Given a valid, non-expired invitation token
+ When the invitee clicks the link and creates their account
+ Then they are added to the tenant with the assigned role (&quot;Designer&quot;)
+ And the invitation status updates to &quot;accepted&quot;
+ And the Owner receives a notification that the new member joined
+ And the new member sees only agents permitted for their role (Design Agent)
+
+Scenario: Invitation expired
+ Given an invitation token older than the configured TTL
+ When the invitee clicks the link
+ Then they see error &quot;AUTH_INVITATION_EXPIRED&quot;
+ And they are prompted to request a new invitation from their organization
+```
+
+
+#### Stripe Subscription Creation (ACH-First)
+
+
+Gherkin
+Feature: Stripe Subscription (ACH-Preferred, Cards Accepted)
+
+Scenario: New tenant subscribes to Professional plan via ACH
+ Given a new tenant who has completed onboarding
+ When they select the Professional plan ($500/mo)
+ Then the checkout page shows both ACH and credit/debit card as payment options
+ And ACH is pre-selected as the recommended default
+ And the total due today is displayed as $10,500 (setup fee $10,000 + first month $500) for ACH
+ When they connect their bank account via Plaid instant verification
+ Then a Stripe Customer is created and linked to the tenant record
+ And a Stripe Subscription is created for the Professional price with ACH payment method
+ And the tenant's plan column updates to &quot;professional&quot;
+ And the tenant's billing_status updates to &quot;active&quot;
+ And 6 operational agents + Support Agent are enabled
+ And an AI SDK spending limit is configured for the Professional tier
+
+Scenario: Customer at checkout selects ACH
+ Given a customer at checkout
+ When they select ACH
+ Then no surcharge is applied and total shows base price
+
+Scenario: Customer at checkout selects credit/debit card
+ Given a customer at checkout
+ When they select credit/debit card
+ Then a 2.9% + $0.30 surcharge is added and displayed before confirmation
+
+Scenario: Customer in Connecticut or Massachusetts selects card
+ Given a customer in Connecticut or Massachusetts
+ When they select credit/debit card
+ Then no surcharge is applied (state restriction)
+
+Scenario: Stripe webhook confirms ACH payment
+ Given a Stripe &quot;invoice.paid&quot; webhook event for an ACH payment
+ When the webhook is received and signature is verified
+ Then the tenant's billing_status is confirmed as &quot;active&quot;
+ And the event is deduplicated via webhook_events table (idempotency key = event ID)
+
+Scenario: Customer switches payment method for renewals
+ Given a tenant with an active subscription
+ When the Owner navigates to billing settings
+ Then they can switch between ACH and credit/debit card for future renewals
+ And the same surcharge rules apply to card renewals
+ And payment method changes take effect on the next billing cycle
+
+Scenario: Customer disputes card surcharge
+ Given a customer who paid via credit/debit card with surcharge
+ When they dispute the surcharge
+ Then the surcharge is clearly documented on the Stripe receipt as a separate line item
+ And refunds include the surcharge amount
+```
+
+
+#### Plan Upgrade/Downgrade
+
+
+Gherkin
+Feature: Plan Change
+
+Scenario: Upgrade from Starter to Professional
+ Given a tenant on Starter plan (3 agents, 1K calls/day)
+ When the Owner selects &quot;Upgrade to Professional&quot;
+ Then Stripe prorates the remaining Starter billing period
+ And the new Professional subscription is activated immediately
+ And the tenant's plan updates to &quot;professional&quot;
+ And 3 additional agents are enabled
+ And the daily API call limit increases to 5K
+ And the AI SDK spending limit is updated
+
+Scenario: Downgrade from Professional to Starter
+ Given a tenant on Professional plan with 6 agents active
+ When the Owner selects &quot;Downgrade to Starter&quot;
+ Then the downgrade is scheduled for end of current billing period
+ And a warning is shown: &quot;3 agents will be disabled at period end&quot;
+ And at period end, the 3 lowest-priority agents are disabled
+ And the tenant's plan updates to &quot;starter&quot;
+```
+
+
+#### JobTread Grant Key Connection
+
+> **JobTread Authentication (INT-21):** JobTread uses grant key authentication (not OAuth). Customers create a grant key at `app.jobtread.com/grants` and paste it into Kiptra. A guided onboarding walkthrough with direct link and video minimizes friction. Kiptra applies to the JobTread Integration Partner Program for a native OAuth-style connection (roadmap item). A BullMQ cron job makes a lightweight API call every 30 days to prevent the 3-month inactivity expiration.
+
+```gherkin
+Feature: JobTread Integration
+
+Scenario: Successful grant key connection
+  Given a tenant with no JobTread integration connected
+  When the Admin navigates to Settings -> Integrations -> JobTread
+  And follows the guided walkthrough (direct link to app.jobtread.com/grants + video)
+  And pastes the grant key into the Kiptra UI
+  Then the grant key is encrypted with the tenant's DEK (AES-256-GCM)
+  And stored in the integrations table with key_version
+  And an initial full sync is triggered via BullMQ job
+  And the integration status shows "Connected" with last_synced_at timestamp
+
+Scenario: Grant key keepalive
+  When the BullMQ cron job runs every 30 days
+  Then a lightweight JobTread API call is made for each connected tenant
+  And the grant key inactivity timer is reset (preventing 3-month expiration)
+```
+
+Scenario: High-confidence KB match
+ Given the Support Agent searches its KB and finds a result with confidence >= 0.85
+ Then the agent responds with step-by-step instructions
+ And includes source attribution: &quot;Based on [Integration Troubleshooting Guide]&quot;
+ And ends with &quot;Was this helpful?&quot;
+
+Scenario: Low-confidence triggers escalation
+ Given a user asks about an unreleased feature
+ When the Support Agent searches the KB and all results have confidence 30 seconds
+ Given the Socket.io connection has been disconnected for 30+ seconds
+ When auto-reconnection continues to fail
+ Then the connection indicator shows gray with &quot;Refresh&quot; link
+ And clicking &quot;Refresh&quot; performs a full page reload
+```
+
+
+#### Data Export (CCPA)
+
+
+Gherkin
+Feature: CCPA Data Export
+
+Scenario: User requests data export
+ Given a user in tenant &quot;Slate&quot; requests a data export
+ When the Owner submits the CCPA export request
+ Then a BullMQ job is queued to compile all tenant-scoped user data
+ And the export includes: profile, conversation history, agent executions, drafts, escalations
+ And PII is included (it is the user's own data)
+ And the export is generated as a ZIP of JSON files
+ And the user is notified via email when the export is ready for download
+ And the download link expires after 7 days
+ And an audit log entry records the export request
+
+Scenario: Data deletion request
+ Given a CCPA deletion request for a specific user
+ When the Owner confirms the deletion
+ Then all user-specific records are soft-deleted (marked deleted, not purged)
+ And the user's session is invalidated immediately
+ And hard deletion occurs after a 30-day grace period
+ And an audit trail of the deletion is retained (without PII)
+```
+
+
+#### Tenant Offboarding
+
+
+Gherkin
+Feature: Tenant Offboarding
+
+Scenario: Owner cancels subscription
+ Given an Owner of tenant &quot;Slate&quot; initiates cancellation
+ When they confirm cancellation with reason
+ Then the Stripe subscription is set to cancel at period end
+ And the tenant's billing_status updates to &quot;canceling&quot;
+ And agents continue to function until period end
+ And a CCPA-compliant data export is automatically generated
+ And the Owner receives confirmation email with data export link
+
+Scenario: Subscription period ends after cancellation
+ Given tenant &quot;Slate&quot; billing_status is &quot;canceling&quot; and the period has ended
+ When the Stripe &quot;customer.subscription.deleted&quot; webhook fires
+ Then the tenant's billing_status updates to &quot;canceled&quot;
+ And all agents are disabled
+ And OAuth tokens for integrations are revoked
+ And the AI SDK spending limit is removed
+ And tenant data is retained for 90 days (compliance), then hard-deleted
+ And an audit log records the offboarding completion
+```
+
+
+#### K&B Design Generation (AI Loop)
+
+
+Gherkin
+Feature: Kitchen & Bath AI Design Generation
+
+Scenario: Successful design generation
+ Given a project with room dimensions (12x10 kitchen), client preferences, and NKBA constraints
+ When the user triggers &quot;Generate Design&quot;
+ Then the Design Layout Agent initiates the AI loop:
+ Step 1: Claude generates a layout proposal (cabinet placement, appliance positions)
+ Step 2: Z3 constraint solver validates NKBA compliance (clearances, work triangle, ADA)
+ Step 3: If constraints violated, Claude receives violations and regenerates
+ Step 4: Loop continues until constraints pass (max 5 iterations)
+ Step 5: Gemini renders the validated layout into a photorealistic preview
+ And the final design is stored with all iterations logged
+ And the Catalog Match Agent matches specified items to manufacturer catalog via pgvector RAG
+ And a BOM (Bill of Materials) is generated for the Sales Agent
+
+Scenario: Constraint solver rejects all iterations
+ Given a room layout that cannot satisfy NKBA constraints after 5 iterations
+ When the max iteration limit is reached
+ Then the best-effort layout is presented with constraint violations highlighted
+ And an escalation is created for the designer to manually adjust
+ And the specific violations are listed (e.g., &quot;Sink-to-stove clearance: 28in, required: 36in&quot;)
+```
+
+
+### Specification Contradiction Resolutions
+
+
+Two schema conflicts identified during the DDL formalization process, resolved with rationale.
+
+
+#### notification_preferences Schema Conflict (Resolved)
+
+
+Resolution: Adopt Section 13 Schema (Denormalized Columns-per-Channel)
+
+
+**Conflict:** Section 5 defined `notification_preferences` with a normalized row-per-channel model (`user_id, category, channel, enabled`), while Section 13 used a denormalized columns-per-channel model (`user_id, notification_type, in_app, email, push, digest_frequency`).
+
+
+**Resolution:** Adopt the Section 13 schema. Rationale: (1) Fewer rows (1 per user per type vs 3), (2) Single query returns all channel preferences, (3) Easier application code, (4) `digest_frequency` column needed for batched email digests, (5) Matches better-auth notification patterns.
+
+
+#### ORM Recommendation: Drizzle ORM
+
+
+Recommendation: Drizzle ORM (ADR Candidate)
+
+
+**Rationale:** (1) First-party better-auth adapter, (2) Type-safe queries without codegen, (3) SQL-first philosophy --- critical for RLS debugging, (4) Plain SQL migrations compatible with Expand & Contract pattern, (5) Native pgvector column support, (6) ~7x smaller bundle than Prisma, (7) No query engine overhead.
+
+
+**Integration:** `drizzle-kit introspect` generates schema from existing Supabase database. `withTenantContext()` wrapper pattern preserved via Drizzle transactions with `set_config('app.tenant_id', tenantId, true)`.
+
+
+---

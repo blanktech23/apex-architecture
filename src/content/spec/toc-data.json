@@ -1,0 +1,146 @@
+[
+  {
+    "slug": "infrastructure-sdk-overview",
+    "title": "0. Infrastructure & SDK Overview",
+    "file": "00-infrastructure-sdk-overview.mdx",
+    "num": "00"
+  },
+  {
+    "slug": "architecture-overview",
+    "title": "1. Architecture Overview",
+    "file": "01-architecture-overview.mdx",
+    "num": "01"
+  },
+  {
+    "slug": "tech-stack",
+    "title": "3. Tech Stack (Final)",
+    "file": "03-tech-stack.mdx",
+    "num": "03"
+  },
+  {
+    "slug": "key-stack-decisions",
+    "title": "3b. Key Stack Decisions (Researched)",
+    "file": "03b-key-stack-decisions.mdx",
+    "num": "03b"
+  },
+  {
+    "slug": "reference-boilerplates",
+    "title": "3c. Reference Boilerplates (Evaluated March 2026)",
+    "file": "03c-reference-boilerplates.mdx",
+    "num": "03c"
+  },
+  {
+    "slug": "ai-gateway-cost-model",
+    "title": "4. AI Gateway & Cost Model",
+    "file": "04-ai-gateway-cost-model.mdx",
+    "num": "04"
+  },
+  {
+    "slug": "multi-tenancy",
+    "title": "5. Multi-Tenancy Architecture",
+    "file": "05-multi-tenancy.mdx",
+    "num": "05"
+  },
+  {
+    "slug": "core-platform-ddl",
+    "title": "5b. Core Platform DDL (Complete Schema)",
+    "file": "05b-core-platform-ddl.mdx",
+    "num": "05b"
+  },
+  {
+    "slug": "evolvability",
+    "title": "6. Evolvability Architecture (Built to Evolve)",
+    "file": "06-evolvability.mdx",
+    "num": "06"
+  },
+  {
+    "slug": "multi-persona",
+    "title": "6b. Multi-Persona Architecture & Industry Template System",
+    "file": "06b-multi-persona.mdx",
+    "num": "06b"
+  },
+  {
+    "slug": "integration-architecture",
+    "title": "7. Integration Architecture (Email, Webhooks, OAuth)",
+    "file": "07-integration-architecture.mdx",
+    "num": "07"
+  },
+  {
+    "slug": "jobtread-contingency",
+    "title": "7a. JobTread Contingency Architecture",
+    "file": "07a-jobtread-contingency.mdx",
+    "num": "07a"
+  },
+  {
+    "slug": "agent-execution",
+    "title": "7b. Agent Execution Patterns",
+    "file": "07b-agent-execution.mdx",
+    "num": "07b"
+  },
+  {
+    "slug": "support-agent",
+    "title": "7c. Support Agent (AI-First Customer Support)",
+    "file": "07c-support-agent.mdx",
+    "num": "07c"
+  },
+  {
+    "slug": "agent-memory",
+    "title": "7d. Agent Memory Architecture",
+    "file": "07d-agent-memory.mdx",
+    "num": "07d"
+  },
+  {
+    "slug": "anti-hallucination",
+    "title": "7e. Anti-Hallucination Architecture",
+    "file": "07e-anti-hallucination.mdx",
+    "num": "07e"
+  },
+  {
+    "slug": "build-order",
+    "title": "9. Build Order (Revised --- 34--38 Weeks to Production (Realistic))",
+    "file": "09-build-order.mdx",
+    "num": "09"
+  },
+  {
+    "slug": "verification",
+    "title": "11. Verification",
+    "file": "11-verification.mdx",
+    "num": "11"
+  },
+  {
+    "slug": "infrastructure-security",
+    "title": "12. Infrastructure, Security & DevOps",
+    "file": "12-infrastructure-security.mdx",
+    "num": "12"
+  },
+  {
+    "slug": "ux-specifications",
+    "title": "13. UX Specifications --- Screens, Flows & Edge Cases",
+    "file": "13-ux-specifications.mdx",
+    "num": "13"
+  },
+  {
+    "slug": "developer-experience",
+    "title": "14. Developer Experience & Build Readiness",
+    "file": "14-developer-experience.mdx",
+    "num": "14"
+  },
+  {
+    "slug": "business-os",
+    "title": "15. Business Operating System",
+    "file": "15-business-os.mdx",
+    "num": "15"
+  },
+  {
+    "slug": "kitchen-bath-design",
+    "title": "16. Kitchen & Bath AI Design Tool",
+    "file": "16-kitchen-bath-design.mdx",
+    "num": "16"
+  },
+  {
+    "slug": "appendix-f-risk-register",
+    "title": "Appendix F: Technical Risk Register",
+    "file": "99-appendix-f-risk-register.mdx",
+    "num": "99"
+  }
+]

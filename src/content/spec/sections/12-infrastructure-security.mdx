@@ -1,0 +1,971 @@
+---
+title: "12. Infrastructure, Security & DevOps"
+slug: "infrastructure-security"
+section: "12"
+---
+
+Production-readiness requirements derived from Google SRE Launch Checklist, OWASP Multi-Tenant Security Cheat Sheet, and AWS Well-Architected SaaS Lens.
+
+
+
+
+### Capacity Planning (Attack Audit 2026-03-22)
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Capacity planning table (missing from spec):
+>
+> | Resource | Current Budget | Limit | Scaling Trigger |
+> |----------|---------------|-------|-----------------|
+> | DB connections | 35/node, 70 total (dual VPS) | 200 Supavisor transaction-mode limit | 80% utilization sustained 5 min |
+> | Valkey memory | BullMQ ~500MB/10K jobs + cache ~200MB + rate limits ~50MB = ~750MB | Managed Valkey plan limit (check DO dashboard) | 80% memory alert (MON-01) |
+> | NATS disk | File storage, ~1GB/month at current event rate | VPS disk allocation | 70% disk utilization |
+> | LLM concurrency | 10 concurrent per node, 20 total | Vercel AI Gateway rate limits per provider | P95 queue wait > 10s |
+> | Docker memory | ~6.5GB app services (8GB - 1.5GB monitoring) | 8GB droplet | Sustained swap usage |
+>
+> Scaling triggers: 500 tenants -> Supabase Team ($599/mo, verify current pricing) for PITR + higher connection limits. 1000 tenants -> dedicated Postgres (Supabase Enterprise or self-managed on DO). Valkey: upgrade DO Managed Valkey plan when memory exceeds 80%. NATS: add second hub node for HA when event volume exceeds 10K msg/sec sustained.
+
+
+### CI/CD Pipeline (Wave 1, Day 1)
+
+**Spec Amendment (Attack Audit 2026-03-22):** All CI workflows MUST have: `concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }` to prevent redundant parallel runs, `timeout-minutes` on every job (10 for lint, 20 for test, 15 for deploy), and `fetch-depth: 1` on all checkout steps. These are GitHub Actions non-negotiable standards per KB --- without explicit timeouts, the default is 6 hours, and a hung job burns Actions minutes silently.
+
+
+- **Every PR:** Lint (ESLint) -> type-check (tsc) -> unit tests (Vitest) -> build
+
+- **Merge to main:** Integration tests -> deploy to staging -> smoke tests -> deploy to production
+
+- **Frontend:** Vercel auto-deploys from main (preview deploys on PRs for free)
+
+- **Backend:** GitHub Actions SSH deploy to both VPS nodes (secondary first, then primary), `docker compose pull && docker compose up -d`
+
+- **Rollback discipline:** During the deploy step, after pulling and starting the new image, explicitly tag the outgoing image as 'previous' and do NOT prune it. Both the current and previous image tags must be resident on each VPS node at all times. Rollback command: `IMAGE_TAG=previous docker compose up -d --force-recreate`. Verification: after rollback, confirm `docker compose ps` shows all services healthy and `curl -f http://localhost:3000/health/live` returns 200 within 30 seconds. Rollback SLA: under 90 seconds (matching LB failover window). This requires images to be pre-pulled --- pulling a new image at rollback time adds 2--5 minutes, which is unacceptable during an incident.
+
+- **Spec Amendment (Attack Audit 2026-03-22):** SSH keys for VPS deploy must be scoped to a deploy-only user (not root). The deploy user has permissions limited to `docker compose` commands and image pull/tag operations. Implement key rotation on a quarterly schedule. Consider `tailscale ssh` with OIDC-backed access for zero-static-credential deploys --- this eliminates stored SSH keys entirely and ties VPS access to GitHub Actions OIDC identity.
+
+- Branch protection on `main`: require passing checks before merge
+
+- All third-party actions pinned to full SHA. Workflow-level `permissions: {}` with per-job scoping. `persist-credentials: false` on checkout.
+
+- **Spec Amendment (Attack Audit 2026-03-22):** Add three CI workflows: (1) CodeQL scanning on PR + weekly schedule with `security-extended` queries (catches 50%+ more vulnerabilities than default query suite). (2) `actions/dependency-review-action` on all PRs with `fail-on-severity: moderate`, `deny-licenses: GPL-3.0, AGPL-3.0` to block vulnerable or copyleft-licensed dependency additions. (3) Enable secret scanning with push protection. Add custom secret patterns for Supabase service role keys (`sbp_`), SendGrid API keys (`SG.`), and Anthropic API keys (`sk-ant-`) to catch platform-specific credential leaks that GitHub's built-in patterns may miss. Pin all security workflow actions to full SHA hashes per KB non-negotiable standards.
+
+- **Spec Amendment (Attack Audit 2026-03-22):** SBOM generation via `anchore/sbom-action` on each release (pinned to full SHA). Produces SPDX or CycloneDX format SBOM attached as release artifact. Useful for SOC 2 prep (software inventory requirement) and enterprise customer procurement questionnaires. Additionally, add `pnpm audit --audit-level=high` as a CI gate --- PRs introducing dependencies with known high/critical vulnerabilities are blocked.
+
+- **Dependency management:** Configure Renovate (preferred over Dependabot for monorepo support) as a Day 1 GitHub Actions item. Configuration: weekly minor/patch PRs grouped by layer (frontend, backend, infra), semantic versioning constraint pinning for known breaking-change packages (Drizzle, AI SDK, better-auth), auto-merge for patch updates that pass CI. For AI SDK specifically: all AI SDK usage must be encapsulated behind a thin adapter layer (`src/lib/ai/`) so version upgrades only require changing the adapter, not every tool definition and agent file across the codebase.
+
+
+### CI Quality Gates (All Enforced --- PRs Blocked on Failure)
+
+
+- **ESLint:** Zero errors (warnings allowed but tracked). Custom rules: `no-restricted-properties` for `c.notFound()`, `no-restricted-syntax` for `enum`, `no-restricted-imports` for barrel exports.
+
+- **TypeScript:** `tsc --build --noEmit` with zero errors.
+
+- **Vitest:** All tests pass, 80% line coverage minimum.
+
+- **Migration compatibility:** Custom CI check that diffs the previous and current migration files against the running code to detect column removal/rename that would break the previous code version during rolling deploy.
+
+- **CI time target:** Under 8 minutes for the full pipeline (lint + typecheck + test + build). Use Turborepo remote caching to achieve this.
+
+- **Spec Amendment (Attack Audit 2026-03-22):** When test suite exceeds 5 minutes, implement Vitest sharding: `--shard=1/4` across 4 matrix jobs. Run full matrix on `main` branch pushes; run single shard on PR pushes for fast feedback. Use `fail-fast: true` in matrix strategy to cancel remaining shards on first failure. This matches the KB pattern of splitting fast (lint) and slow (test) jobs with `needs:` dependency for fail-fast savings.
+
+
+### Dual-VPS Architecture (Day 1)
+
+
+Two identical DigitalOcean CPU-Optimized droplets (4vCPU/8GB, $80/mo each = $160/mo total) behind a DigitalOcean Load Balancer ($12/mo). Intentionally over-engineered for reliability from Day 1.
+
+
+- **Primary VPS:** Runs the full Docker Compose stack (Hono backend, NATS). Valkey is DigitalOcean Managed (external service, not in Docker Compose). BullMQ is a library within the Hono backend, not a separate service
+
+- **Secondary VPS:** Hybrid active-active *for HTTP request handling only*. Both nodes serve HTTP traffic simultaneously via the Load Balancer. The secondary handles API requests and runs BullMQ workers (coordinated via managed Valkey). Shared state coordination via external managed Valkey (DigitalOcean Managed Valkey --- mandated, not optional) and NATS leaf-node topology. Receives the same Docker image deployments. Health checks every 30 seconds.
+
+- JetStream HA Limitation:** The secondary VPS connects to the primary's NATS as a leaf node. JetStream consumers on the leaf node route all operations through the hub (primary). If VPS-1 (hub) dies, *all* JetStream processing stops --- the secondary provides zero redundancy for event-driven agent execution. Agent triggers via NATS events are primary-only until a 3rd NATS node is added to form a Raft quorum. The secondary's value is HTTP request handling and BullMQ job processing (via managed Valkey), not event-bus resilience.
+
+- **Load Balancer:** DigitalOcean managed LB distributes traffic. If primary fails health check (3 consecutive failures = 90 seconds), traffic automatically routes to secondary.
+
+- **Shared State:** PostgreSQL (Supabase) is fully external. Valkey runs as a single managed instance (DigitalOcean Managed Valkey) --- not per-node. Socket.io uses `@socket.io/redis-adapter` for cross-node event delivery. NATS runs in standalone mode with file-based persistence on the primary node (not clustered JetStream --- two nodes cannot form a Raft quorum); the secondary node connects to the primary's NATS as a leaf node. State divergence risk is minimal but not zero --- a network partition between nodes and the shared Valkey/NATS instances requires health-check-driven failover (covered by LB policy above).
+
+- **Cost:** $160/mo (2x VPS) + $12/mo (LB) = $172/mo. Only $92/mo more than single VPS. Insurance against total platform outage for all customers.
+
+- **Failure Modes:** If primary VPS fails, the secondary continues serving HTTP traffic via the Load Balancer (90-second health check failover). However, NATS JetStream (standalone on primary) becomes unavailable --- event-driven agent execution is suspended until primary recovers or manual failover promotes a new NATS primary. Valkey (managed instance) has its own availability SLA (~99.9% = ~8.7 hours/year potential downtime). During Valkey unavailability, BullMQ job processing, Socket.io cross-node delivery, and distributed cache are all degraded. Agent execution designed to be re-triggerable from BullMQ job state, treating NATS as a delivery mechanism rather than a durable store. Note: With `@socket.io/redis-adapter`, Socket.io cross-node delivery is NOT affected by NATS failure --- real-time dashboard updates continue via Valkey pub/sub independently. Database failure (Supabase) is the remaining SPOF --- mitigated by Supabase's managed HA infrastructure + daily pg_dump backups to DigitalOcean Spaces.
+
+
+### Docker Compose Hardening Requirements (Wave 1)
+
+
+Production Docker Compose configuration must include the following for all services. Without these, the 8GB droplet is vulnerable to disk exhaustion, OOM kills, and silent container failures.
+
+
+- **Log limits (INFRA-01, HIGH):** Every service MUST have `logging: { driver: &quot;json-file&quot;, options: { max-size: &quot;10m&quot;, max-file: &quot;3&quot; } }`. Without log rotation, a verbose service fills the 8GB droplet disk and takes down all services.
+
+- **Memory limits (INFRA-02, HIGH):** Every service MUST set `deploy.resources.limits.memory`. Node.js containers (Hono backend) MUST also set `--max-old-space-size` to 75% of the container memory limit (e.g., 1536m for a 2GB container). Without explicit limits, OOM kills are silent and undiagnosable.
+
+- **Health check conditions (INFRA-03, HIGH):** All `depends_on` declarations MUST use `condition: service_healthy`, not just container start. Without health check conditions, the Hono backend starts before NATS is actually ready to accept connections, causing startup race conditions.
+
+- **Named volume ownership (INFRA-04, MED):** Docker named volumes are created with root ownership (Docker bug #3270). Non-root containers (see INFRA-05) need an explicit `chown` in the entrypoint script to fix volume permissions on first run.
+
+- **Dockerfile requirements (INFRA-05, MED):** All Dockerfiles MUST use: (a) multi-stage builds (builder + production stages to minimize image size), (b) `USER node` (non-root execution), (c) `tini` or `dumb-init` as PID 1 init process for proper signal handling. Without an init process, `docker stop` sends SIGTERM but Node.js does not forward it to child processes --- after 10s Docker sends SIGKILL, which can cause BullMQ data loss (in-progress jobs marked as stalled instead of gracefully completed).
+
+- **Spec Amendment (Attack Audit 2026-03-22):** Reference Node.js Dockerfile pattern: multi-stage build with `COPY package*.json ./` before `COPY .` for layer caching, `--mount=type=cache,target=/root/.npm` for npm cache persistence across builds (requires BuildKit), `USER node` for non-root execution, exec-form `CMD ["node", "dist/index.js"]` (shell form makes sh PID 1 which does not forward SIGTERM --- containers take 10s to stop then get SIGKILL), and `NODE_OPTIONS="--max-old-space-size=1536"` set to 75% of container memory limit. Include `.dockerignore` excluding `node_modules`, `.git`, `tests`, `*.md`, `dist` from build context to prevent 2GB+ images and layer cache invalidation on non-source changes.
+
+- **Spec Amendment (Attack Audit 2026-03-22):** Pin Docker base images to digest, not tag: `node:20-slim@sha256:...`. Tag-based references (e.g., `node:20-slim`) are mutable --- the upstream publisher can push a different image to the same tag. Pinning to digest prevents supply chain attacks via tag mutation. Update digests quarterly or via Renovate/Dependabot Docker ecosystem updates.
+
+- **Restart policy (INFRA-06, MED):** All services MUST have `restart: unless-stopped`. Without a restart policy, a crashed container (e.g., NATS OOM) stays down permanently until manual intervention.
+
+- **Docker network isolation (ARCH-01, HIGH):** Production Compose files must define named networks with tier segmentation. Create three networks: `kiptra-frontend` (LB -> Hono API only), `kiptra-backend` (Hono -> Valkey, NATS, Postgres --- `internal: true`, not externally reachable), and `kiptra-monitoring` (Prometheus, Grafana, Alloy --- isolated from application traffic). Without network segmentation, a compromised frontend container can directly query Valkey or the database. Each service should only be attached to the networks it needs.
+
+
+### Python Services Infrastructure (K&B Design Tool --- Section 16)
+
+
+Infrastructure Gap: Python Services Not in Section 12 (ADR-INFRA-001)
+
+
+Section 16 specifies three Python dependencies (OR-Tools CP-SAT, ezdxf, IfcOpenShell) and one ML dependency (sentence-transformers) that run server-side. Section 12 does not account for these in the Docker Compose stack, memory budget, or network topology. This addendum closes that gap.
+
+
+**Timing:** The Python service is a Phase 2 addition (Month 10--16, K&B Design Tool build). It does NOT affect Wave 1--4 infrastructure. The Day 1 Docker Compose stack (Hono + NATS) is unchanged.
+
+
+#### 1. Docker Container Specification
+
+
+Dockerfile
+# services/kb-python/Dockerfile
+# --- Stage 1: Builder ---
+FROM python:3.12-slim-bookworm AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+ build-essential \
+ libgeos-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# --- Stage 2: Production ---
+FROM python:3.12-slim-bookworm AS production
+
+# Install tini for PID 1 signal handling (INFRA-05 compliance)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+ tini \
+ libgeos-dev \
+ curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd -r appuser && useradd -r -g appuser appuser
+
+COPY --from=builder /install /usr/local
+WORKDIR /app
+COPY . .
+
+# Non-root execution (INFRA-05 compliance)
+USER appuser
+
+EXPOSE 8100
+
+ENTRYPOINT ["tini", "--"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8100", "--workers", "2"]
+```
+
+
+**Base image:** `python:3.12-slim-bookworm` (~150 MB base). Multi-stage build strips build tools. Final image ~400--500 MB (dominated by OR-Tools ~180 MB and sentence-transformers model ~90 MB).
+
+
+**Python dependencies (requirements.txt):**
+
+
+requirements.txt
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+ortools==9.11.*
+ezdxf==1.4.*
+ifcopenshell==0.8.*
+sentence-transformers==3.4.*
+pydantic==2.10.*
+httpx==0.28.*
+```
+
+
+**Notes:**
+
+
+- **sentence-transformers model:** The `all-MiniLM-L6-v2` model (~90 MB) is downloaded at build time via a Dockerfile `RUN` step (not at runtime). This ensures deterministic builds and avoids Hugging Face download failures in production.
+
+- **OR-Tools CP-SAT:** Pure Python package, no native compilation needed at runtime. The solver has a 2 GB protobuf model size limit, which is far above K&B BOM optimization needs (typical models are 16GB upgrade recommended before K&B activation for production safety margin. | |
+
+
+**Total after K&B: ~6,872 MB / 8,192 MB (84% allocated).**
+
+
+**Manageable but worth monitoring.** The 1,320 MB headroom is adequate for initial K&B rollout. Two mitigations for scale:
+
+
+- **Lazy loading (recommended for Phase 1):** The `kb-python` service starts with `profiles: ["kb"]` in Docker Compose, meaning it only runs on VPS nodes where the K&B feature is activated. For Phase 1 (1--50 customers), if K&B adoption is Hono ---|---> NATS |
+ |---> kb-python:8100 (NEW) |
+ | |-- POST /api/v1/optimize (OR-Tools) |
+ | |-- POST /api/v1/export/* (ezdxf/IFC) |
+ | +-- POST /api/v1/embed (sentence-tx) |
+ +---------------------------------------------+
+```
+
+
+### DigitalOcean Platform Notes
+
+
+- **Managed Valkey version cap (DO-03, MED):** DigitalOcean Managed Valkey replaces discontinued Managed Redis (June 2025). Wire-compatible with Redis; BullMQ and Socket.io adapters work unchanged. Plan accordingly --- verify feature parity for any Redis 7.4+ features relied upon.
+
+- **Real client IP behind Cloudflare (DO-04, MED):** Use the `CF-Connecting-IP` header for real client IP in rate limiting and audit logs. `X-Forwarded-For` returns the Cloudflare edge IP, not the client IP, when traffic flows through Cloudflare.
+
+- **Proxy Protocol conflict (DO-05, MED):** Proxy Protocol MUST NOT be enabled on both Cloudflare and the DigitalOcean Load Balancer simultaneously. Enable it on one or the other --- double-wrapping corrupts the connection headers.
+
+
+### Rolling Deployment --- Sequential Node Update (Wave 2)
+
+
+Deploy to secondary VPS first, verify health, then deploy to primary. This is a rolling deployment, not true blue-green (which requires two complete, identically-sized environments with atomic traffic switching). Constraint: All database migrations must be backward-compatible with the previous code version, since both versions run simultaneously during the rollout window. A migration compatibility check in CI blocks deploys if a migration removes or renames columns still referenced by the previous code version.
+
+
+- Deploy sequence: secondary VPS first -> verify health -> primary VPS. Near-zero-downtime (brief period of mixed versions).
+
+- Health check endpoints **(MON-03)** split into three to prevent restart loops when a dependency is briefly unreachable: (a) `/health/live` --- process liveness only, never checks external dependencies (used by Docker HEALTHCHECK and LB liveness probe), (b) `/health/ready` --- checks database connected, NATS connected, Valkey connected, Socket.io Valkey adapter connected (used by LB readiness probe --- returns 503 until all dependencies are reachable), (c) `/health/startup` --- one-time initialization check (schema migrations applied, NATS subjects created, BullMQ workers registered). A single `/health` endpoint that checks all dependencies causes restart loops when a dependency is briefly unreachable --- the LB marks the node unhealthy even though the process is fine.
+
+- If errors spike on newly deployed node, Load Balancer automatically removes it from rotation within 90 seconds.
+
+- WebSocket connections: existing connections drain naturally (30-second grace period). New connections route to healthy nodes.
+
+- Deployment frequency: multiple times per day if needed. No maintenance windows.
+
+- **Graceful shutdown (SIGTERM handler):** SIGTERM handler sequence (order is critical): (1) `worker.close()` --- stops accepting new BullMQ jobs and waits for in-progress jobs to complete (up to `lockDuration`). (2) `io.close()` --- sends disconnect to all Socket.io clients with 30-second drain. (3) Track in-flight SSE streams and send close events to trigger client reconnection to the surviving node. (4) `server.close()` --- stops accepting new HTTP connections, drains existing ones. (5) `process.exit(0)`. The BullMQ `lockDuration` must be >= 120,000ms (matching the longest LLM timeout) so in-progress jobs are not marked stalled during shutdown. This is a required Wave 2 implementation item, not an assumed behavior of the DigitalOcean Load Balancer.
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Full SIGTERM handler resource cleanup order: (1) `httpServer.close()` (stop accepting connections), (2) `worker.close()` (finish current jobs), (3) `queue.close()` (close queue connections), (4) `queueEvents.close()` (close event listeners), (5) `nc.drain()` (drain NATS --- finish in-flight, then close), (6) `io.close()` (disconnect Socket.io clients), (7) `pub.quit()` + `sub.quit()` (close Redis/Valkey clients). The current spec omits `nc.drain()` (NATS), `queue.close()`, `queueEvents.close()`, and Redis client cleanup. Without `nc.drain()`, in-flight NATS messages are dropped. Without `queue.close()`, BullMQ connection leaks on restart.
+
+- **SSE stream drain:** On SIGTERM, track all in-flight SSE streams (agent execution streams). Send a stream close event with a retry directive (`retry: 5000`) so clients automatically reconnect to the surviving node. If an LLM inference is mid-flight, the `onStepFinish` callback should check a shutdown flag and gracefully complete the current step before yielding. Do not kill active LLM calls --- wait for the current step to finish, then close the stream.
+
+- **Deploy-safe webhook handling:** Configure the DO Load Balancer to remove a node from rotation before deploying to it (pre-drain), not after. SendGrid retries failed webhooks for up to 72 hours, then permanently drops the email. A deploy window where the webhook endpoint returns 5xx causes lead email loss. Additionally: set up a SendGrid webhook alert --- if no inbound emails are processed for a tenant that normally receives 5+/day, page on-call. Document MX propagation delay (up to 48 hours) in the onboarding flow with a 'your email setup is pending DNS propagation' status indicator.
+
+- **Code canary deployment:** Before promoting a deploy to both VPS nodes, deploy new code to secondary only and configure the DO Load Balancer to route 10% of traffic to secondary for a 15-minute observation window. Monitor error rate, P99 latency, and BullMQ stalled job count during the canary window. If any metric exceeds threshold, roll back secondary to the previous image. If metrics are clean, promote to primary. This is separate from the prompt canary (10% of tenants) --- code canary validates infrastructure changes, prompt canary validates AI behavior changes.
+
+
+### Docker Image Registry
+
+
+Docker image registry: GitHub Container Registry (ghcr.io). Image tagging: every merge to main produces an image tagged with the git SHA (`ghcr.io/kiptra-ai/backend:abc123f`). The deploy script also tags the image as 'latest'. On deploy, the outgoing image is re-tagged as 'previous'. Both 'latest' and 'previous' tags are always resident on each VPS node. Image pruning policy: keep the 5 most recent images per VPS node.
+
+**Spec Amendment (Attack Audit 2026-03-22):** Production deploy requires: (1) `environment: production` with required reviewers configured on the GitHub Actions deploy job --- this is a GitHub-native deploy gate that prevents accidental production pushes. (2) Minimum 15-minute wait after staging deploy before production promotion (configurable via environment wait timer in GitHub repo settings). (3) Automated smoke test suite that must pass before deploy completes: health check returns 200, one agent execution completes end-to-end against a test tenant, Stripe webhook signature verification succeeds, Socket.io connection established and room join confirmed. If any smoke test fails, the deploy is automatically rolled back to the `previous` image tag.
+
+
+### Testing Strategy (Phased)
+
+
+| Test Type | When | What to Test | Tool | |
+
+
+| **Unit** | Wave 1, Day 1 | Business logic, billing calculations, agent routing, RLS policies | Vitest | |
+
+| **Integration** | Wave 2 | API endpoints, webhook handlers, Supabase RLS adversarial queries | Vitest + Supertest | |
+
+| **E2E** | Wave 3 | Critical flows only: login, create agent, approve escalation, view dashboard | Playwright | |
+
+| **Load** | Wave 4 | 10/50/100/500 concurrent users, agent execution under load | k6 | |
+
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** AI Testing Architecture: (1) `MockLanguageModelV1` fixtures organized per agent per scenario in `test/fixtures/ai/` (e.g., `test/fixtures/ai/leads-agent/lead-classification.ts`). (2) Multi-step mock sequences: tool call sequence fixtures for full execution loops --- mock the complete `generateText` -> tool call -> `generateText` cycle, not just single responses. (3) Promptfoo eval suite per agent with golden test cases (minimum 20 per agent), run weekly in CI as a scheduled workflow. Eval results tracked over time to detect prompt regression. (4) AI SDK contract test per major version upgrade --- verify `generateText`, `streamText`, `tool()`, and `Output.object()` behavior against a pinned provider response fixture. (5) Extend RAGAS evaluation (currently Support Agent only) to ALL RAG-dependent agents (Sales Agent knowledge retrieval, Leads Agent email classification). Minimum thresholds apply uniformly: faithfulness >= 0.90, answer relevancy >= 0.85, context precision >= 0.80.
+
+### Testing Conventions
+
+
+- **Coverage threshold:** 80% line coverage enforced in CI via Vitest coverage reporter. PRs that decrease coverage below 80% are blocked.
+
+- **AI SDK mocking:** Use Vercel AI SDK's `MockLanguageModelV1` and `simulateReadableStream` test utilities for deterministic agent logic tests without burning real API tokens. Mock AI responses at the AIGateway adapter layer.
+
+- **Webhook testing:** Stripe CLI (`stripe listen`) for local webhook replay. SendGrid Inbound Parse: fixture `multipart/form-data` payloads stored in `test/fixtures/sendgrid/` for replay via supertest.
+
+- **Multi-tenant isolation tests:** Every integration test creates 2 test tenants and verifies cross-tenant data isolation via RLS adversarial queries.
+
+- **Agent execution tests:** Deterministic tool call sequences with mocked external APIs (JobTread, QuickBooks fixtures). Verify step count, token budget, and escalation triggers.
+
+
+### Security Hardening (Wave 1 --- Non-Negotiable)
+
+
+- **Headers:** HSTS, CSP, X-Frame-Options, X-Content-Type-Options --- built into Hono middleware
+
+- **Auth:** Rate limiting on all auth endpoints (5--10 req/min/IP), account lockout after 5 failed attempts, MFA via TOTP
+
+- **CORS:** Explicit allowlist (not wildcard) --- only Vercel frontend domain
+
+- **Tenant isolation:** Never trust client-supplied tenant IDs --- derive from auth token server-side
+
+- **Input validation:** Zod schemas on all API endpoints, parameterized queries everywhere
+
+- **Spec Amendment (Attack Audit 2026-03-22):** SSRF Protection: Block private IP ranges (10.x, 172.16.x, 169.254.x, 127.x, ::1, fd00::/8) in all outbound HTTP calls from agent tool executions. Maintain an allowlist of known integration domains (JobTread, QuickBooks, Google, Microsoft Graph, SendGrid). Agents process untrusted URLs from inbound emails (SendGrid Inbound Parse) and user-submitted content --- SSRF is a real attack vector where a crafted email could cause the agent to make requests to internal services (Valkey, NATS, Postgres) or cloud metadata endpoints (169.254.169.254). Implement via a custom `fetch` wrapper used by all `IntegrationAdapter` implementations.
+
+- **Secrets:** Environment variables only (never in code), Vercel env vars for frontend, Docker secrets for both VPS nodes
+
+- **WAF:** Cloudflare Pro ($20/mo) in front of dual VPS (via DO Load Balancer) --- DDoS protection, bot filtering, SSL termination. **Page Rules deprecated (CF-03, MED):** Cloudflare Page Rules are deprecated as of 2025. Use Cache Rules + Configuration Rules instead for all URL-based routing and caching configuration. **WebSocket keepalive (CF-04, MED):** Socket.io `pingInterval` must be ` returns closed/filtered for all non-web ports.
+
+- **(ARCH-01) Docker network isolation (production):** Docker Compose must define named networks with segmentation: (1) `frontend` network: Load Balancer -> Hono API containers only; (2) `backend` network: Hono -> Valkey, NATS, Postgres (internal services); (3) `monitoring` network: Prometheus, Loki, Grafana (isolated from application traffic). Without named network segmentation, all containers share the default bridge network --- a compromised frontend container can directly query Valkey and Postgres. Each service connects only to the networks it requires (e.g., Hono connects to both `frontend` and `backend`; Valkey connects only to `backend`).
+
+- **Spec Amendment (Attack Audit 2026-03-22):** All SSE streaming endpoints MUST return `Content-Encoding: none` header to prevent Cloudflare edge compression buffering. This is SEPARATE from `X-Accel-Buffering: no` (tunnel/proxy-layer buffering fix) and applies regardless of Tunnel vs DNS proxy mode. Without this header, Cloudflare's gzip/brotli compression buffers the response body to compress it, defeating real-time token streaming --- tokens arrive as one large batch instead of incrementally.
+
+- **Spec Amendment (Attack Audit 2026-03-22):** Cloudflare may not propagate client disconnect signals to the origin server (KB gotcha #15). Implement bidirectional heartbeat: server sends SSE keepalive comment (`: keepalive\n\n`) every 15s; monitor `res.on('close')` to detect client disconnection and call `abortController.abort()` to cancel in-flight LLM inference. Without this, LLM generation continues running (wasting tokens and compute) after the user navigates away.
+
+- **Spec Amendment (Attack Audit 2026-03-22):** CF-06 (CONSTRAINT): Cloudflare Pro has a non-configurable 100-second proxy read timeout (KB gotcha #6). The 15s SSE keepalive interval specified above provides a 6.6x safety margin (keepalive resets the 100s timer). Do not increase keepalive interval above 90s. Enterprise plan allows 600s timeout but is not cost-justified at current scale.
+
+- **Cloudflare SSL:** Mode = Full (Strict) --- mandatory. Install **Cloudflare Origin CA certificates** (not Let's Encrypt) on both VPS nodes and the DigitalOcean Load Balancer. **(CF-02):** Let's Encrypt renewal can fail behind Cloudflare proxy (DNS challenge required). Cloudflare Origin CA certs have 15-year validity and are purpose-built for this topology. Enable "Always Use HTTPS" and "Minimum TLS Version: 1.2". Wave 4 security audit must verify Cloudflare SSL mode is Full (Strict), not Flexible.
+
+- **Secret rotation:** Application implements a SIGHUP handler that re-reads secrets from Docker secrets files without restarting. For immediate rotation (compromise): update Docker secret -> rolling restart (secondary first, then primary). Annual rotation schedule for all provider API keys, documented in incident response plan.
+
+
+
+### Performance Budgets & SLOs (Attack Audit 2026-03-22)
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Explicit SLOs (missing from spec): CRUD endpoints P99 < 200ms (99.5% target over 30-day window), agent trigger endpoints P99 < 500ms (99% target), status polling endpoints P99 < 100ms (99.9% target), dashboard LCP < 2.5s. Error budget: 99.5% SLO = 0.5% budget = 3.6 hours/month allowed downtime. Burn rate alerts: 1-hour burn > 14.4x = page immediately, 6-hour burn > 6x = page within 30 min, 3-day burn > 1x = ticket (slow burn). Frontend performance budgets: JS bundle < 300KB gzipped (total initial load), LCP < 2.5s, FID < 100ms, CLS < 0.1. Add Lighthouse CI (`@lhci/cli`) to PR pipeline --- block PRs that regress LCP by > 500ms or increase bundle size by > 50KB. Measure via Vercel Analytics (Web Vitals) with weekly review cadence.
+
+
+### Alerting Thresholds (Wave 1)
+
+
+- **UptimeRobot (Day 1, free tier):** External uptime monitoring for `https://api.kiptra.io/health/live` and `https://app.kiptra.io`. 5-minute check interval. SMS + Slack on downtime. Provides external validation independent of self-hosted monitoring (catches scenarios where Prometheus itself is down).
+
+- API P99 latency > 2s for 5 minutes -> Slack alert
+
+- Error rate > 1% over 5 minutes -> SMS to on-call founder
+
+- Supabase connectivity: 3 consecutive health check failures (90 seconds) -> SMS alert. Aligned with LB health check threshold to prevent alert fatigue from transient connection blips
+
+- AI Gateway P95 > 5s -> Slack alert (managed service, no restart needed)
+
+- BullMQ dead letter queue depth > 10 -> Slack alert
+
+- **Valkey memory policy (MON-01, HIGH):** DigitalOcean Managed Valkey MUST be configured with `maxmemory-policy noeviction`. With any eviction policy (e.g., `allkeys-lru`), BullMQ jobs silently disappear under memory pressure --- no error, no DLQ entry, just lost work. Monitor Valkey memory usage and alert at 80% capacity.
+
+- **On-call rotation:** Joseph and TJ alternate weeks. Escalation: if no acknowledgment within 15 minutes, page both founders.
+
+- **BullMQ custom metrics (MON-04, MED):** Export custom Prometheus metrics for BullMQ queue health: `bullmq_jobs_waiting`, `bullmq_jobs_active`, `bullmq_jobs_failed`, `bullmq_stalled`. These are not available out-of-the-box --- implement via BullMQ's `Queue.getJobCounts()` exposed on a `/metrics` endpoint scraped by Prometheus.
+
+- **Monitoring stack memory budget (MON-05, MED):** The self-hosted monitoring stack (Prometheus + Grafana + Loki + Grafana Alloy) consumes 600MB--2GB RAM on the 8GB droplet. This MUST be accounted for when setting container memory limits (INFRA-02). Budget: ~1.5GB for monitoring, leaving ~6.5GB for application services (Hono backend, NATS).
+
+- **Spec Amendment (Attack Audit 2026-03-22):** Add monitoring infrastructure configuration details: (1) Alloy River config for Docker log discovery (`discovery.docker` -> `loki.source.docker` -> `loki.process` pipeline with JSON level extraction -> `loki.write` to Loki endpoint). (2) Loki config: `retention_period: 90d` (matching hot storage policy in Log Retention section), S3-compatible backend pointed at DO Spaces for cold storage. (3) Prometheus scrape targets: Hono `/metrics` endpoint (custom BullMQ metrics per MON-04), `node-exporter` for host metrics, `cAdvisor` for container metrics. (4) Docker daemon log rotation in `/etc/docker/daemon.json`: `{ "log-driver": "json-file", "log-opts": { "max-size": "10m", "max-file": "3" } }` as global safety net --- unbounded Docker logs are the #1 disk-full cause per KB.
+
+
+### Prompt Injection Defense (Wave 2 --- Critical)
+
+
+Three-layer defense against prompt injection attacks. Agents process inbound emails, webhooks, and user input --- all are untrusted attack surfaces.
+
+
+#### Layer 1 --- Architectural Defense + Input Sanitization
+
+
+- **Primary defense is architectural, not classifier-based:** (a) User input is never concatenated into system prompts --- a hard structural separator (`` tag) marks untrusted content. (b) Vercel AI SDK's `system` parameter enforces separation at the framework level. (c) Agent tool permissions are statically defined --- injected prompts cannot invoke tools not in the agent's registered tool set.
+
+- All external inputs (inbound emails via SendGrid, webhook payloads, user-submitted text) are sanitized before reaching agent prompts
+
+- Strip control characters, limit input length, detect known injection patterns (e.g., "ignore previous instructions", "system prompt override")
+
+- The Haiku classifier (Haiku 4.5, cost: negligible) provides a secondary probabilistic defense layer --- scores injection probability before routing to agent --- but is not the primary gate.
+
+
+#### Layer 2 --- Prompt Architecture
+
+
+- System prompts use delimiter-based separation (XML tags) between instructions and user content
+
+- Agent instructions are marked as immutable; user content is explicitly sandboxed
+
+- Agents cannot modify their own system prompts or access other agents' prompts
+
+- Tool-use permissions are statically defined per agent --- an injected prompt cannot grant new tool access
+
+
+#### Layer 3 --- Output Validation
+
+
+- All agent outputs pass through a validation layer before action execution
+
+- Structured outputs validated against JSON schemas (Zod) --- malformed responses are rejected
+
+- Actions with side effects (sending emails, creating records, modifying data) require schema-conformant output AND human approval for client-facing actions
+
+- Anomaly detection: if an agent's output is statistically different from its historical pattern (token count, action type, referenced entities), it is flagged for review
+
+
+### AI Output Validation Pipeline (Wave 2)
+
+
+Every agent output passes through a validation pipeline before execution:
+
+
+`AgentResult` includes full execution trace: `{ finalOutput: T, toolCallHistory: ToolCall[], modelUsage: ModelUsageByStep[], escalationsTriggered: Escalation[] }`. The validation pipeline inspects `toolCallHistory` for anomalous patterns (unexpected tool calls, out-of-scope invocations), not just the final output.
+
+
+- **Schema validation** --- output must conform to the agent's defined output schema (Zod). Malformed JSON, missing required fields, or unexpected field types -> reject and retry (max 2 retries)
+
+- **Boundary checks** --- after 30 days of tenant operation, statistical bounds (mean &plusmn; 3 standard deviations) are computed from the tenant's own historical data per project type. For new tenants, platform-wide quartiles serve as initial reference, tightening as customer-specific data accumulates. Computed by a nightly background job per tenant. An estimate of $0 or $10M for a kitchen remodel -> flagged as anomalous
+
+- **Action authorization** --- outputs requesting side effects (send email, create record, modify schedule) checked against the agent's permission set. Actions outside scope -> reject
+
+- **Consistency check** --- for financial agents (Sales Agent, Bookkeeping Agent), outputs cross-referenced against source data. If the AI claims an invoice is overdue but QuickBooks shows it's paid -> flagged
+
+- **Rate limiting** --- rate limits apply to side-effecting actions only (email sends, record creates, data modifications) --- not read-only tool calls. Tier-specific: Starter = 50 side-effecting actions/hour, Professional = 200/hour, Enterprise = 500/hour
+
+- **Loop prevention** --- `stopWhen: stepCountIs(N)` set per agent type (Leads Agent = `stepCountIs(7)`, Sales Agent = `stepCountIs(17)`, CEO Agent = `stepCountIs(12)`) via Vercel AI SDK. **Note:** Step budgets are +2 vs. v5 values because AI SDK v6 consumes a step when generating structured output. Total token budget per execution as secondary guard. This is more permissive for legitimate multi-tool workflows and more robust against true loops than a consecutive-call heuristic.
+
+
+### Tool Interface Definitions (Top 5 Critical Tools)
+
+
+Concrete interface sketches for the most critical agent tools. All tools enforce tenant context via `withTenantContext()` and validate `inputSchema` with Zod schemas (v6 renamed `parameters` to `inputSchema`).
+
+
+TypeBox Tool Schema Migration (AI-27 --- Wave 3a)
+
+
+When implementing the first agent tools in Wave 3a, adopt **TypeBox** (`@sinclair/typebox`) alongside Zod for tool parameter definitions. TypeBox produces compile-time TypeScript types AND runtime JSON Schema from a single source --- eliminating the Zod-to-JSON-Schema conversion step that Vercel AI SDK performs internally. Tools registered via `AgentRegistrationAPI.registerTool()` (Section 6) use `AgentToolDefinition` with TypeBox schemas.
+
+
+**Dual-schema approach:** TypeBox for tool `parameters` (input to the LLM --- needs JSON Schema), Zod for tool `outputSchema` (output validation in the AI Output Validation Pipeline --- needs runtime parsing). This avoids forcing a single schema library where each has a natural fit.
+
+
+**`promptGuidelines` on tools:** Each `AgentToolDefinition` declares an optional `promptGuidelines: string[]` array. These guidelines are automatically injected into the agent's system prompt when the tool is active, making tools self-documenting to the LLM. Example: the `query_jobtread_projects` tool includes `[&quot;Always filter by status when the user asks about active projects&quot;, &quot;Limit results to 50 unless explicitly asked for more&quot;]`. This pattern ensures tool-specific LLM guidance stays co-located with the tool definition rather than buried in monolithic system prompts.
+
+
+TypeScript
+// 1. Query integration data
+tool('query_jobtread_projects', {
+ inputSchema: z.object({
+ tenantId: z.string().uuid(),
+ status: z.enum(['active', 'completed', 'all']),
+ limit: z.number().max(50)
+ }),
+ returns: z.array(ProjectSchema)
+})
+
+// 2. Create estimate draft
+tool('create_estimate_draft', {
+ inputSchema: z.object({
+ projectId: z.string().uuid(),
+ lineItems: z.array(EstimateLineSchema),
+ notes: z.string().optional()
+ }),
+ returns: z.object({ draftId: z.string().uuid(), totalAmount: z.number() })
+})
+
+// 3. Send email draft (requires approval)
+tool('draft_email', {
+ inputSchema: z.object({
+ to: z.string().email(),
+ subject: z.string(),
+ body: z.string(),
+ escalate: z.literal(true)
+ }),
+ returns: z.object({ escalationId: z.string().uuid() })
+})
+
+// 4. Query financial summary
+tool('query_quickbooks_summary', {
+ inputSchema: z.object({
+ tenantId: z.string().uuid(),
+ dateRange: z.object({ start: z.string(), end: z.string() })
+ }),
+ returns: FinancialSummarySchema
+})
+
+// 5. Check schedule availability
+tool('check_calendar_availability', {
+ inputSchema: z.object({
+ tenantId: z.string().uuid(),
+ dateRange: z.object({ start: z.string(), end: z.string() }),
+ resourceIds: z.array(z.string()).optional()
+ }),
+ returns: z.array(AvailabilitySlotSchema)
+})
+```
+
+
+### Agent-Tool Permission Matrix
+
+
+Each agent is restricted to its authorized tool set. "Read-only" means the tool is available but parameterized to prevent mutations. All tools enforce tenant context via `withTenantContext()`.
+
+
+| Tool | Leads Agent | Sales Agent | Bookkeeping Agent | Project Management Agent | CEO Agent | Design Agent | Support Agent | |
+
+
+| `query_jobtread_projects` | &check; | &check; | &cross; | &check; | &check; | &check; | Read-only | |
+
+| `create_estimate_draft` | &cross; | &check; | &cross; | &cross; | &cross; | &cross; | &cross; | |
+
+| `draft_email` | &check; | &cross; | &check; | &check; | &check; | &cross; | &cross; | |
+
+| `query_quickbooks_summary` | &cross; | &check; | &check; | &cross; | &check; | &cross; | Read-only | |
+
+| `check_calendar_availability` | &check; | &cross; | &cross; | &check; | &check; | &cross; | &cross; | |
+
+| `query_execution_logs` | &cross; | &cross; | &cross; | &cross; | &check; | &cross; | &check; | |
+
+| `query_lead_pipeline` | &check; | &cross; | &cross; | &cross; | &check; | &cross; | &cross; | |
+
+| `search_knowledge_base` | &cross; | &cross; | &cross; | &cross; | &cross; | &cross; | &check; | |
+
+| `escalate_to_human` | &cross; | &cross; | &cross; | &cross; | &cross; | &cross; | &check; | |
+
+| `check_account_status` | &cross; | &cross; | &cross; | &cross; | &cross; | &cross; | &check; | |
+
+| `check_integration_health` | &cross; | &cross; | &cross; | &cross; | &cross; | &cross; | &check; | |
+
+
+**Enforcement (two layers):** (1) **Static:** Tools registered via `AgentRegistrationAPI.registerTool()` are validated against the permission matrix at registration time. Any tool call not in the agent's registered tool set is rejected before execution and logged as an anomalous invocation (see AI Output Validation Pipeline step 3). (2) **Dynamic:** The `before_tool_call` event handler (Section 6, factory pattern) enables runtime permission gating --- agents can block tool calls based on tenant usage limits, feature flags, business rules, or real-time conditions. Dynamic gates complement, not replace, the static matrix.
+
+
+### Error Handling Patterns (Wave 2 --- Distributed Systems)
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Unified error handling architecture: (1) `Result<T, E>` type (from testing KB patterns) for all internal service returns --- callers know ALL possible errors at compile time. (2) Per-context error wrappers: Hono handler errors caught by `app.onError()` (see Hono section), BullMQ worker errors handled via `job.moveToFailed()` + DLQ entry, NATS subscriber errors routed to dead letter subject, Socket.io errors emitted as `error` event to the originating client. (3) All error paths map to the unified `ApiError` interface (see Error Taxonomy) with `requestId` for correlation. (4) Error propagation chain: worker error -> DLQ + NATS `TENANT_{id}.error.{agentType}` event -> Socket.io notification to tenant dashboard. Never silent failure.
+
+
+
+
+| Pattern | Implementation | Use Case | |
+
+
+| **Exponential backoff + jitter** | All external API calls (Vercel AI Gateway, JobTread, QuickBooks) | Transient failures, rate limits | |
+
+| **Circuit breakers** | Per-integration (JobTread, QB, Google) | Prevent cascade failures when a service is down | |
+
+| **AI provider circuit breakers** | AIGateway wrapper | Provider-level circuit breakers for Anthropic and OpenAI independently. Vercel AI Gateway handles cross-provider failover automatically. The AIGateway wrapper implements per-provider health tracking. Circuit opens after 5 consecutive failures in 30s per provider. Half-open after 60s (test with one call). Multi-step agents queue in BullMQ until circuit closes. | |
+
+| **Dead letter queues** | NATS + BullMQ | Dead Letter Queue policy: Retention = 7 days. Alert threshold: DLQ depth > 10 jobs triggers Slack alert. Remediation: failed jobs surfaced in admin panel with retry/dismiss actions. Customer-visible failures: if an approved action fails (email send, record creation), an escalation is created in the escalations table so the user sees it in the dashboard --- never silent failure. Correlation: BullMQ job ID and NATS message ID logged together in `agent_executions` for cross-system debugging. | |
+
+| **Idempotency keys** | All agent actions, especially payments/approvals | Prevent duplicate charges/emails on retry | |
+
+| **Saga / compensating transactions** | Multi-step agent workflows touching external systems | Roll back partial changes when a step fails | |
+
+| **Key saga patterns:** (1) Email draft approved + email provider API (Gmail/Microsoft Graph) send fails -> mark draft as 'send_failed', create escalation ticket. (2) Estimate created in Supabase + JobTread sync fails -> mark estimate as 'sync_pending', retry via BullMQ with exponential backoff. (3) Multi-agent chain where downstream agent fails -> mark upstream output as 'downstream_failed', notify user via NATS event. | |
+
+
+### Database Migration Strategy
+
+
+Uses the **Expand & Contract** pattern to prevent downtime:
+
+
+- Add new columns/tables first (expand) --- no breaking changes
+
+- Backfill data with migration scripts
+
+- Update application code to use new schema
+
+- Remove old columns later (contract)
+
+
+**Critical rule:** RLS policies must NEVER reference newly-added columns until backfill is complete --- a policy referencing a NULL column silently denies all access for existing rows. Sequence: (1) add column with DEFAULT NULL, (2) backfill, (3) add NOT NULL constraint, (4) update RLS policy. Additionally, RLS policy changes affect ALL tenants simultaneously. Test every migration against a snapshot of production data before applying. Use Supabase's built-in tooling: `supabase db diff`, `supabase migration new`.
+
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Migration execution protocol: (1) Migrations run as a pre-deploy step on staging first, then production --- never directly to production. Staging migration must succeed and soak for at least 1 hour before production apply. (2) Use `CREATE INDEX CONCURRENTLY` always --- never `CREATE INDEX` on any table with data. Non-concurrent index creation takes a full table lock. (3) Contract phase (dropping columns/tables) requires 48-hour production soak after the code no longer references the column, not just deploy success. This catches background jobs, cron tasks, and integration callbacks that may still reference the old column. (4) Backfill strategy: small tables (< 100K rows) = migration script with batch updates (1000 rows/batch, 100ms sleep between batches). Large tables (>= 100K rows) = BullMQ background job with progress tracking, resumable on failure. (5) Every migration must have a corresponding rollback script in `supabase/migrations/rollback/` --- see Database Rollback amendment below.
+
+**Column addition convention:** All new columns on existing tables must be nullable with `DEFAULT NULL`. Never add a non-null column with a default value to a high-traffic table (e.g., `agent_executions`) --- this rewrites the entire table and takes a full table lock. Non-null constraints and default values must be added in a separate migration after the column is backfilled. This is enforced by CI lint rule.
+
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Database rollback protocol: Every migration MUST have a corresponding rollback script in `supabase/migrations/rollback/` named with the same timestamp prefix. Rollback categories: (1) Additive (added column/table) = `DROP COLUMN`/`DROP TABLE`. (2) Data migration (backfill) = revert backfill script that restores previous values from a pre-migration snapshot table. (3) Destructive (dropped column that had data) = restore from Supabase backup (RPO: 24h pre-PITR, minutes post-PITR). CI lint rule: reject any migration PR that lacks a corresponding rollback file. Add data integrity checks to canary observation window: row counts on affected tables (delta > 5% = alert), null rate on backfilled columns (any increase = alert), RLS policy verification (run adversarial cross-tenant query against canary), foreign key constraint validation (`pg_constraint` check for orphaned rows).
+
+### Backup & Disaster Recovery
+
+
+- **Database:** Supabase Pro automated daily backups + independent `pg_dump` cron to DigitalOcean Spaces (3-2-1 rule: 3 copies, 2 media, 1 offsite)
+
+- **Dual VPS:** Both nodes maintain identical Docker volumes (NATS persistent state). Secondary serves as live backup of primary.
+
+- **Valkey backup:** DigitalOcean Managed Valkey includes automated daily backups with 7-day retention. For additional safety, schedule weekly RDB snapshots to DO Spaces via a BullMQ cron job (backup size: ~50MB at 100 tenants). Restore procedure: provision new Managed Valkey from DO backup, or import RDB snapshot via `redis-cli --pipe`.
+
+- **NATS JetStream backup:** Daily snapshot of JetStream data directory (`/data/jetstream/`) to DO Spaces via cron. RPO: 24 hours for the event store. Restore procedure: stop NATS, replace data directory from snapshot, restart. At scale (>100 tenants), consider NATS clustering for HA instead of backup-based recovery.
+
+- **DR testing cadence:** Quarterly restore drill --- test Supabase restore, Valkey RDB import, NATS JetStream data directory restore, and dual-VPS Docker volume recovery. Results documented in incident runbook. First drill must complete before first paying customer.
+
+- **Test restores before first customer** --- most teams never verify this works
+
+- **RTO target:** 1 hour. **RPO target:** 24 hours (daily backup granularity)
+
+- **DR Runbook** (to be documented before first customer): (1) Detect: UptimeRobot + Grafana alerts notify on-call founder via SMS. (2) Assess: Determine scope --- VPS failure, Supabase outage, or full datacenter loss. (3) VPS failure: LB auto-fails over in 90 seconds; NATS (standalone on primary) is unavailable until primary recovers --- event-driven agent triggers are suspended. BullMQ jobs (backed by managed Valkey) survive and can be re-triggered post-recovery. (4) Supabase outage: Application returns 503 for data operations; in-flight agent executions fail gracefully to DLQ. Supabase outage also degrades spending-limit enforcement --- the AIGateway falls back to Valkey-cached per-tenant rate limits for the duration of the outage. (5) Full restore: Restore from latest Supabase backup (daily, 24-hour RPO) + Docker volume snapshots. Estimated RTO: 1--2 hours. (6) Post-incident: Verify data integrity, replay DLQ jobs, notify affected tenants. RPO/RTO is disclosed in customer Terms of Service.
+
+
+### Log Retention Policy
+
+
+- **Hot storage:** 90 days in Grafana Loki (via paid tier or self-hosted)
+
+- **Cold storage:** 1 year in compressed cold storage (DigitalOcean Spaces, ~$0.02/GB/month). **(ARCH-02)** Loki must be explicitly configured with an S3-compatible storage backend pointed at DO Spaces for cold tier --- this does not happen automatically. Required Loki config: `storage_config.aws.s3` with DO Spaces endpoint (`https://{region}.digitaloceanspaces.com`), access key, and bucket name. Without this, Loki retains all logs on local disk, which fills VPS storage and causes log loss. **(ARCH-03) Cost optimization note:** Cloudflare R2 (zero egress fees) is an alternative to DO Spaces for log archival. R2 is S3-compatible, so the Loki config is identical except for the endpoint URL. Evaluate at scale when egress costs from DO Spaces become material.
+
+- **Audit logs:** Stored in Supabase with data retention policy (subscription duration + 90 days)
+
+- **SOC 2 note:** SOC 2 requires 1-year log retention --- Grafana Cloud free tier's 30-day limit is insufficient
+
+
+### Structured Log Field Standard
+
+
+Every Pino log line MUST include these mandatory fields:
+
+
+- **`tenant_id`** (string) --- from auth context or job context
+
+- **`request_id`** (string) --- generated per HTTP request via `crypto.randomUUID()`
+
+- **`trace_id`** (string) --- W3C traceparent propagated across services
+
+- **`agent_id`** (string) --- null for non-agent requests
+
+- **`service`** (string) --- `'api'` | `'worker'` | `'socket'`
+
+
+These fields are injected via Pino child loggers created per-request in Hono middleware and per-job in BullMQ worker context. Without consistent field conventions, Loki queries and OpenTelemetry traces cannot correlate frontend actions to backend agent executions.
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Mandatory Pino fields for API request logging (extends base fields above): `{ requestId, tenantId, userId, method, path, status, durationMs, userAgent, ip }`. The logging middleware MUST clone `c.res` via `c.res.clone()` before reading response body or status (Hono gotcha HONO-05: reading the body marks the stream as "disturbed," sending an empty response to the client). Logging middleware MUST be registered FIRST in the middleware chain (before security headers, CORS, auth) to capture all requests including those rejected by downstream middleware. Implementation: Pino child logger created in middleware with request-scoped fields, attached to Hono context via `c.set('logger', childLogger)`. All route handlers and downstream middleware use `c.get('logger')` --- never the root logger.
+
+**Spec Amendment (Attack Audit 2026-03-22):** PII Redaction: emails, phone numbers, and names MUST be hashed (SHA-256 with a per-environment salt) in all log output. Agent `inputContent`/`outputContent` fields logged at DEBUG level only with 7-day retention (not the standard 90-day hot storage). Configure Pino `redact` option globally: `redact: ['*.email', '*.phone', '*.name', '*.password', '*.ssn']`. Loki queries MUST include `tenant_id` label with tenant-scoped Grafana dashboard queries --- without tenant scoping, a support engineer investigating one tenant's logs could see another tenant's data in shared Loki indexes.
+
+
+### Distributed Trace Propagation
+
+
+Traces flow from Next.js frontend (optional browser instrumentation) -> Hono API (W3C traceparent header) -> NATS message headers (traceparent injected as NATS header) -> BullMQ job data (traceparent stored in `job.data.traceContext`) -> Vercel AI Gateway (traceparent via AI SDK telemetry). Each service creates child spans under the propagated trace. This enables Grafana Tempo or Loki-based trace visualization for end-to-end debugging of agent execution flows.
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Trace propagation gap: Socket.io events currently do NOT carry trace context. Include `traceId` in all Socket.io event payloads by adding it to `ServerToClientEvents` base payload type. BullMQ job data includes `traceContext: { traceId, spanId }` --- worker creates child span from this context. Add `traceId` to the `KiptraAgentEvent` union type so frontend can display trace links for debugging. Configure Grafana derived fields to link Loki `traceId` regex to Tempo trace URLs (pattern: `traceId=([a-f0-9]{32})`). Target: click traceId in any log line -> jump to full trace waterfall.
+
+
+**Spec Amendment (Attack Audit 2026-03-22):** All backups MUST be encrypted at rest. DO Spaces: enable server-side encryption (SSE) on the backup bucket. For pg_dump files: encrypt with `gpg --symmetric` before upload as defense-in-depth (SSE protects at-rest but not against compromised DO console access). Backup bucket MUST be private (no public ACL). Backup access restricted to a write-only service account (separate from the application IAM) --- the application should never have read access to its own backup bucket to prevent ransomware-style attacks. Weekly integrity verification: download latest backup, verify checksum, test restore to ephemeral database.
+
+**RPO improvement path:** Upgrade to Supabase Team ($599/mo --- verify current pricing at supabase.com/pricing before budgeting, as Supabase adjusts plan pricing periodically; triggered at 50--75 customers) enables Point-in-Time Recovery (PITR), reducing RPO from 24 hours to minutes. Until PITR is enabled, the 24-hour RPO is the accepted risk for the pre-50-customer phase.
+
+
+### Environment Management
+
+
+- **Local dev:** Docker Compose with local Valkey, NATS, PostgreSQL
+
+- **Staging:** 1 Basic droplet (4vCPU/8GB, $48/mo) + Supabase branch (included in Pro plan) = ~$48/mo compute. With staging Managed Valkey ($15/mo), total staging cost is ~$65--$80/mo. Reflected in the 'Ops tooling' P&L line item ($6K Y1). Staging uses separate API keys for all integrations (Anthropic test key, Stripe test mode, SendGrid sandbox) --- never production keys. Supabase branch migrations require explicit approval before promotion to production.
+
+- **Production:** Dual VPS (hybrid active-active) + DO Load Balancer + Supabase Pro + Vercel
+
+- Seed data strategy for staging using anonymized production-like data
+
+- **Staging infrastructure:** Staging Valkey: separate DigitalOcean Managed Valkey instance (not shared with production). Staging NATS: local Docker Compose instance. Staging tests single-node behavior; production multi-node behavior is validated via the Wave 4 pre-launch verification suite.
+
+- Feature flags (JSONB column on tenants table for Phase 1; graduate to Unleash or PostHog post-100 tenants when non-engineer flag management is needed)
+
+
+### Local Development Environment
+
+
+The monorepo includes a `docker-compose.local.yml` for local development with:
+
+
+- Valkey 8.x container (wire-compatible with Redis; matches production Managed Valkey)
+
+- NATS with JetStream enabled (single node)
+
+- Local dev calls Vercel AI Gateway directly with development API keys. No local proxy container needed.
+
+- Supabase local via `supabase start` (local PostgreSQL + Auth + Storage)
+
+
+All external service dependencies (Stripe, SendGrid, JobTread, QuickBooks, Google Calendar, Microsoft Graph) use test/sandbox modes locally: Stripe CLI (`stripe listen --forward-to localhost:3000/webhooks/stripe`) for webhook testing, SendGrid fixture payloads for Inbound Parse simulation, JobTread sandbox credentials.
+
+
+**Target:** `git clone` -> `pnpm install` -> `docker compose -f docker-compose.local.yml up` -> `supabase start` -> `pnpm dev` = running app in under 10 minutes.
+
+
+### Environment Variable Manifest
+
+
+The repository includes a `.env.example` file enumerating every required environment variable with comments on where to obtain each value. Minimum required variables:
+
+
+- `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` [all]
+
+- `BETTER_AUTH_SECRET` [all]
+
+- `VERCEL_AI_GATEWAY_API_KEY` [all] (AI Gateway uses the Vercel project's built-in auth for production)
+
+- `NATS_URL`, `REDIS_URL` [all]
+
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` [staging, production]
+
+- `SENDGRID_API_KEY` [staging, production]
+
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` [all]
+
+- `ENCRYPTION_KEK` (for envelope encryption) [all]
+
+
+Each variable is tagged with its environment scope: **[local]**, **[staging]**, **[production]**, or **[all]**.
+
+
+### Staging Environment
+
+
+One 4vCPU/8GB DO droplet ($48/mo) running the same Docker Compose as production. Supabase branch database (included in Pro plan) for isolated staging data. Staging-specific Stripe test mode keys, SendGrid sandbox, and Vercel AI Gateway with separate provider API keys for staging. Staging URL: `staging.kiptra.io`. Every merge to main auto-deploys to staging. Production deploy requires manual approval after staging smoke tests pass. Staging cost is included in the Ops line item ($6K Y1).
+
+
+### Compliance Readiness
+
+
+| Item | When | Implementation | |
+
+
+| **Audit logging** | Wave 1 | All data access logged with tenant context | |
+
+| **Encryption at rest** | Wave 1 | Supabase default (AES-256) | |
+
+| **Encryption in transit** | Wave 1 | TLS 1.3 everywhere (Cloudflare + Vercel) | |
+
+| **MFA** | Wave 1 | TOTP via better-auth | |
+
+| **RBAC** | Wave 1 | better-auth Organization plugin | |
+
+| **Data retention policy** | Wave 4 | Data retained for subscription duration + 90 days | |
+
+| **Incident response plan** | Wave 4 | 1-page doc: who is called, communication protocol, remediation steps | |
+
+**Spec Amendment (Attack Audit 2026-03-22):** Move incident response plan and runbooks to Wave 1 (not Wave 4). Every alert threshold defined in Alerting Thresholds (above) MUST have a corresponding runbook: who is paged, what to check first, remediation steps, escalation path. Minimum deliverable: 1-page incident response plan with P1/P2/P3 severity classification (P1: full outage or data breach, P2: degraded service or single-agent failure, P3: non-customer-facing issue) and communication protocol (internal Slack channel, customer status page update for P1/P2). Without runbooks, alerts create noise without actionable response --- the #1 cause of alert fatigue per KB.
+
+| **Data Processing Agreements (DPAs)** | Wave 3--4 | Execute DPAs with Anthropic and OpenAI --- required before processing customer financial data. Start DPA process in Wave 3; gate Wave 4 launch on execution completion (typically 1--2 weeks). | |
+
+| **Cyber liability insurance** | Wave 4 | E&O + Cyber liability combined: $3K/Y1, $5K/Y2, $8K/Y3 --- matches P&L line items. Purchase before first paying customer. | |
+
+| **Terms of Service** | Wave 4 | AI liability disclaimers, limitation of liability, SLA terms, data ownership, acceptable use. Must be published before first paying customer. Budget: $3K--$5K legal counsel (shared with Privacy Policy + DPA). | |
+
+| **Privacy Policy** | Wave 4 | CCPA-compliant data collection disclosure, cookie policy, third-party processor list (Anthropic, OpenAI, SendGrid, Stripe, DigitalOcean), data retention periods. Published alongside ToS. | |
+
+| **Customer-facing DPA** | Wave 4 | Template Data Processing Agreement for B2B customers. Covers data processing scope, sub-processor list, breach notification timeline (72 hours), data deletion obligations. | |
+
+| **Contractor licensing review** | Wave 4 | Legal review of top 10 target states' contractor licensing requirements for AI-generated estimates. All estimate outputs labeled as decision support requiring licensed contractor review. | |
+
+| **SOC 2 Type II** | Post-Series A | $10K--$50K. SOC 2 readiness defined: Day 1 controls include audit logging, encryption at rest/in transit, access control (RLS + RBAC), and incident response plan. The 3--6 month observation period for Type II begins when all controls are implemented (target: Wave 4 completion). Earliest achievable Type II certification: Month 10--12 post-launch. | |
+
+
+**Construction-specific:** Small/mid contractors (your initial market) care about "is my data safe" and "does it work" --- not certifications. MFA, encryption, and access controls are sufficient. SOC 2 becomes relevant only when enterprise GCs or government contracts enter the pipeline.
+
+
+### Error Taxonomy (Platform-Wide)
+
+
+Standardized error codes across all API endpoints, agent executions, and integration callbacks. Every error includes a machine-readable `code`, human-safe `message`, HTTP status, retry guidance, and correlation IDs for support debugging.
+
+
+#### Base Error Interface
+
+
+TypeScript
+interface ApiError {
+ code: string; // e.g., &quot;AGENT_EXECUTION_TIMEOUT&quot;
+ message: string; // Human-readable, safe to display to end users
+ statusCode: number; // HTTP status code
+ details?: unknown; // Additional context (never contains PII)
+ retryable: boolean; // Whether the client should retry
+ retryAfterMs?: number; // Suggested retry delay if retryable
+ documentationUrl?: string;
+ requestId: string; // Correlation ID for support tickets
+ traceId?: string; // OpenTelemetry trace ID for debugging
+}
+```
+
+
+**Error code format:** `DOMAIN_TYPE_DETAIL` --- e.g., `AUTH_SESSION_EXPIRED`, `AGENT_EXECUTION_TIMEOUT`.
+
+
+#### AUTH Domain (Authentication & Authorization)
+
+
+| Code | Message | HTTP | Retryable | Notes | |
+
+
+| `AUTH_CREDENTIALS_INVALID` | Invalid email or password | 401 | No | Generic message to prevent enumeration | |
+
+
+| `AUTH_SESSION_EXPIRED` | Your session has expired. Please sign in again | 401 | No | better-auth cookie expired | |
+
+
+| `AUTH_SESSION_REVOKED` | Your session was revoked by an administrator | 401 | No | Admin or cross-tab logout via Socket.io | |
+
+
+| `AUTH_TOKEN_INVALID` | Invalid authentication token | 401 | No | Malformed or tampered JWT/cookie | |
+
+
+| `AUTH_TOKEN_REFRESH_FAILED` | Unable to refresh your session | 401 | No | Refresh token invalid or expired | |
+
+
+| `AUTH_ROLE_INSUFFICIENT` | You do not have permission to perform this action | 403 | No | RBAC role check failed | |
+
+
+| `AUTH_TENANT_MISMATCH` | You do not have access to this organization | 403 | No | Cross-tenant access attempt | |
+
+
+| `AUTH_MFA_REQUIRED` | Multi-factor authentication is required | 403 | No | MFA not completed for sensitive action | |
+
+
+| `AUTH_MFA_CODE_INVALID` | Invalid verification code | 401 | No | Wrong TOTP/SMS code | |
+
+
+| `AUTH_ACCOUNT_LOCKED` | Account temporarily locked due to too many failed attempts | 423 | Yes (after lockout period) | Rate limit on login attempts | |
+
+
+| `AUTH_ACCOUNT_SUSPENDED` | Your account has been suspended | 403 | No | Admin action | |
+
+
+| `AUTH_INVITATION_EXPIRED` | This invitation has expired | 410 | No | Team invitation past TTL | |
+
+
+| `AUTH_INVITATION_INVALID` | This invitation is invalid or has already been used | 400 | No | Invalid token or already accepted | |
+
+
+| `AUTH_EMAIL_NOT_VERIFIED` | Please verify your email address | 403 | No | Email verification pending | |
+
+
+#### AGENT Domain (Agent Execution)
+
+
+| Code | Message | HTTP | Retryable | Notes | |
+
+
+| `AGENT_EXECUTION_TIMEOUT` | Agent execution timed out | 504 | Yes | Exceeded 300s wall-clock limit | |
+
+
+| `AGENT_EXECUTION_FAILED` | Agent execution failed | 500 | Yes | Generic execution error (check details) | |
+
+
+| `AGENT_MODEL_UNAVAILABLE` | AI model temporarily unavailable | 503 | Yes | AI provider down, circuit open | |
+
+
+| `AGENT_MODEL_FALLBACK_EXHAUSTED` | All AI model providers are unavailable | 503 | Yes | All fallback models failed | |
+
+
+| `AGENT_BUDGET_EXCEEDED` | Monthly AI budget reached — upgrade your plan or wait for the next billing cycle | 429 | No | Pre-flight spending check failed | |
+
+
+| `AGENT_BUDGET_WARNING` | You have used 80% of your monthly AI budget | 200 | N/A | Warning, not error — included in response headers | |
+
+
+| `AGENT_INPUT_INVALID` | Invalid input for agent execution | 400 | No | Zod validation failed on input | |
+
+
+| `AGENT_INPUT_REJECTED` | Input rejected by safety filter | 400 | No | Prompt injection detected | |
+
+
+| `AGENT_TOOL_FAILED` | Agent tool execution failed | 500 | Yes | External tool call (JobTread, QB) failed | |
+
+
+| `AGENT_TOOL_UNAUTHORIZED` | Agent attempted to use an unauthorized tool | 403 | No | Tool not in AgentPlugin.permissions | |
+
+
+| `AGENT_STEP_LIMIT_REACHED` | Agent reached maximum execution steps | 200 | No | stopWhen triggered — normal completion | |
+
+
+| `AGENT_TOKEN_LIMIT_REACHED` | Agent exceeded token budget | 200 | No | max_tokens enforced — truncated output | |
+
+
+| `AGENT_ESCALATION_REQUIRED` | This request requires human review | 200 | No | Routed to escalation queue | |
+
+
+| `AGENT_ALREADY_RUNNING` | An execution for this agent is already in progress | 409 | Yes | Prevent duplicate concurrent runs | |
+
+
+| `AGENT_DISABLED` | This agent is not enabled for your account | 403 | No | Agent not in tenant's template | |
+
+
+| `AGENT_QUEUE_FULL` | Agent execution queue is full. Please try again shortly | 429 | Yes | BullMQ backpressure | |
+
+
+#### BILLING Domain (Stripe & Subscriptions)
+
+
+| Code | Message | HTTP | Retryable | Notes | |
+
+
+| `BILLING_PLAN_LIMIT_REACHED` | You have reached the limit for your current plan | 403 | No | Agent count, API calls, etc. | |
+
+
+| `BILLING_PAYMENT_FAILED` | Payment method failed. Please update your billing information | 402 | No | Stripe charge declined | |
+
+
+| `BILLING_SUBSCRIPTION_EXPIRED` | Your subscription has expired | 403 | No | Past grace period | |
+
+
+| `BILLING_SUBSCRIPTION_CANCELED` | Your subscription has been canceled | 403 | No | Voluntary cancellation | |
+
+
+| `BILLING_SUBSCRIPTION_PAST_DUE` | Your subscription payment is past due | 402 | No | Grace period active | |
+
+
+| `BILLING_UPGRADE_REQUIRED` | This feature requires a higher plan | 403 | No | Feature gated by plan tier | |
+
+
+| `BILLING_METERED_OVERAGE` | Usage above cap will be billed at cost | 200 | N/A | Enterprise tier informational | |
+
+
+| `BILLING_WEBHOOK_SIGNATURE_INVALID` | Invalid webhook signature | 400 | No | Stripe signature verification failed | |
+
+
+#### INTEGRATION Domain (OAuth & External Services)
+
+
+| Code | Message | HTTP | Retryable | Notes | |
+
+
+| `INTEGRATION_OAUTH_EXPIRED` | Your connection to {{provider}} has expired. Please reconnect | 401 | No | OAuth token expired + refresh failed | |
+
+
+| `INTEGRATION_OAUTH_REFRESH_FAILED` | Unable to refresh {{provider}} connection | 500 | No | Refresh token consumed but DB write failed — requires re-auth | |
+
+
+| `INTEGRATION_OAUTH_REVOKED` | Your {{provider}} connection was revoked | 401 | No | User revoked access in provider | |
+
+
+| `INTEGRATION_RATE_LIMITED` | {{provider}} rate limit reached. Retrying automatically | 429 | Yes | Token bucket exhausted | |
+
+
+| `INTEGRATION_PROVIDER_DOWN` | {{provider}} is temporarily unavailable | 503 | Yes | Circuit breaker open | |
+
+
+| `INTEGRATION_PROVIDER_ERROR` | {{provider}} returned an unexpected error | 502 | Yes | Non-rate-limit provider error | |
+
+
+| `INTEGRATION_SYNC_FAILED` | Data sync with {{provider}} failed | 500 | Yes | Sync job error | |
+
+
+| `INTEGRATION_SYNC_STALE` | {{provider}} data may be outdated (last synced {{timestamp}}) | 200 | N/A | Warning header, not error | |
+
+
+| `INTEGRATION_WEBHOOK_INVALID` | Invalid webhook payload from {{provider}} | 400 | No | Signature or schema validation failed | |
+
+
+| `INTEGRATION_WEBHOOK_DUPLICATE` | Duplicate webhook event (already processed) | 200 | No | Idempotency key match — return success | |
+
+
+| `INTEGRATION_NOT_CONNECTED` | {{provider}} is not connected. Set up the integration in Settings | 400 | No | No OAuth token exists | |
+
+
+| `INTEGRATION_SCOPE_INSUFFICIENT` | Additional permissions required for {{provider}} | 403 | No | OAuth scope insufficient for requested operation | |
+
+
+| `INTEGRATION_ENCRYPTION_FAILED` | Unable to decrypt integration credentials | 500 | No | DEK/KEK issue — critical alert | |
+
+
+#### SUPPORT Domain (Support Agent)
+
+
+| Code | Message | HTTP | Retryable | Notes | |
+
+
+| `SUPPORT_CONVERSATION_CLOSED` | This conversation has been closed | 400 | No | Attempting to message a resolved conversation | |
+
+
+| `SUPPORT_KB_NOT_FOUND` | No relevant knowledge base articles found | 200 | No | Low-confidence response, may trigger escalation | |
+
+
+| `SUPPORT_CONFIDENCE_LOW` | Unable to provide a confident answer — escalating to our team | 200 | No | Confidence

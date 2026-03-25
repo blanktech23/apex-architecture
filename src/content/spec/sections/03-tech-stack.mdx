@@ -1,0 +1,83 @@
+---
+title: "3. Tech Stack (Final)"
+slug: "tech-stack"
+section: "03"
+---
+
+| Layer | Technology | Why | |
+
+
+| **Frontend** | Next.js 16 (App Router) on Vercel | Latest stable (shipped October 2025, current 16.2 as of March 2026), global CDN. Default to Server Components; only add `'use client'` for interactive elements (forms, real-time displays, Socket.io consumers). Route protection via `middleware.ts` (edge-level, never client-side guards). Granular `` boundaries per async component (never wrap root layout in a single Suspense). `loading.tsx` files for every data-fetching route segment. | |
+
+| **UI Components** | shadcn/ui + Tailwind CSS + TanStack Table | Zero lock-in, accessible (Radix), best B2B dashboard choice | |
+
+| **Agent Visualization** | React Flow v12 | Interactive mind map + live agent status | |
+
+| **Charts** | Recharts | CEO dashboard financials | |
+
+| **Auth** | better-auth (Organization plugin) | Self-hosted, free, built-in multi-tenant RBAC, team management, invitations | |
+
+| **Backend** | Hono + TypeScript on Node.js | TypeScript-first, fastest benchmarks, native SSE streaming for AI. DO Load Balancer idle timeout configured to 300s for SSE/streaming routes. SSE keepalive: Send `: keep-alive\n\n` comment every **15 seconds** (Cloudflare has a 100s idle timeout, and LLM inference latency can reach 60--90s --- a 60s keepalive is unsafe). **SSE anti-buffering (CF-01):** SSE routes MUST return the `X-Accel-Buffering: no` response header AND, if using Cloudflare Tunnel, set the `--no-chunked-encoding` flag in Tunnel config. **Topology clarification (CF-05):** The production architecture uses Cloudflare DNS proxy mode (orange-cloud) with traffic routed to the DigitalOcean Load Balancer --- NOT Cloudflare Tunnel. Cloudflare Tunnel is an alternative topology for environments without a public LB. Choose one: (a) Cloudflare DNS proxy -> DO Load Balancer (production default), or (b) Cloudflare Tunnel -> direct to VPS (no LB needed). Do not mix both. Without both, Cloudflare buffers SSE tokens and delivers them in bursts instead of streaming. **DO LB note (DO-02):** The `idle_timeout_seconds` setting on DigitalOcean Load Balancers cannot be configured via the dashboard --- must use the DO API or Terraform. Implementation: Hono SSE middleware. This is a Wave 2 build item alongside the streaming infrastructure. | |
+
+| **Agent Framework** | Vercel AI SDK (AI SDK v6) (`@ai-sdk/anthropic` + `@ai-sdk/openai`) on Hono backend | thorchh/agent-starter referenced for UI/chat patterns only --- not used as backend runtime. Agent execution uses bare `generateText`, `streamText`, `generateText({ output: Output.object({ schema }) })` with Zod schemas inside BullMQ workers. AI SDK v6's `ToolLoopAgent` abstraction is available as a base class for agent workers but bare `generateText`/`streamText` is preferred for full control over retry logic, cost tracking, and human-in-the-loop approval. Mastra patterns (graphs, MCP) adopted selectively as orchestration complexity grows | |
+
+| **AI Gateway** | Vercel AI Gateway (managed) + direct API keys | Zero markup (BYOK), managed service, 40+ providers, automatic fallback routing, built-in prompt caching, zero ops overhead | |
+
+| **Event Bus** | NATS JetStream | Hub-and-spoke, 10K--50K msgs/sec with JetStream persistence (workload-dependent; 100K+ for core NATS pub/sub without persistence), 2 vCPU/4GB RAM footprint | |
+
+| **Job Queue** | BullMQ (Valkey) | Cron, retries, scheduled agent tasks. DigitalOcean Managed Valkey is wire-compatible with Redis; BullMQ works unchanged | |
+
+| **Cache** | Valkey + Node.js LRU | L1 in-process, L2 distributed (Managed Valkey) | |
+
+| **Real-time** | Socket.io on Hono backend | Full control, native NATS integration, no per-connection billing (vs Supabase Realtime's 500 default on Pro, expandable to 10K at $10/1K connections). NATS -> backend -> Socket.io -> client | |
+
+| **Database** | Supabase Pro (PostgreSQL + RLS) | $25/mo, managed, real-time. RLS optimized with indexed tenant_id + initPlan pattern | |
+
+| **Secrets** | AES-256-GCM encrypted in Supabase | Per-tenant JobTread/QB/Google/Microsoft keys with rotation support | |
+
+| **Microsoft Auth** | `@azure/msal-node` + `@microsoft/microsoft-graph-client` | MSAL handles OAuth 2.0 + PKCE flow, token caching, and silent refresh. Graph client provides typed access to Mail, Calendar, and Subscriptions APIs. Day 1 integration alongside Google. | |
+
+| **Monitoring** | Prometheus + Grafana (self-hosted Loki on VPS for log retention compliance; Grafana Cloud free tier insufficient for SOC 2's 1-year requirement) + Sentry | Metrics, alerting, error tracking from Day 1. **Sentry note (MON-06):** Sentry provides official Hono support via `@sentry/node`. The community `@hono/sentry` middleware is deprecated --- use the official Sentry SDK directly. | |
+
+| **Logging** | Pino (structured JSON) -> Grafana Alloy -> Grafana Loki + OpenTelemetry | Searchable agent logs + distributed tracing across agent execution flows. **Log collector (MON-02):** Use Grafana Alloy (not Promtail, which is deprecated) as the log shipping agent to Loki. | |
+
+| **CI/CD** | GitHub Actions | Lint, type-check, test, deploy on every PR. Vercel auto-deploys frontend. | |
+
+| **WAF / CDN** | Cloudflare Pro ($20/mo) | DDoS protection, WAF rules, SSL termination for dual VPS | |
+
+
+**Next.js App Router Conventions (KB-Enforced):**
+
+
+- **Server/Client Component boundary:** Default to Server Components for all pages and data-fetching components. Only add `'use client'` for: form components with `useState`/`useFormState`, Socket.io real-time consumers (`useSocket` hook), React Flow interactive canvas, client-side search/filter controls, toast/modal providers. Explicit client component boundaries: `components/providers/*.tsx` (auth, socket, theme), `components/forms/*.tsx`, `components/realtime/*.tsx`, `components/charts/*.tsx` (Recharts).
+
+> **Spec Amendment (CRITICAL — Attack Audit 2026-03-22):** NEVER add `'use client'` to any `layout.tsx` file. This cascades to ALL child pages, converting entire subtree to Client Components. Bundle size equals pre-RSC. Providers needing client state MUST be extracted to separate `'use client'` component imported into Server Component layout. Enforce via ESLint rule banning `'use client'` in `**/layout.tsx`.
+
+> **Spec Amendment (Attack Audit 2026-03-22):** When Client Component wraps Server Component content, pass as `children` prop — never import Server Component directly inside `'use client'` file. Direct imports cascade the client directive to all imports.
+
+- **Route protection:** ALL route protection MUST use Next.js `middleware.ts` at the edge --- NOT client-side route guards. Client-side guards flash protected content before redirect. Middleware intercepts at the edge before any HTML is sent. The `middleware.ts` performs ONLY lightweight, synchronous checks: cookie presence, JWT decode (without database calls), and redirect logic. It checks the better-auth session cookie, redirects unauthenticated users to `/login`, and handles tenant-scoped routing. **PPR preservation rule:** Do NOT perform database lookups in `middleware.ts` (e.g., checking `tenant_members.onboarding_completed`, role verification, feature flags). Database calls in middleware add ~150ms blocking latency before any HTML is sent, killing Partial Prerendering (PPR). All authorization checks that require database access (role verification, onboarding status, feature flags) MUST happen in Server Components behind granular `` boundaries, preserving PPR's ability to send the static shell immediately.
+
+- **Suspense strategy:** Do NOT wrap the root layout in a single `` boundary (this blocks the entire page). Use granular `` boundaries around individual async Server Components (e.g., dashboard stats card, agent list, execution history table). Each boundary gets its own skeleton loader matching the component shape.
+
+- **`loading.tsx` files:** Required for every route segment that fetches data: `/dashboard/loading.tsx`, `/escalations/loading.tsx`, `/settings/team/loading.tsx`, `/settings/billing/loading.tsx`, etc. Next.js uses these for instant loading states during navigation.
+
+- **`redirect()` safety:** `redirect()` from `next/navigation` throws a `NEXT_REDIRECT` error internally. NEVER call `redirect()` inside a `try/catch` block --- it will be caught and swallowed. Either call `redirect()` outside `try/catch`, or use the `isRedirectError()` guard to re-throw redirect errors in catch blocks.
+
+- **Data fetching cache control:** Server Components that call Supabase MUST specify explicit cache control. Use `export const revalidate = 0` (no cache) for tenant-scoped dynamic data. Use `export const revalidate = 3600` for static reference data. Never rely on Next.js default caching for authenticated, tenant-scoped queries.
+
+- **`generateMetadata`:** Required on all public-facing pages (`/login`, `/forgot-password`, `/invite/*`, `/signup/*`, marketing pages) for SEO. Authenticated pages use a shared default metadata export.
+
+- **`useSearchParams()`:** Must be wrapped in its own `` boundary in client components. Without this, it opts the entire page out of static generation. Wrap the component using `useSearchParams()` in a ``.
+
+> **Spec Amendment (CRITICAL — Attack Audit 2026-03-22):** Next.js 15+/16 async request APIs: `params`, `searchParams`, `cookies()`, `headers()` are ALL async (return Promise). Always `await`: `const { id } = await params;`. Synchronous access returns Promise object, not values. Enforce via TypeScript — these are typed as `Promise<T>`.
+
+> **Spec Amendment (CRITICAL — Attack Audit 2026-03-22):** Server Actions compile to public POST endpoints callable by anyone. Every Server Action MUST: (1) validate all inputs with Zod `safeParse`, (2) verify auth session inside the action (never assume middleware checked), (3) scope all DB operations to authenticated `tenant_id`. Return `{ error: FieldErrors | null }` pattern.
+
+> **Spec Amendment (Attack Audit 2026-03-22):** `error.tsx` files MUST include `'use client'` directive (Next.js requirement). Never wrap root layout `{children}` in `<Suspense>` — catches `notFound()` and `redirect()`, returning HTTP 200 instead of 404/3xx.
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Server-to-Client props serialized via RSC protocol. `Date` → ISO string, `Map`/`Set` → `{}`, functions → error. Convert all TIMESTAMPTZ columns to ISO strings before passing to Client Components. Define `Serializable*` type layer using `string` for dates.
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Next.js has 4 caches (Request Memoization, Data Cache, Full Route Cache, Router Cache). Supabase JS client queries bypass Data Cache (not `fetch()` calls) — wrap in `unstable_cache()` with tags. On mutations, call BOTH `revalidatePath()` AND `revalidateTag()` (tag-only unreliable, #55960). `loading.tsx` cached 5 min by default — add `export const revalidate = 0` to dynamic segments.
+
+
+---

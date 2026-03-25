@@ -1,0 +1,309 @@
+---
+title: "6. Evolvability Architecture (Built to Evolve)"
+slug: "evolvability"
+section: "06"
+---
+
+The platform must be trivially updatable --- new agents, new integrations, new verticals --- without rewriting core infrastructure.
+
+
+### Plugin-Based Agent System (Factory + Registration Pattern)
+
+
+Each agent = **self-contained module** using a factory + registration pattern (inspired by pi-mono's extension system). Instead of a monolithic interface, agents receive a registration API and progressively declare their capabilities:
+
+
+TypeScript
+// Factory pattern --- agents register capabilities declaratively
+type AgentPluginFactory = (api: AgentRegistrationAPI) => void | Promise
+
+interface AgentRegistrationAPI {
+ setMetadata(meta: AgentMetadata): void
+ registerTool(tool: AgentToolDefinition): void
+ registerTrigger(trigger: TriggerConfig): void
+ requireIntegration(id: string): void
+ registerDashboardComponent(component: React.LazyExoticComponent): void
+ registerEventSubjects(subjects: string[]): void
+
+ // Typed event handlers with before/after pairs
+ on(event: 'before_tool_call', handler: AgentEventHandler): void
+ on(event: 'after_tool_call', handler: AgentEventHandler): void
+ on(event: 'before_execute', handler: AgentEventHandler): void
+ on(event: 'after_execute', handler: AgentEventHandler): void
+ on(event: 'escalation', handler: AgentEventHandler): void
+ on(event: 'error', handler: AgentEventHandler): void
+}
+
+interface AgentMetadata {
+ id: string
+ name: string
+ version: string
+ description: string
+ category: 'sales' | 'operations' | 'finance' | 'support' | 'custom'
+}
+
+// Event handler type --- sync or async, optional typed result
+type AgentEventHandler =
+ (event: E, ctx: AgentExecutionContext) => Promise | R | void
+
+// before_tool_call can BLOCK or MODIFY --- enables dynamic permission gating
+interface BeforeToolCallResult {
+ block?: boolean // reject the tool call
+ reason?: string // rejection reason (logged + surfaced)
+ modifiedParams?: Record
+}
+
+// after_tool_call can TRANSFORM output or TRIGGER escalation
+interface AfterToolCallResult {
+ content?: unknown
+ isError?: boolean
+ escalate?: EscalationRule
+}
+```
+
+
+**Example agent registration (Leads Agent):**
+
+
+TypeScript
+const discoveryConcierge: AgentPluginFactory = (api) => {
+ api.setMetadata({ id: 'leads-agent', name: 'Leads Agent',
+ version: '1.0.0', description: 'Lead qualification & engagement', category: 'sales' })
+
+ api.requireIntegration('jobtread')
+ api.requireIntegration('calendar')   // google-calendar OR outlook-calendar (provider-agnostic)
+ api.requireIntegration('email')      // gmail OR outlook-email (provider-agnostic)
+
+ api.registerTrigger({ type: 'nats', subject: 'TENANT_{id}.lead.new' })
+ api.registerTrigger({ type: 'cron', schedule: '0 9 * * 1-5', action: 'check_stale_leads' })
+
+ api.registerTool(QueryJobTreadProjects) // TypeBox-typed tools
+ api.registerTool(DraftEmail)
+ api.registerTool(CheckCalendarAvailability)
+
+ api.on('before_tool_call', async (event, ctx) => {
+ // Dynamic gate: block email drafts if tenant over monthly limit
+ if (event.toolName === 'draft_email') {
+ const usage = await checkTenantUsage(ctx.tenantId)
+ if (usage.emailsThisMonth >= usage.plan.monthlyLimit)
+ return { block: true, reason: 'Monthly email limit reached' }
+ }
+ })
+
+ api.registerDashboardComponent(React.lazy(() => import('./dashboard/DiscoveryConciergePanel')))
+}
+```
+
+
+- Adding a new agent = implement the factory + register in template
+
+- No changes to core event bus, executor, or dashboard required
+
+- **Dashboard extensibility:** Agents register a lazy-loaded React component via `api.registerDashboardComponent()`. Agents without a custom component get a generic status/history fallback. This allows new agents to ship custom UI without modifying the dashboard shell.
+
+- **Event-based permission gating:** The `before_tool_call` handler enables dynamic, contextual permission decisions at runtime --- complementing the static permission matrix. Handlers can block tool calls based on usage limits, tenant configuration, or real-time business rules. All handler exceptions are caught and reported without crashing the agent (error isolation).
+
+- **Queue-and-flush registration:** During factory execution, registrations are queued. Once the executor runtime binds (via `bindCore()`), all queued registrations flush to live systems (NATS subjects, BullMQ triggers, tool registry). Post-bind registrations take effect immediately. This prevents race conditions during agent initialization.
+
+- **Provenance:** Factory + registration pattern, typed event handler chain, error isolation, and `promptGuidelines` on tools adopted from analysis of badlogic/pi-mono's 47KB extension type system (pi-mono is an AI coding agent toolkit by the creator of libGDX). Coding-agent-specific patterns (CLI commands, terminal UI, session branching, provider registration) were excluded as irrelevant to Kiptra's web-based SaaS architecture.
+
+
+### Schema Evolution
+
+
+- Supabase migrations for schema changes (version-controlled)
+
+- JSONB columns for agent-specific data (avoids rigid schema per agent type)
+
+- `agent_config` and `agent_output` as JSONB --- flexible without migrations
+
+
+JSONB Governance (Mandatory)
+
+
+Every JSONB column MUST have: (1) a Zod schema defining its structure, (2) GIN indexes on queried paths, (3) a `config_version` integer column alongside it for schema evolution, (4) a background migration job that upgrades old versions to current, (5) all supabase-js queries on JSONB columns use `.returns()` for type safety. Unvalidated JSONB is a data integrity risk — treat every JSONB column as a typed document store.
+
+
+### Feature Flags
+
+
+- Per-tenant feature flags (enable beta agents for specific customers)
+
+- Gradual rollouts (10% -> 50% -> 100%)
+
+- Kill switch for any agent/feature without deployment
+
+> **Spec Amendment (Attack Audit 2026-03-22):** K&B module gating: Frontend uses `<FeatureGate feature="kb_design">` wrapper component that reads tenant feature flags from TanStack Query cache (`useQuery(['tenant', 'features'])` with staleTime: 5 min). Gated routes render a "Feature not available on your plan" placeholder instead of 404. Backend enforces via `requireFeature('kb_design')` Hono middleware on all K&B API routes --- returns 403 with `TENANT_FEATURE_DISABLED` error code if the tenant's `feature_flags` JSONB does not include the required feature. Stripe webhook handler (`customer.subscription.updated`) updates tenant `feature_flags` JSONB on plan change --- features are granted/revoked within 30 seconds of subscription change (webhook delivery + DB write). Feature flag cache invalidation: on Stripe webhook processing, publish `TENANT_{id}.config.updated` via NATS -> Socket.io pushes to connected clients -> TanStack Query cache invalidated via `queryClient.invalidateQueries(['tenant', 'features'])`.
+
+
+
+- **Phase 1 implementation ( {
+ id: string
+ authMethod: 'api_key' | 'oauth2'
+ connect(tenantId: string): Promise
+ disconnect(tenantId: string): Promise
+ read(endpoint: string, params: Record): Promise
+ write?(endpoint: string, data: TWritePayload): Promise // optional
+}
+```
+
+
+**Type safety:** The adapter is generic: `IntegrationAdapter` with `read()` returning `Promise` and `write()` accepting `TWritePayload`. The canonical domain model types (Project, Estimate, Contact, etc. defined in `src/domain/`) should be the constraint. This ensures that swapping JobTread for Procore is verified at compile time, not just at runtime.
+
+
+- Adding JobTread support = 1 adapter file. Adding a new CRM = 1 adapter file.
+
+- Adding a new integration adapter requires writing a TypeScript file implementing the standard interface and a standard deployment (under 5 minutes via CI/CD pipeline). In development mode, a file watcher enables hot-reload for rapid iteration.
+
+- **Adapter registration:** A central `registry.ts` exports `registerAdapter(adapter: IntegrationAdapter)` backed by a `Map`. In development, a file watcher auto-registers new adapter files. In production, static imports in the registry module ensure tree-shaking and startup-time validation. The registry provides `getAdapter(id)` and `listAdapters()` for runtime discovery.
+
+
+### Versioned Agent Templates
+
+
+- Templates are versioned (v1, v2, v3...)
+
+- Customers can be on different template versions
+
+- Upgrade path: notify -> preview changes -> confirm -> migrate
+
+- **Prompt versioning:** Each agent's `agent_config` includes `prompt_version` and `prompt_hash` fields. An `agent_prompt_versions` table stores all historical prompt versions per agent type. Prompt updates follow staged canary rollout: deploy to 10% of tenants first, monitor quality metrics for 48 hours, then roll to 90%. Rollback = update `prompt_version` to previous hash. **Pre-Wave-3 rollback:** Manual via `prompt_version` update. Automated canary rollback available Wave 3+.
+
+- **Rollback criteria:** If approval rate drops >15% relative to baseline during the 48-hour canary window, auto-rollback. If escalation rate increases >2x, auto-rollback. The 10% canary cohort is selected via the feature flag JSONB column. Note: Meaningful quality metrics require Wave 3 AI quality layer --- canary rollout with automated rollback is a Wave 3+ capability.
+
+
+### How New Verticals Are Added
+
+
+Every new vertical follows a **template-based approach**. The platform ships with a plugin architecture where industry knowledge lives entirely in agent prompts and JSONB configuration --- not in the platform code itself. Adding a vertical means creating a template row, configuring agent prompts, and optionally writing new agent/integration plugins.
+
+
+| Vertical | Reused Agents | New/Modified Agents | Integration Swaps | Template Config | |
+
+
+|
+ **Design-Build** |
+ All 6 (reconfigured prompts) |
+ None --- same agents, different JSONB config |
+ Same integrations |
+ Different qualification criteria, estimate categories, Drive folder hierarchy |
+ |
+
+|
+ **HVAC Service** |
+ Leads Agent, Sales Agent, Bookkeeping Agent, CEO Agent |
+ Equipment Spec Tracker (replaces Design Agent), Service Route Optimizer (replaces Project Management Agent) |
+ ServiceTitan replaces JobTread |
+ Dispatch-focused triggers, equipment warranty tracking |
+ |
+
+|
+ **Landscaping** |
+ Leads Agent, Sales Agent, CEO Agent |
+ Seasonal Planning Agent (new) |
+ Weather API more critical, simplified project management |
+ Seasonal scheduling, material estimation by season |
+ |
+
+|
+ **General Contracting** |
+ All 6 |
+ Permit Tracker (new addition) |
+ Same + permit tracking API |
+ Permit milestone triggers, multi-project coordination |
+ |
+
+|
+ **Business OS** |
+ CEO Agent (dashboard data), Bookkeeping Agent (meeting actions) |
+ 7 new Business OS-specific agents (Business OS Agent, Meeting Facilitator, Goal & Alignment, KPI/Scorecard, People & Review, Knowledge Portal, AI Assistant) |
+ Google/Microsoft Calendar OAuth, existing Supabase infra |
+ Full business operating system: scorecards, quarterly goals, weekly sync meetings, accountability charts, issue tracking, knowledge base, vision docs |
+ |
+
+|
+ **Kitchen & Bath Design** |
+ Leads Agent (client intake), Sales Agent (BOM pricing) |
+ Design Layout Agent (Claude -> Z3 -> Gemini loop), Catalog Match Agent (pgvector RAG) |
+ Manufacturer catalog APIs, Three.js/R3F rendering pipeline |
+ Browser-based 3D kitchen/bath design with AI layout generation, NKBA constraint validation, photorealistic rendering, BOM export |
+ |
+
+
+**Key Insight:** The platform doesn't know what industry it's serving. It just runs whatever agents the template tells it to run. Industry knowledge lives in agent prompts and configs (JSONB), not in the platform infrastructure. The multi-persona architecture (Section 6b) extends this principle: within each vertical, `tenant_type` (contractor, dealer, rep, manufacturer) determines which template is applied. The `IndustryTemplate` interface (Section 6b) formalizes dashboard layout, sidebar configuration, agent set, onboarding flow, and RBAC per template.
+
+
+### What Changes vs What Stays
+
+
+**Stays the Same (100% reused across every vertical):**
+
+
+- Dual VPS + Docker Compose (same infrastructure, same containers)
+
+- NATS JetStream (same event bus, new subject namespaces auto-created)
+
+- Valkey + BullMQ (same cache + job queue)
+
+> **Spec Amendment (Attack Audit 2026-03-22):** BullMQ queues and application cache MUST use separate Valkey instances (or at minimum, separate logical databases via `SELECT`). The current architecture describes "Valkey + BullMQ (same cache + job queue)" --- sharing a single `noeviction` Valkey between BullMQ and application caching means unbounded cache growth eventually causes BullMQ OOM (BullMQ requires `noeviction`; cache benefits from `allkeys-lru`). Recommendation: DigitalOcean Managed Valkey for BullMQ (`noeviction`), separate instance or database index for application cache. Budget the additional ~$15/mo.
+
+- Supabase + RLS (same database, same isolation)
+
+- Vercel AI Gateway (same model routing)
+
+- Vercel dashboard (same frontend framework)
+
+- Stripe billing (same payment system)
+
+- better-auth (same authentication)
+
+- Approval Queue (same human-in-the-loop)
+
+- Multi-tenant isolation (same 6 layers)
+
+
+**What You Create (per new vertical):**
+
+
+- 1 template config row in `agent_templates` table
+
+- Agent prompt configs as JSONB (no database migrations)
+
+- New agent files if needed (1 TypeScript file per agent implementing `AgentPluginFactory`)
+
+- New integration adapters if needed (1 TypeScript file implementing `IntegrationAdapter`)
+
+- Folder hierarchy template for Google Drive
+
+- Qualification criteria for Leads Agent
+
+
+**Bottom Line:** Adding a new vertical is primarily a configuration exercise, not an engineering project. The first vertical (construction remodeling) requires building the platform. Every subsequent vertical is just template configuration + any genuinely new agent/integration plugins. **Qualification:** For construction sub-verticals (Design-Build, General Contracting): configuration only. For fundamentally different verticals (HVAC, K&B, Business OS): new agent code and potentially new infrastructure required (e.g., Three.js rendering pipeline for K&B, meeting facilitation workflows for Business OS).
+
+
+### Design-Build Example (Detailed Walkthrough)
+
+
+Design-build is the first planned expansion after the construction remodeling MVP. Here is exactly what changes --- and what doesn't --- when adding this vertical:
+
+
+- **Create "Design-Build" template** in `agent_templates` --- same 6 agents, different configs. One row in the database, zero schema changes.
+
+- **Leads Agent:** swap qualification criteria in `agent_config` JSONB --- "ideal design-build client" vs "ideal remodel client" is different prompts, not different code.
+
+- **Design Agent:** adjust Drive folder hierarchy --- Design Phase -> Schematic -> Design Development -> Construction Documents (instead of Room -> Category).
+
+- **Sales Agent:** add design fee categories to estimate config --- design-build packages include design fees that pure remodelers don't charge.
+
+- **Project Management Agent:** adjust schedule templates --- design-build has distinct design and construction phases with different milestone structures.
+
+- **Bookkeeping Agent + CEO Agent:** zero changes --- billing is billing, CEO briefings aggregate from whatever agents exist.
+
+
+**Total engineering effort for design-build vertical: ~1--2 days of template configuration. Zero code changes to the platform.**
+
+
+Adding verticals that share construction-domain concepts (Design-Build, General Contracting) requires 1--2 days of template configuration. Adding fundamentally different verticals (HVAC, Landscaping) requires 1--2 weeks of new adapter development plus canonical model extensions (new entity types like `DispatchJob`, `Technician`, `Equipment`). This is still a strong advantage over rebuilding from scratch.
+
+
+---

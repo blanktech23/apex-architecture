@@ -1,0 +1,327 @@
+---
+title: "3b. Key Stack Decisions (Researched)"
+slug: "key-stack-decisions"
+section: "03b"
+---
+
+Each technology choice was evaluated against 3--5 alternatives. Below are the decisions that diverge from "obvious defaults" and why.
+
+
+### Hono over Express
+
+
+Express is the Node.js default but community-maintained types, no built-in validation, and showing its age. Hono is TypeScript-first with 2--3x better benchmarks, native SSE streaming (critical for AI responses), and strongly typed routes. Runs on Node.js --- not Bun (compatibility issues with native modules in production). **(HONO-04) Minimum version: Hono >=4.12.0** (well past the CORS + WebSocket fix where CORS middleware incorrectly intercepted WebSocket upgrade requests in earlier versions).
+
+
+**Hono Production Constraints (KB-Verified):**
+
+
+- **(HONO-01) BANNED: `c.notFound()`.** Use `c.json({ error: "Not found" }, 404)` instead. `c.notFound()` returns `Response` instead of a typed response, silently breaking Hono RPC type inference with no compile error. Enforce via custom ESLint rule (`no-restricted-properties` on `c.notFound`).
+
+- **(HONO-02) WebSocket setup: `@hono/node-ws` requires `injectWebSocket(server)`** on the raw Node.js HTTP server returned by `@hono/node-server`. Without this call, WebSocket upgrade requests silently fail (no error, no connection). This applies to any native Hono WebSocket routes (Socket.io has its own upgrade path).
+
+- **(HONO-03) SSE disconnect handling:** Hono's `streamSSE` does NOT detect client disconnects. Must use `c.req.raw.signal` + `stream.onAbort()` to cancel in-flight LLM inference when a client disconnects. Without this, disconnected clients waste compute on abandoned streaming responses. Required for all agent streaming endpoints.
+
+- **(HONO-05) Logging middleware: clone before reading.** Response body must be cloned via `c.res.clone()` before reading in logging middleware. Reading the body directly marks the stream as "disturbed," sending an empty response to the client.
+
+- **(HONO-06) RPC + path aliases:** TypeScript path aliases (`@/lib/types`) break `hc()` client type inference across packages. Route signatures must use relative imports or `node_modules` imports for types consumed by the RPC client.
+
+- **(HONO-07) `hcWithType` pattern:** Direct `hc()` with a large app causes slow IDE type-checking (~10s+ per keystroke). Use the `hcWithType` pattern to separate the type layer from the runtime client, keeping IDE responsiveness under 1s.
+
+- **(HONO-08) JSX pragma in monorepo:** Hono files must use `/** @jsxImportSource hono/jsx */`; React files must use `/** @jsxImportSource react */`. Without explicit pragmas, the monorepo's shared `tsconfig` picks one JSX namespace globally, causing type errors in the other.
+
+**Spec Amendment (Attack Audit 2026-03-22):** Mandatory `app.onError()` handler: catch `HTTPException` -> `c.json({ data: null, error: err.message }, err.status)`, catch all else -> `c.json({ data: null, error: 'Internal server error' }, 500)` + Sentry capture. Ban `error.getResponse()` (it drops context headers set via `c.header()` --- see KB gotchas: `HTTPException.getResponse()` constructs a new Response independent of the Context).
+
+**Spec Amendment (Attack Audit 2026-03-22):** Register `app.notFound((c) => c.json({ data: null, error: 'Not found' }, 404))`. Without this, unmatched routes return plain-text "404 Not Found" breaking the JSON envelope contract that RPC clients depend on.
+
+**Spec Amendment (Attack Audit 2026-03-22):** Never pass potentially-undefined values to `c.json()`. Use `{ data, error }` envelope --- `data: null` with 404 is correct; `data: undefined` is a silent empty-string bug with 200 status (Hono issue #2343).
+
+**Spec Amendment (Attack Audit 2026-03-22):** Mandatory middleware registration order: (1) logger, (2) security headers, (3) CORS, (4) Sentry, (5) auth, (6) rate-limit, (7) tenant context, (8) route-specific zValidator, (9) handlers. Middleware registered after routes or in wrong order causes silent security bypass. Hono executes handlers in registration order (first match wins) --- security middleware MUST be registered before any route definitions.
+
+**Spec Amendment (Attack Audit 2026-03-22):** All Hono route definitions MUST use method chaining (`new Hono().get(...).post(...)`). Separate `app.get(); app.post()` statements silently break RPC type inference (all responses typed as `unknown`). Export `type AppType = typeof routes` from the chained result. See KB gotchas: "Non-chained route definitions lose RPC types."
+
+**Spec Amendment (Attack Audit 2026-03-22):** All sub-app routes MUST be defined before `app.route()` is called. Routes added after mounting produce silent 404s because `app.route()` snapshots the sub-app's routes at call time. Import fully-constructed sub-apps only.
+
+**Spec Amendment (Attack Audit 2026-03-22):** Pin Hono to single version across all monorepo packages using `pnpm.overrides` in root `package.json`. Version mismatch between frontend and backend packages silently breaks RPC types with no compile error.
+
+
+### better-auth over next-auth
+
+
+next-auth (Auth.js v5) has **no built-in multi-tenancy, organizations, or RBAC**. Building these from scratch adds 2--3 weeks of work. better-auth provides all three via its Organization plugin: team management, invitations, custom roles/permissions, member lifecycle --- self-hosted, free, zero per-user fees. Clerk ($0.02/MAU) was evaluated but creates vendor lock-in and costs scale linearly.
+
+
+**better-auth Security Hardening (KB-Enforced):**
+
+- **CRITICAL — Minimum version: better-auth >=1.4.5.** CVE-2025-61928 (CVSS 9.3, October 2025) allows unauthenticated API key creation for arbitrary users when the API keys plugin is enabled. Fixed in v1.3.26. Additionally, GHSA-x732-6j76-qmhm (path normalization bypass via rou3 router) is fixed in v1.4.5. Pin to `>=1.4.5` and add to Wave 1 security audit checklist. Source: [NVD CVE-2025-61928](https://nvd.nist.gov/vuln/detail/CVE-2025-61928), [ZeroPath disclosure](https://zeropath.com/blog/breaking-authentication-unauthenticated-api-key-creation-in-better-auth-cve-2025-61928).
+
+- **CSRF protection:** better-auth has built-in CSRF protection enabled by default. Verify `advanced.disableCSRFCheck` is NOT set to `true` in the better-auth server config. This is a Wave 1 security checklist item.
+
+- **Rate limiting on auth endpoints:** better-auth does NOT rate-limit by default. Rate limiting on login, signup, and password reset endpoints (5--10 req/min/IP) MUST be implemented via Hono middleware (Valkey-backed sliding window). This is already specified in Security Hardening (Section 12) but must be enforced at the better-auth handler level.
+
+- **Session token storage:** Verify better-auth is configured with `httpOnly: true`, `secure: true`, `sameSite: 'lax'` cookie settings. better-auth handles this by default but the configuration must be explicitly verified in Wave 1 security audit.
+
+- **Account lockout:** better-auth does NOT include account lockout after failed login attempts. Implement lockout after 5 consecutive failures (15-minute lockout) at the application layer. Track failed attempts in Valkey (key: `auth:lockout:{email}`, TTL: 15 min). This is already specified in the UX spec (Section 13a) but requires explicit implementation --- it is not a better-auth built-in.
+
+- **OAuth state parameter validation:** better-auth handles OAuth CSRF protection via the `state` parameter. Verify this is active in the OAuth provider configuration. Do not implement custom OAuth state handling that could conflict with better-auth's built-in mechanism.
+
+- **Session revocation on password change:** better-auth does NOT automatically revoke sessions on password change. The password change handler MUST explicitly call `auth.api.revokeAllSessions()` after a successful password change. Without this, stolen sessions remain valid after password reset.
+
+- **Session revocation on member removal:** Removing a member from an organization does NOT auto-clear their session in better-auth. The removal handler MUST explicitly revoke all sessions for the removed user via `auth.api.revokeAllSessions({ userId })`. Without this, removed users retain access until their session cookie expires.
+
+- **Drizzle ORM compatibility:** If using Drizzle ORM as the better-auth database adapter, pin the Drizzle version and test adapter compatibility before upgrading. Drizzle v1.0 may introduce breaking changes to the better-auth adapter. Run the better-auth test suite against any Drizzle upgrade before merging.
+
+- **Multi-tab session behavior:** better-auth sessions are cookie-based and SHARED across all browser tabs for the same domain. Logging out in one tab invalidates the session for all tabs on the next request. Do NOT build per-tab session isolation features using localStorage --- the httpOnly cookie is the single source of truth. Tabs that are actively open will not receive a real-time logout signal from better-auth itself; use Socket.io to broadcast session invalidation events to all connected tabs.
+
+
+### Vercel AI Gateway over LiteLLM and OpenRouter
+
+
+**vs. LiteLLM:** No self-hosted Python proxy to maintain, no memory leaks requiring nightly restarts, no 800+ open GitHub issues, no DB bottleneck at scale. Frees 1,024 MB RAM per VPS node. Vercel AI Gateway is a managed service --- zero ops overhead.
+
+
+**vs. OpenRouter:** Zero markup (OpenRouter charges 5.5% on credit purchases), deeper AI SDK integration (native `generateText`/`streamText` compatibility), automatic Anthropic prompt caching support.
+
+
+**Trade-off:** Vercel vendor dependency, mitigated by the internal `AIGateway` abstraction layer. All AI calls go through an `AIGateway` interface --- swapping Vercel AI Gateway for direct provider API calls requires a single-line change in the factory function.
+
+
+### Socket.io over Supabase Realtime
+
+
+Supabase Realtime defaults to **500 concurrent connections** on Pro (expandable to 10,000 at $10/1,000 connections with no spend cap). At 1,000 customers with 2 concurrent users each = 2,000 connections, Socket.io chosen for full control, native NATS integration, and to avoid per-connection billing at scale. Socket.io on the Hono backend has no connection limits, integrates naturally with NATS (agents -> NATS -> backend -> Socket.io -> client), and keeps real-time infrastructure under full control.
+
+
+**Socket.io Integration Pattern:** Socket.io attaches to the raw Node.js `http.Server` returned by `@hono/node-server`, not to Hono itself. This is standard Node.js --- fully proven and documented. Hono handles HTTP routes; Socket.io handles WebSocket connections on the same port. No compatibility risk.
+
+
+**Socket.io Production Hardening (KB-Enforced):**
+
+
+- **Transport mode (CRITICAL):** Configure `transports: ['websocket']` (WebSocket-only, disable HTTP long-polling fallback). Without sticky sessions, HTTP long-polling requests hit different servers behind the DigitalOcean Load Balancer and fail. Since we use a stateless LB without sticky sessions, WebSocket-only transport is mandatory. If long-polling fallback is ever needed, sticky sessions MUST be configured on the LB first.
+
+- **Memory leak prevention:** Set `perMessageDeflate: false` on the Socket.io server. The default (`true`) leaks ~300KB of native (un-GC-able) memory per connection. At 2,000 concurrent connections, this is 600MB of un-reclaimable memory. Disable unless benchmarking proves compression savings outweigh the leak.
+
+- **Ping tuning for long-lived connections:** Set `pingInterval: 25000` and `pingTimeout: 10000`. Default values cause false disconnections under network jitter. These values must stay within Cloudflare's 100-second idle timeout (25s + 10s = 35s max silence, well under the limit).
+
+- **Per-tenant rate limiting:** Implement per-tenant Socket.io event rate limiting to prevent a single tenant from flooding the WebSocket. Max events per tenant: 100/sec for dashboard updates, 10/sec for user-initiated actions. Enforced in the Socket.io middleware layer.
+
+- **Connection count limits:** Enforce per-tenant connection count limits to prevent resource exhaustion. Default: 50 concurrent connections per tenant (adjustable per plan tier). Reject new connections with a `connection_limit_exceeded` error when the limit is hit.
+
+- **Reconnection strategy:** Client-side reconnection MUST use exponential backoff with jitter (not linear). Default Socket.io linear reconnection causes thundering herd after server restart. Configure: `reconnectionDelay: 1000, reconnectionDelayMax: 16000, randomizationFactor: 0.5`.
+
+- **Binary data handling:** Socket.io binary transport adds significant overhead. For large payloads (file uploads, data exports >100KB), use HTTP endpoints instead of Socket.io. Socket.io is for lightweight real-time events only (status updates, notifications, presence).
+
+- **Room cleanup on disconnect:** Implement explicit room cleanup in the `disconnect` event handler. Stale room memberships leak memory over time. On disconnect: remove socket from all tenant rooms, decrement tenant connection counter in Valkey, log disconnection with tenant context.
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Safari freezes WebSocket in background tabs. Add `visibilitychange` listener in `useSocket` hook: when `document.visibilityState === 'visible'` and `!socket.connected`, call `socket.connect()`. Standard reconnection logic does NOT handle Safari tab-freeze.
+
+
+**Cross-node adapter:** Socket.io uses `@socket.io/redis-adapter` for cross-node event delivery (using DigitalOcean Managed Valkey for cross-node delivery --- decouples real-time dashboard updates from the NATS SPOF, ensuring WebSocket delivery survives primary VPS failure).
+
+
+**Client reconnection protocol:** Socket.io reconnection with max 5 retries, exponential backoff with jitter (`reconnectionDelay: 1000, reconnectionDelayMax: 16000, randomizationFactor: 0.5` --- jitter prevents thundering herd after server restart). On reconnect, client sends last-received event timestamp; server replays missed events from event log. Room membership re-validated against current auth token on every reconnection. After 5 failed retries, show 'Connection lost' banner with manual retry button.
+
+
+**Socket.io Room Naming Convention:**
+
+
+- **Room naming:** `tenant:{tenantId}:{channel}` (e.g., `tenant:abc-123:dashboard`, `tenant:abc-123:agent:sales-agent`, `tenant:abc-123:escalations`)
+
+- **Room joins are SERVER-INITIATED only** --- server places socket into rooms after auth validation.
+
+- **Validation:** `parseTenantRoom(roomName)` extracts tenant ID and verifies it matches the authenticated session.
+
+- **Clients cannot request arbitrary room names.**
+
+
+### Agent Framework: Lightweight Tool Calling (over Pure Custom Loops)
+
+
+Five boilerplates were evaluated for production-ready agent tool calling (verified March 2026 via each repo's README + visible code):
+
+
+| Boilerplate | Tool Calls? | Details | |
+
+
+| **mastra-ai/mastra** | **Yes --- strongest** | Native `createTool`, multi-step reasoning, agent graphs, MCP tool servers, Vercel AI SDK UI hooks. Full-featured but heavy --- graphs, RAG tiers, multi-agent orchestration add complexity beyond what's needed at launch. | |
+
+| **thorchh/agent-starter** | **Yes --- lightweight** | Next.js 16 + Vercel AI SDK (AI SDK v6) + shadcn/ui + Tailwind v4. Ships multi-step tool calling (`tool()` + Zod), streaming, chain-of-thought, file uploads, message branching. Zero extra abstractions. Tools live in `src/lib/ai/tools/`. | |
+
+| **vercel/chatbot** | Partial (SDK-level) | README references AI SDK tool calling capability. No concrete tool examples in the template itself --- clean streaming chat UI. Full tools addable in ~15--30 min via official cookbook. | |
+
+| **supabase-community/vercel-ai-chatbot** | No | Pure streaming chat with Vercel AI SDK + Supabase. Zero tool/function-calling implementation. | |
+
+| **jabirdev/nextjs-better-auth** | No | Auth + Drizzle + Supabase starter only. No Vercel AI SDK, no LLM features, no tools. | |
+
+| **inngest/vercel-ai-o1-preview-crm-agent** | No | Vercel AI SDK + Inngest for background steps. Workflow orchestration, not agent tool calls. | |
+
+
+**Decision: Two-track approach.** Use **thorchh/agent-starter** as a UI/chat reference pattern only. Agent execution runs on the Hono backend using the bare `ai` package (`generateText`, `streamText`, `generateText({ output: Output.object({ schema }) })` with Zod schemas) inside BullMQ workers. The boilerplate's Next.js route handlers, streaming hooks (`useChat`, `useCompletion`), and React components are not used in the backend runtime. The actual agent framework is a custom implementation using `@ai-sdk/anthropic` + `@ai-sdk/openai` provider packages called directly from Hono route handlers and BullMQ workers. Mastra templates (particularly `deep-search` and **CedarCopilot/cedar-mastra-starter** which includes built-in React Flow) serve as reference implementations for complex orchestration patterns to adopt selectively as agent complexity grows.
+
+
+**Composition strategy:** thorchh/agent-starter base + better-auth (Organization plugin) for multi-tenant RBAC + Supabase Pro for database + Vercel AI Gateway for model routing. Layer in Mastra patterns (graph workflows, MCP tool servers) only when proven orchestration complexity demands them. This delivers working tool-calling agents faster than building from scratch while preserving full control over retry logic, cost tracking, human-in-the-loop approval, and per-tenant model routing.
+
+
+**AI SDK v6 import paths:** `useChat` must import from `@ai-sdk/react`, NOT `ai`. Core functions (`generateText`, `streamText`, `tool`, `Output`, `stepCountIs`) import from `ai`. Note: `convertToModelMessages` is async in v6 --- all call sites need `await`.
+
+
+**Why not Mastra as the base?** Mastra (22K stars, from the Gatsby team) is the strongest agent framework available --- but its full feature set (graphs, MCP servers, memory tiers, RAG, multi-agent orchestration) adds complexity beyond what's needed at launch. thorchh/agent-starter gives 100% of the Vercel AI SDK tool calling surface (`streamText`, `generateText`, `tool()` + Zod, multi-step tool calling via `stopWhen: stepCountIs(N)`) in a clean Next.js template. **AI SDK v6 note:** The v5 `maxSteps` parameter is replaced by `stopWhen: stepCountIs(N)` in v6. The codemod handles this automatically; using old `maxSteps` without migration produces a type error. Explicit `stopWhen` setting is mandatory. Construction-domain logic lives in agent prompts and tool definitions regardless of which base is used --- start lean, upgrade to Mastra patterns when the orchestration justifies it. **Mastra v1.14 update (March 2026):** Mastra v1.14 ships with AI SDK v6 support and Hono server adapters, making it a viable replacement for hand-rolled agent execution in Wave 2+. Evaluate as orchestration complexity grows --- the Hono adapter alignment significantly reduces integration friction compared to earlier versions.
+
+
+**Model routing implementation:** Each agent's tool call sites have an explicit `model` parameter set at development time based on task type --- not dynamically classified at runtime. Example: Leads Agent classification -> Nano; email drafting -> Haiku; Sales Agent analysis -> Sonnet. This eliminates the meta-cost of a routing classifier and is fully deterministic for cost modeling.
+
+
+Model Escalation Safety Net (AI-26 --- Wave 2a)
+
+
+While model tiers are set at development time (above), a lightweight `executeWithEscalation()` wrapper adds automatic retry at a higher tier when the assigned model fails. This prevents agent execution failures from becoming user-visible outages. Inspired by pi-mono's cross-provider model handoff system, but simplified for Kiptra's task-oriented (not conversational) agents.
+
+
+**Escalation ladder:** `nano ($0.40/1M out) -> fast/Haiku ($5/1M) -> standard/Sonnet ($15/1M) -> frontier/Opus ($75/1M)`
+
+
+**4 automatic escalation triggers:**
+
+
+- **`retry_after_error`** --- API error (rate limit, 500, timeout). Escalate to different provider/tier.
+
+- **`output_quality_low`** --- Structured output Zod validation fails after 2 retries at current tier.
+
+- **`context_overflow`** --- Message history exceeds 85% of current model's context window. Escalate to model with larger window (or truncate if no larger model available).
+
+- **`tool_failure_threshold`** --- Tool execution failed 2+ times at current tier (suggests model isn't generating valid tool arguments).
+
+
+**Guards:** `maxEscalations` per call (default: 2 --- e.g., nano -> fast -> standard, never reaches frontier without explicit opt-in). Budget gate checks Valkey daily spend counter before each call. Per-tier daily call limits enforced per tenant. Per-provider daily spending caps (AI-28) prevent cost spikes when one provider goes down and traffic cascades to another --- the escalation system skips capped providers entirely. Frontier tier disabled by default for Starter/Professional plans.
+
+
+**Cost tracking:** Every LLM call produces a `ModelCallCost` record (model, tier, tokens, latency, USD). Accumulated into `ExecutionCostSummary` with per-tier breakdown. Feeds into the per-tenant spending limits (enforced via AI SDK middleware + Valkey counters) and the CEO dashboard cost panel. All escalation decisions are logged with `EscalationDecision { fromTier, toTier, reason, timestamp }` for cost analysis.
+
+
+**Integration with Vercel AI SDK v6:** `executeWithEscalation()` wraps `generateText()` / `streamText()`. Each call gets a fresh model instance resolved via `resolveModelForTier(tier, tenantPrefs)`, which checks tenant-level overrides before falling back to defaults. Vercel AI SDK handles cross-provider message normalization via `convertToModelMessages` --- no custom message transformation needed (unlike pi-mono, which maintains its own `transformMessages` engine for interactive model switching).
+
+
+**Key difference from pi-mono:** Pi-mono solves interactive model switching (user switches mid-conversation, full history replayed with thinking block transformation). Kiptra solves autonomous agent execution where each step starts with curated context, not replayed multi-turn history. This makes Kiptra's implementation simpler --- no thinking block transformation, no tool call ID renormalization, no orphaned tool call repair.
+
+
+**Tenant model preferences:** `TenantModelPreferences` stored in tenant config JSONB: tier overrides (e.g., swap Haiku for GPT-4.1 Mini), daily spend cap (USD), per-tier call limits, frontier enable/disable. Managed via admin panel.
+
+
+### Supabase RLS: Optimized for Scale
+
+
+Naive RLS policies show up to 1,000x+ degradation without optimization (verified by Supabase's own benchmarks --- naive RLS on a 100K row table: 178,000ms vs 12ms with optimizations). The following optimizations are mandatory, not optional:
+
+
+- B-tree index on every `tenant_id` column + composite indexes on `(tenant_id, created_at)`, `(tenant_id, status)`
+
+- Wrap `current_setting('app.tenant_id', true)` calls in a `SELECT` subquery to trigger PostgreSQL's initPlan optimizer (54--57% improvement)
+
+- Use immutable functions for JWT claim extraction (caches results per-transaction)
+
+- Never use JSON extraction in RLS policies --- denormalize into indexed columns
+
+
+With these optimizations, RLS is essentially a `WHERE tenant_id = X` injection --- PostgreSQL handles this at 1,000+ tenants without issue.
+
+
+**Connection pooling compatibility:** Supabase's Supavisor (formerly PgBouncer --- Supabase migrated to Supavisor) transaction mode is incompatible with `auth.uid()` session variables. RLS policies use `current_setting('app.tenant_id')` set via a helper function at the start of each transaction, ensuring compatibility with transaction-mode pooling. Backend connection pool size is explicitly configured per VPS node to prevent Supavisor slot exhaustion under concurrent agent load. **Connection pool sizing (Supabase Pro Small = 90 max connections):** Budget across services per VPS node: API server pool = 20, BullMQ workers pool = 10, cron jobs pool = 5. Total per node = 35, total for 2 nodes = 70, leaving 20 connections as headroom for migrations, admin queries, and Supabase dashboard access.
+
+**Spec Amendment (Attack Audit 2026-03-22):** Reconcile BullMQ concurrency with pool size: 30 concurrent BullMQ jobs (10 per priority queue: high/medium/low) sharing a pool of 10 connections causes connection starvation under load. Either reduce total BullMQ concurrency to 10 across all priorities, or increase the BullMQ pool to 30. Add Prometheus metric for connection pool wait time (`db_pool_wait_seconds` histogram) to detect starvation before it causes timeouts. **Connection pool validation:** Supabase Pro default is 200 Supavisor connections in transaction mode. The per-tenant semaphore (3 concurrent DB connections per tenant per node) bounds theoretical maximum to: 100 tenants x 3 connections x 2 nodes = 600, but Supavisor multiplexes transactions so actual concurrent backend connections are much lower. Validate with load testing: simulate max concurrent agent executions (100 tenants x 5 executions) in Wave 4 k6 suite. Set Prometheus alert at 80% of Supavisor `max_client_conn`. If pool exhaustion occurs, reduce per-tenant semaphore to 2 or upgrade Supabase plan.
+
+
+**RLS policy rule:** Policies reference only the `tenant_id` column and pre-computed, indexed permission columns. Role-based access control (RBAC) is enforced at the application layer (Hono middleware), not in RLS policies. Mixing role conditions into RLS creates the 1000x+ degradation the initPlan pattern is designed to prevent.
+
+
+**Enforcement:** All database access must go through a `withTenantContext(tenantId, callback)` wrapper that calls `set_tenant_context()` and runs the callback within a transaction. A custom ESLint rule flags direct `supabase.from()` calls outside this wrapper. This is a Wave 1 implementation item.
+
+
+**Supavisor Transaction-Mode RLS Safety (KB-Enforced):**
+
+
+- **Integration test requirement (CRITICAL):** Write an integration test that verifies `SET LOCAL` does NOT leak across transactions in Supavisor transaction-mode pooling. This is the RLS security boundary --- it must be tested, not assumed. Test: open two concurrent connections via Supavisor, set different `app.tenant_id` values, verify each connection only sees its own tenant's data. Run this test in CI against the actual Supabase instance (not a local mock). This is a Wave 1 security gate.
+
+**Spec Amendment (Attack Audit 2026-03-22) (CRITICAL):** Wave 1 security gate: Integration test MUST verify that a non-LOCAL SET on a pooled connection DOES leak to the next transaction (proving the attack vector exists), AND that all production code paths use SET LOCAL exclusively. If `set_tenant_context()` fails for any reason, `withTenantContext()` MUST throw immediately (fail-closed). Add dedicated `TenantContextError` type that is never caught by generic error handlers --- a failed tenant context set must halt the entire request, not fall through to serve data without tenant isolation.
+
+- **Filtered vector query LIMIT gotcha:** When combining `pgvector` similarity search with RLS row filtering, the `LIMIT` clause is applied BEFORE RLS filtering. This means a `LIMIT 10` query may return fewer than 10 results after RLS filters out rows belonging to other tenants. Mitigation: over-fetch by 2--3x (e.g., `LIMIT 30`) and trim client-side, or use a subquery that applies the tenant filter before the LIMIT. This affects the Wave 3 knowledge retrieval layer (AI-16).
+
+
+### AI Gateway Architecture
+
+
+By replacing the self-hosted LiteLLM proxy with Vercel AI Gateway, the entire AI routing layer becomes a managed service with zero operational overhead. ~300 lines of TypeScript middleware replaces the LiteLLM container + config, freeing 1,024 MB RAM per VPS node.
+
+
+**Architecture responsibilities:**
+
+
+- **Vercel AI Gateway handles:** provider routing, automatic fallbacks, built-in prompt caching, observability dashboards, and model availability monitoring.
+
+- **AI SDK v6 streaming metadata** --- AI SDK v6 natively returns token counts on streaming responses via response metadata. No gateway-level configuration needed for per-tenant billing.
+
+- **Per-call timeout** --- Per-call timeout via AI SDK `timeout` option (default: 120s to match Sonnet timeout). No global gateway config required.
+
+- **AI SDK `costTrackingMiddleware`** --- Every LLM call produces a `ModelCallCost` record (model, tier, tokens, latency, USD). The middleware writes cost data directly to Supabase's `agent_executions` table and updates Valkey per-tenant spending counters in real time.
+
+- **Abstraction layer** --- All AI calls go through an internal `AIGateway` interface. The Vercel AI Gateway adapter can be swapped for direct provider API calls with a single-line change in the factory function. Zero agent code modifications.
+
+- **Direct API fallback** --- If Vercel AI Gateway is unavailable, the `AIGateway` adapter can route directly to provider APIs by swapping the provider constructor. Per-tenant cost tracking continues via the AI SDK middleware layer (which is independent of the gateway).
+
+- **Model lifecycle management** --- AI SDK provider registry + Vercel AI Gateway model configuration must be stored in an external config file (not hardcoded in application code) that can be updated without a code deploy. Store model routing rules in a database table that the admin panel can update. Add a health check that tests each configured model with a minimal completion request daily --- if a model returns 404 (deprecated by provider), alert on-call immediately. Model deprecation must not require a code deploy.
+
+
+**Spending Limit Enforcement:**
+
+
+- Per-tenant spending limits enforced via AI SDK `budgetEnforcementMiddleware` + Valkey counters, checked before every LLM call.
+
+- Valkey counter is updated by the `costTrackingMiddleware` regardless of routing path (Vercel AI Gateway or direct provider).
+
+- Emergency global spending cap on shared API keys: set at 2x the sum of all active tenant monthly limits.
+
+- **Per-provider daily spending caps (AI-28):** Valkey counters track daily spend per provider (`provider:anthropic:daily_spend:{YYYY-MM-DD}`, `provider:openai:daily_spend:{YYYY-MM-DD}`). Default cap per provider: 150% of that provider's expected daily share based on the model routing table (e.g., if Anthropic handles ~70% of spend at $X/day, cap at $1.5X). Updated by the same `costTrackingMiddleware` that updates per-tenant counters --- one additional `INCRBYFLOAT` per call, negligible overhead. When a provider cap is hit: (a) the model escalation system (AI-26) skips that provider's models entirely, (b) single-step calls route to the cheapest available alternative provider, (c) multi-step agents already in-flight on the capped provider complete their current execution but new executions are blocked, (d) Slack/email alert fires immediately to on-call. This prevents the scenario where Provider A goes down, all traffic escalates to Provider B via fallback routing, and Provider B costs spike unbounded. Caps reset at midnight UTC via Valkey key expiry (`EXPIREAT` set to next midnight). Admin panel displays per-provider daily spend alongside per-tenant spend. Cap values stored in `system_config` table (platform-scoped, not tenant-scoped) and editable via admin panel without code deploy.
+
+- If Valkey is also down (double failure), agent execution is suspended entirely --- fail closed, not open.
+
+- **Co-failure scenario:** Valkey can fail under memory pressure on VPS. When Valkey is down, the direct API fallback path has no spending enforcement. **Mitigation:** The AIGateway MUST maintain an in-process spending cap using a Node.js Map with atomic per-tenant counters AND per-provider counters, seeded from the last known Valkey values at process startup. Cap at 110% of each tenant's monthly limit and 150% of each provider's daily limit. This in-process fallback activates only when Valkey is unreachable, providing a last-resort guard rail independent of any external service.
+
+
+**Shared state:** Spending limits are enforced via Valkey counters (shared across both VPS nodes via managed Valkey) with Supabase as durable fallback. Per-tenant spending state is persisted to Supabase on each cost update for durability and cross-node consistency. If Valkey is unavailable, the middleware falls back to Supabase for spending limit reads (higher latency but functional). If both are unavailable, agent execution is suspended (fail closed).
+
+
+**Cache hit rate model:** Cache hit rate modeled conservatively at 20--30% blended (Starter customers sharing standard templates achieve ~50--60% due to common system prompt prefixes; Enterprise customers with custom prompts achieve ~10--20%). System prompts are structured with invariant platform instructions first (cacheable prefix) followed by tenant-specific configuration (non-cached suffix) to maximize Anthropic's cache breakpoint efficiency. Cache write cost ($3.75/1M tokens for Sonnet) is included in the cost model --- caching breaks even after ~2 reuses of the same prefix. **Implementation requirement:** The `prepareStep` callback with `addCacheControlToMessages` pattern is REQUIRED infrastructure for multi-step cost savings. Without it, Sales Agent pays full input cost on every step instead of the 86% savings the cost model assumes. See KB file `06-prompt-caching-patterns.md` for implementation spec.
+
+
+### Architecture Pattern: Monolith-First
+
+
+Teams under 20 engineers ship significantly more features per sprint with monoliths vs microservices. Microservices require dramatically more operational overhead than monoliths. The plan uses a **modular monolith**: clear module boundaries in code (agents, integrations, billing, auth) with a shared database. Services are extracted only when proven scaling bottlenecks emerge AND engineers exist to maintain them.
+
+
+### TypeScript Configuration & Coding Standards (KB-Verified)
+
+
+**tsconfig Requirements (Non-Negotiable):**
+
+
+- **(TS-01) `verbatimModuleSyntax: true` supersedes `esModuleInterop`.** Do NOT use both. `verbatimModuleSyntax` is the correct modern choice --- it enforces explicit `import type` syntax and aligns with the TypeScript 7.0 migration path.
+
+- **(TS-02) `noUncheckedIndexedAccess: true` and `exactOptionalPropertyTypes: true`** are NOT included in `strict: true`. Must be added explicitly. Without `noUncheckedIndexedAccess`, `arr[0]` has type `T` instead of `T | undefined` --- a silent source of runtime crashes on empty arrays/objects.
+
+- **(TS-06) `isolatedDeclarations`** should be enabled per-package only (when using oxc/esbuild for builds), NOT globally. Requires explicit return types on all exported functions --- too strict for app code but correct for shared library packages.
+
+
+**TypeScript Coding Standards (Enforced via ESLint):**
+
+
+- **(TS-03) NO TypeScript `enum`.** Use `as const` objects with `typeof` instead. Example: `const Status = { Active: 'active', Completed: 'completed' } as const; type Status = typeof Status[keyof typeof Status];`. Enums emit runtime JavaScript and are incompatible with `--erasableSyntaxOnly` (the TS 7.0 migration path). Enforce via `no-restricted-syntax` ESLint rule.
+
+- **(TS-04) TypeScript project references required for monorepo.** Without them, TypeScript type-checks the entire monorepo as one program (~40s full check vs 3--8s incremental per package). Each package (`@kiptra/shared`, `@kiptra/backend`, `@kiptra/frontend`) must have its own `tsconfig.json` with `"composite": true` and `"references"` pointing to dependencies.
+
+- **(TS-05) Ban barrel exports (`index.ts` re-exporting everything).** Use direct imports: `import { UserSchema } from '@kiptra/shared/schemas/user'` not `from '@kiptra/shared'`. Barrel files force TypeScript to load every module in the barrel on any single import, destroying tree-shaking and slowing IDE type-checking. Enforce via `no-restricted-imports` ESLint rule on barrel paths.
+
+**Spec Amendment (Attack Audit 2026-03-22):** Define branded types in `@kiptra/shared`: `type TenantId = string & { __brand: 'TenantId' }`, `type UserId = string & { __brand: 'UserId' }`, `type AgentId = string & { __brand: 'AgentId' }`, etc. All function signatures must use branded types. `set_tenant_context()` accepts only `TenantId`, not `string`. `withTenantContext()` accepts only `TenantId`. Prevents cross-assignment bugs (passing userId where tenantId expected). Constructor functions: `asTenantId(s: string): TenantId` with UUID validation via Zod.
+
+
+---

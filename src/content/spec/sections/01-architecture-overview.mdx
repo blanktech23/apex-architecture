@@ -1,0 +1,74 @@
+---
+title: "1. Architecture Overview"
+slug: "architecture-overview"
+section: "01"
+---
+
+Architecture
+┌──────────────────────────────────────────────────┐
+│ VERCEL (Frontend + Auth + Billing APIs) │
+│ Next.js 16 App Router │
+│ ├── Dashboard (React Flow mind map) │
+│ ├── Agent status + escalation queue │
+│ ├── CEO portal (CEO Agent UI) │
+│ └── better-auth (RBAC + Organizations) │
+└──────────┬───────────────────────────────────────┘
+ │ HTTPS (REST + WebSocket)
+ ▼
+┌──────────────────────────────────────────────────┐
+│ DUAL VPS (Agent Backend Service) │
+│ Primary + Secondary (Hybrid Active-Active/ │
+│ Active-Passive) behind DO LB │
+│ HTTP: both nodes active via LB. NATS event bus + │
+│ scheduled agents: primary only. On primary fail, │
+│ HTTP continues on secondary; event-driven agents │
+│ suspended. Shared state: Managed Valkey + NATS │
+│ leaf-node topology. See Section 12 failure modes. │
+│ Node.js + TypeScript │
+│ ├── Agent Executor (7-9 agents per tenant │
+│ │ depending on persona; 28 total types) │
+│ ├── Vercel AI Gateway (managed, zero ops) │
+│ ├── Event Bus Consumer/Producer │
+│ └── Cron Scheduler (daily briefings, AR checks) │
+│ │
+│ ┌────────────┐ ┌────────────┐ │
+│ │ NATS │ │ Valkey │ │
+│ │ JetStream │ │ (BullMQ + │ │
+│ │ (event bus)│ │ cache) │ │
+│ └────────────┘ └────────────┘ │
+│ NATS primary runs on VPS-1 only; VPS-2 connects │
+│ as a leaf node. Known limitation: NATS JetStream │
+│ runs standalone on the primary node (2 nodes │
+│ cannot form Raft quorum). Valkey is a single │
+│ managed instance. │
+│ Both are acknowledged SPOFs — see Section 12 │
+│ Dual-VPS Architecture for failure modes and │
+│ mitigations. │
+│ │
+│ NATS Leaf Node Warnings: │
+│ (a) Leaf nodes may accept publishes during hub │
+│ unavailability without persisting to │
+│ JetStream — messages silently lost. │
+│ (b) JetStream acks do not guarantee durability │
+│ (Jepsen 2024: writes flushed every 2 min). │
+│ MITIGATION: Set sync_interval=always in │
+│ JetStream config (forces fsync per write). │
+│ Throughput drops to ~hundreds msg/s — │
+│ acceptable for agent event bus volume. │
+│ (c) All critical events use outbox pattern to │
+│ guarantee delivery. │
+└──────────┬───────────────────────────────────────┘
+ │ SQL + RLS
+ ▼
+┌──────────────────────────────────────────────────┐
+│ SUPABASE PRO │
+│ PostgreSQL + Row-Level Security │
+│ ├── tenants, agents, executions, events │
+│ ├── Encrypted secrets (tenant API keys) │
+│ ├── Realtime DB change notifications │
+│ └── Auth (better-auth adapter) │
+└──────────────────────────────────────────────────┘
+```
+
+
+---

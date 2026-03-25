@@ -1,0 +1,221 @@
+---
+title: "7e. Anti-Hallucination Architecture"
+slug: "anti-hallucination"
+section: "07e"
+---
+
+> Complete architecture: `kiptra-anti-hallucination-v2.md` (1,400+ lines, 17 failure modes cataloged, full TypeScript implementations, cost model, 4-phase implementation roadmap).
+
+### Design Philosophy
+
+**"Never hallucinate" is a false promise.** No AI system achieves zero hallucination (Stanford HAI research: 17-33% hallucination rate in production RAG systems). Kiptra addresses this with architectural honesty: split all agent outputs into **deterministic and generative pipelines**, verify every generative claim against source data, and route high-risk outputs through mandatory human review.
+
+### Estimate Engine: Deterministic Calculation Pipeline
+
+**Iron Rule: The LLM NEVER performs arithmetic, lookups, or financial calculations.** Every number flows through deterministic TypeScript with Decimal.js.
+
+```
+USER INPUT (natural language scope)
+        |
+        v
+  SCOPE INTERPRETER (LLM)        <- Zod-validated structured output, temp 0.0
+  Output: { rooms, materials, tasks, scopeConfidence: 0.0-1.0 }
+        |
+        v
+  SCOPE CONFIDENCE GATE           <- Deterministic routing
+  < 0.80 -> human review (no estimate generated)
+  0.80-0.89 -> flagged "AI Estimate - Review Recommended"
+  >= 0.90 -> proceed
+        |
+        v
+  MATERIAL MATCHER (LLM)          <- Catalog embeddings, top-3 candidates
+  Flag if match confidence < 0.80
+        |
+        v
+  DETERMINISTIC CALCULATOR (TS)   <- ALL math here. Zero LLM involvement.
+  Decimal.js: quantity * unitPrice, labor, overhead, markup, tax, total
+  Every operation logged. Same input = same output.
+        |
+        v
+  VALIDATION LAYER (TS)           <- Hard + soft checks (see guardrails)
+        |
+        v
+  NARRATIVE GENERATOR (LLM)       <- Read-only access to estimate data
+  Cannot change any numbers.
+        |
+        v
+  CITATION VERIFICATION (NLI)     <- DeBERTa entailment per claim
+        |
+        v
+  OUTPUT (estimate + narrative)
+```
+
+### Scope Confidence Zod Schema
+
+```typescript
+const ScopeInterpretation = z.object({
+  rooms: z.array(RoomSchema),
+  materials: z.array(MaterialSchema),
+  tasks: z.array(TaskSchema),
+  scopeConfidence: z.number().min(0).max(1),  // REQUIRED
+  confidenceFactors: z.object({
+    explicitQuantities: z.boolean(),     // User provided specific measurements
+    priorProjectData: z.boolean(),       // Similar past projects exist
+    designFilesAttached: z.boolean(),    // Blueprints, photos, or plans
+    ambiguousTerms: z.array(z.string()), // Terms the LLM found ambiguous
+  }),
+});
+```
+
+**Confidence factors:** explicit quantities (+0.15-0.25), prior project data (+0.10-0.15), design files (+0.10-0.20), ambiguous terms (-0.05-0.15 each), missing critical dimensions (-0.15-0.25).
+
+### Mandatory Human Review Gates (4 Triggers)
+
+| Trigger | Rationale |
+|---------|-----------|
+| Estimate total > $25,000 | High financial exposure --- errors are costly |
+| First estimate per project type per tenant | No comparable baseline exists |
+| Scope confidence < 0.80 | AI is uncertain about what was requested |
+| Tenant has < 10 total estimates | Bootstrap period --- insufficient validation data |
+
+**Review flow:** Estimate generated -> review gate (deterministic trigger check) -> review queue (estimate + audit trail + comparable analysis + confidence scores) -> human reviewer (approve / modify / reject) -> delivered to client.
+
+**SLA:** 2 hours during business hours, next business day otherwise.
+
+### Bootstrap Problem Mitigation
+
+| Tenant Estimate Count | Policy |
+|-----------------------|--------|
+| 0-9 estimates | ALL estimates require human review |
+| 10-49 estimates | High-value (>$10K) still require review; building comparable baseline |
+| 50+ estimates | Full automation; comparable-based validation activates |
+
+New tenants seeded with anonymized industry comparables (same region, same project type), clearly marked as "industry average." Phased out as tenant-specific data accumulates via weighted blend.
+
+### DeBERTa NLI Citation Verification
+
+Every generated response is decomposed into atomic claims and verified independently using a dedicated NLI model --- NOT the same LLM (avoids circular evaluation, eliminates 40% position bias of LLM-as-judge).
+
+```
+GENERATED RESPONSE
+        |
+        v
+  CLAIM DECOMPOSER (Haiku 3.5)    <- Break into atomic claims
+  Tag: FACTUAL | NUMERICAL | PROCEDURAL | OPINION
+        |
+        v
+  NLI VERIFIER (DeBERTa)          <- cross-encoder/nli-deberta-v3-large
+  Per claim: ENTAILED | CONTRADICTED | NEUTRAL
+  NUMERICAL claims: exact string match of values against source
+        |
+        v
+  RESPONSE ADJUDICATOR
+  All ENTAILED -> deliver
+  Any CONTRADICTED -> remove/correct, regenerate
+  Any NEUTRAL -> flag as unverified or remove
+```
+
+**Latency budget:** claim decomposition ~300ms + NLI batch ~100-150ms + numerical extraction ~5ms + adjudication ~10ms = **~415-465ms total overhead**. For real-time chat, runs async with "verifying..." indicator.
+
+### Financial Guardrail Config
+
+```typescript
+interface PricingGuardrails {
+  // HARD LIMITS --- block delivery
+  maxEstimateTotal: Decimal;          // Company-configured (e.g., $500,000)
+  minEstimateTotal: Decimal;          // Minimum viable (e.g., $100)
+  maxMarkupPercent: number;           // Policy max (e.g., 60%)
+  minMarkupPercent: number;           // Policy min (e.g., 10%)
+  maxTaxRate: number;                 // Legal max for jurisdiction (e.g., 0.12)
+
+  // STATISTICAL LIMITS --- flag for review
+  maxDeviationFromComparables: number; // Tiered: 30% (<$10K), 20% ($10-50K), 15% (>$50K)
+  maxUnitPriceDeviation: number;       // 20% from catalog mean
+  maxLaborRateDeviation: number;       // 25% from baseline
+}
+```
+
+**External price validation:** compare matched prices against manufacturer published price lists. Flag >5% deviation to catch stale catalog data (not just hallucination).
+
+### Support Agent Safety Layers
+
+1. **RAG grounding:** hybrid retrieval (pgvector + BM25 + RRF) with Cohere Rerank 3.5
+2. **Relevance gate:** top chunk < 0.35 = OUT_OF_DOMAIN (deterministic refusal); 0.35-0.55 = LOW_CONFIDENCE; > 0.55 = PROCEED
+3. **Citation enforcement:** every factual claim cites KB source, verified by DeBERTa NLI
+4. **Financial blocklist:** regex patterns block pricing commitments/discounts/guarantees. Defense-in-depth: NLI catches creative phrasings regex misses; system prompt prohibits quoting prices; monthly adversarial test suite (20+ creative phrasings) validates coverage
+5. **Out-of-domain:** deterministic refusal responses (no LLM) + human escalation
+
+### Per-Agent Accuracy Targets
+
+| Agent | Output Type | Target | Method |
+|-------|------------|--------|--------|
+| Estimate Engine | Arithmetic | <0.1% error | Deterministic pipeline, zero LLM math |
+| Estimate Engine | Scope interpretation | 85-90% accuracy | LLM + scope confidence + human review gate |
+| Estimate Engine | Narratives | <3% hallucination | RAG + factored verification |
+| Support Agent | KB answers | <5% hallucination | RAG + citation + NLI |
+| Support Agent | Escalation | 0% | Deterministic routing rules |
+| Scheduling Agent | Date/time math | <0.1% error | Deterministic calendar logic |
+| Scheduling Agent | Suggestions | <5% | Constraint solver + LLM narrative |
+| CRM Agent | Data entry | <1% error | Structured extraction + Zod validation |
+| CRM Agent | Summaries | <5% | RAG + source attribution |
+
+### Failure Mode Summary (17 Modes)
+
+| ID | Mode | Severity | Detection |
+|----|------|----------|-----------|
+| F1 | LLM generates invalid JSON for scope | Medium | Zod validation, retry 2x then human |
+| F2 | Material match returns wrong SKU | High | Unit price deviation check |
+| F3 | Stale catalog prices | Medium | Price drift monitor |
+| F4 | RAG retrieves irrelevant context | Medium | Relevance gate (reranker score) |
+| F5 | LLM ignores grounding prompt | High | NLI claim verification |
+| F6 | Estimate total wildly off | Critical | Historical comparable check |
+| F7 | Support Agent makes pricing commitment | Critical | Financial blocklist + NLI fallback |
+| F8 | LLM API timeout/error | Medium | Retry + fallback model |
+| F9 | Embedding model changes output space | High | Embedding drift detection |
+| F10 | Calibration drift | Medium | Monthly ECE check |
+| F11 | Tax rate incorrect for jurisdiction | Critical | ZIP code lookup validation |
+| F12 | Adversarial prompt injection | High | Input sanitization + output guardrails |
+| F13 | Scope interpretation systematically wrong | High | Post-delivery feedback loop |
+| F14 | New tenant has zero comparables | Medium | Bootstrap policy (all human review) |
+| F15 | Catalog prices stale vs manufacturer | Medium | External price validation (>5% flag) |
+| F16 | Scope confidence too low | Medium | Scope confidence gate |
+| F17 | Full database/pgvector outage | Critical | Health check, circuit breaker, cached FAQ fallback |
+
+### Monitoring Metrics
+
+| Metric | Frequency | Alert Threshold | Action |
+|--------|-----------|----------------|--------|
+| Hallucination rate (NLI-detected) | Per response | >5% rolling 1hr | Page on-call (P1) |
+| Out-of-domain rate | Per response | >20% rolling 1hr | Review KB coverage |
+| Mean confidence score | Per response | <0.60 rolling 1hr | Investigate retrieval quality |
+| Citation verification fail rate | Per response | >10% rolling 1hr | Check source freshness |
+| Retrieval relevance (mean reranker) | Per response | <0.40 rolling 1hr | Reindex, check embeddings |
+| Estimate validation failure rate | Per estimate | >5% rolling 24hr | Review pricing data |
+| Human escalation rate | Per conversation | >30% rolling 24hr | Review agent coverage |
+| Latency p95 | Per response | >5s support, >15s estimate | Scale infrastructure |
+| LLM error rate | Per call | >2% rolling 1hr | Check API status, fallback |
+| User feedback (thumbs down) | Per response | >15% rolling 7d | Root cause analysis |
+
+### Post-Delivery Feedback Loop
+
+When actual project costs are entered via JobTread integration, line-by-line comparison identifies over/under estimated scope items. Deviations >15% feed back into the golden test set and adjust comparable baselines. Systematic errors trigger alerts. Tenants providing <30% feedback data get tightened scope confidence thresholds (+0.05).
+
+### Evaluation Framework (Non-Circular)
+
+Four independent layers: (1) **Deterministic checks** --- Zod validation, numerical consistency, citation existence, guardrails. (2) **NLI-based verification** --- DeBERTa entailment per claim. (3) **Statistical monitors** --- response consistency (10% sample), cross-model agreement (5% sample), RAGAS as *signal* not *judge*. (4) **Human evaluation** --- 50 random responses/agent/week, monthly golden test set (200+ cases per agent).
+
+### Cost Model
+
+| Output | Cost | Key Components |
+|--------|------|----------------|
+| Estimate (complex) | ~$0.068-0.078 | Scope interpreter + material matcher + narrative + claim verification + NLI + reranker + embedding |
+| Support response | ~$0.029 | RAG generation + claim verification + NLI + reranker + embedding |
+| Help Bot response | ~$0.005 | Haiku-only RAG generation + reranker + embedding (no NLI, bounded scope) |
+
+Monthly at 100 tenants (~10K estimates, ~100K support responses): ~$4,700 LLM/infra + ~$1,000 human evaluation = ~$5,700/month. DeBERTa NLI hosting: $50-150/mo (Modal serverless GPU). Cohere Rerank: $100-500/mo.
+
+### Honest Accuracy Statement
+
+AI estimates are a productivity multiplier for human estimators, not a replacement. Arithmetic errors (<0.1%) come from deterministic pipeline bugs or bad input data, not AI. Scope interpretation errors (85-90% accuracy) are inherently probabilistic --- improving accuracy requires more training data (feedback loop) and human review gates.
+
+**Marketing guidance:** USE "AI that makes your team dramatically more productive, with human oversight where it matters." AVOID "AI-generated estimates with zero errors" or "never hallucinates."

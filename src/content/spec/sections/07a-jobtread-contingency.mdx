@@ -1,0 +1,145 @@
+---
+title: "7a. JobTread Contingency Architecture"
+slug: "jobtread-contingency"
+section: "07a"
+---
+
+JobTread is a critical integration for construction/remodeling customers. However, its API uses **Pave** --- a niche, proprietary query language with zero community ecosystem, undocumented rate limits, and no developer support. This section documents the architectural safeguards that prevent JobTread from becoming an existential dependency.
+
+
+Critical Finding
+
+
+JobTread's API is **not REST or GraphQL** --- it uses Pave, a proprietary query language with no third-party SDKs, no Stack Overflow answers, and no standard tooling. Grant keys expire after 3 months of inactivity. Rate limits are completely undocumented. Their support explicitly states they will not debug your code.
+
+
+### Competitive Landscape: API Maturity
+
+
+| Platform | API Type | Auth | Rate Limits | Docs Quality | Market Fit | |
+
+
+| **JobTread** | Pave (proprietary) | API Key (grants) | Undocumented | Basic | Direct fit | |
+
+| **Procore** | REST + OpenAPI | OAuth 2.0 | 3,600/hr default, header-based | Excellent | Enterprise GC. Token timeout reducing to 15 min. | |
+
+| **Jobber** | GraphQL | OAuth 2.0 | Documented | Strong | Home services | |
+
+| **Buildertrend** | None | N/A | N/A | N/A | No API available | |
+
+| **CoConstruct** | Frozen | N/A | N/A | N/A | Merged with Buildertrend. No new API development; existing connections maintained only. | |
+
+
+**Competitive advantage:** Buildertrend (market leader) has no public API. CoConstruct has limited API capabilities. Customers on those platforms have **no path to AI agent integrations** from anyone --- making Kiptra the only option for construction companies wanting AI automation, regardless of their PM tool.
+
+
+Confirmed: JobTread Webhook Support (INT-13)
+
+
+JobTread webhooks are confirmed: `createWebhook` Pave mutation with `entity.action` event types (e.g., `job.created`, `task.updated`). No HMAC verification available --- security via cryptographic URL token + IP allowlisting. Polling fallback remains for missed events: Pave batch queries with `last_modified` timestamps at relaxed intervals.
+
+
+Polling-Only Scenario Budget
+
+
+At 50 tenants polling 6 data types every 15 minutes = 0.4 req/min/tenant (20 req/min total across all tenants). If this exceeds the per-grant-key limit, relax staleness SLAs in polling-only mode (Tasks/Schedule tolerance increases from 15 minutes to 1 hour).
+
+
+### Anti-Corruption Layer (Mandatory Architecture)
+
+
+Architecture
+Kiptra Agents (never reference JobTread types)
+ &darr;
+[Canonical Domain Model] --- Project, Estimate, Task, Contact, etc.
+ &darr;
+[Integration Service / ACL]
+ &darr;
+[JobTread Adapter] [Procore Adapter] [Jobber Adapter] [CSV Import] [Manual Entry]
+```
+
+
+- Agent code **never** references JobTread-specific types, Pave syntax, or field names
+
+- All translation happens in the adapter layer --- swapping JobTread for Procore means writing one new adapter file, not touching agent code
+
+- Each adapter implements a common interface (`IProjectRepository`, `IEstimateRepository`, etc.)
+
+- CSV/manual import is a first-class adapter --- both an insurance policy and a way to serve customers who don't use JobTread
+
+
+### Local Data Mirror (Resilience Layer)
+
+
+All JobTread data is synced to Supabase so agents function even during API outages. Webhooks provide real-time updates; scheduled polling catches missed events.
+
+
+| Data Type | Sync Method | Staleness Tolerance | Fallback Source | |
+
+
+| Projects/Jobs | Webhook + daily full sync | 1 hour | Manual entry | |
+
+| Estimates/Documents | Webhook + on-demand refresh | 30 minutes | CSV import | |
+
+| Cost Catalog | Nightly full sync | 24 hours | Manual entry | |
+
+| Tasks/Schedule | Webhook + hourly sync | 15 minutes | Google Calendar / Outlook Calendar | |
+
+| Financial Data | Webhook + every 4 hours | 4 hours | QuickBooks (already synced) | |
+
+| Contacts/Accounts | Nightly full sync | 24 hours | CRM | |
+
+
+**Key insight:** Because JobTread already syncs to QuickBooks Online, financial data has a natural fallback source. Customers see a "last synced X minutes ago" indicator. If JobTread goes down for hours, agents keep working on cached data.
+
+
+### Rate Limit Defense (Undocumented Limits)
+
+
+- **Centralized request queue** with token bucket --- start at 60 req/min, adjust empirically based on 429 responses
+
+- **Exponential backoff with jitter** on any error --- prevents thundering herd across tenants
+
+- **Pave batch queries** --- combine multiple object requests into single API calls to reduce total request count
+
+- **Per-tenant rate budget tracking** --- each customer's grant key has its own limit; prevent one tenant from exhausting another's budget
+
+- **Circuit breaker** --- after N consecutive failures, serve from local mirror and alert operations
+
+**Spec Amendment (Attack Audit 2026-03-22):** Circuit breaker implementation: per-provider (not per-endpoint). State machine: CLOSED -> OPEN (5 failures in 60s) -> HALF-OPEN (30s timeout, 1 probe request) -> CLOSED (2 consecutive successes) or OPEN (probe failure). Use `opossum` library. Track state in Valkey for cross-node consistency (both VPS nodes must agree on circuit state). Key format: `circuit:{provider}:state`. Emit Prometheus metrics: `circuit_breaker_state` gauge per provider, `circuit_breaker_trips_total` counter.
+
+- **Thundering herd mitigation** --- Post-circuit-breaker recovery: staggered retry with per-tenant jitter (0--60s) to prevent simultaneous API hits on recovery. Half-open state tests with a single tenant before allowing full traffic.
+
+- **Schema snapshot monitoring** --- Pave is introspectable; automated tests diff the schema weekly and alert on changes to fields agents depend on
+
+> **Spec Amendment (Attack Audit 2026-03-22):** QuickBooks Online 500 req/min rate limit is shared across ALL apps connected to the same company realm (not per-app). If the customer uses other QB integrations (payroll, banking feeds, etc.), Kiptra shares their rate limit budget. Set token bucket to 400/min (80% of theoretical max) to leave headroom for other apps. Monitor 429 responses and reduce dynamically (halve the budget on first 429, restore gradually over 5 minutes). Prefer CDC-style polling with delta queries over per-entity API calls to minimize request count. The spec currently shows "100 req/10s" (600/min) but the actual shared-realm limit is 500/min --- use 400/min as the safe ceiling.
+
+
+### If JobTread Goes Hostile
+
+
+| Scenario | Probability | Impact | Mitigation | |
+
+
+| API price increase | Medium | Medium | ACL + multi-source fallback. Cost passed to customer. | |
+
+| API access revoked | Low | Critical | Local mirror retains all data. CSV import + manual entry as immediate fallback. Procore/Jobber adapter as replacement. | |
+
+| Competing AI features | High | High | Differentiate on multi-tool orchestration across 7+ systems, not single-source AI features. | |
+
+| Rate limits tightened | High | Medium | Aggressive caching, batch Pave queries, local mirror reduces API dependency by 80%+. | |
+
+
+### Strategic Actions
+
+
+- **Pursue JobTread integration partnership** --- they have a formal partner program. Adam as a real JobTread customer making the ask carries weight. Get API access terms, SLAs, and advance notice of breaking changes in writing.
+
+- **Build a second integration early** (Procore or Jobber) to prove the adapter pattern works and have a real alternative ready
+
+- **Build CSV/manual import as first-class** --- serves customers who don't use JobTread (Buildertrend users, spreadsheet-only shops) and acts as an insurance policy
+
+- **Grant key auto-refresh** --- JobTread keys expire after 3 months of non-use. Implement a background job that makes a lightweight API call monthly to keep keys alive.
+
+
+---

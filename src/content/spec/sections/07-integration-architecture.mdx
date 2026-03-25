@@ -1,0 +1,177 @@
+---
+title: "7. Integration Architecture (Email, Webhooks, OAuth)"
+slug: "integration-architecture"
+section: "07"
+---
+
+### Inbound Email Flow (Lead Capture)
+
+
+Flow
+leads@customer-domain.com -> MX record -> SendGrid Inbound Parse
+-> Webhook POST to LB -> VPS -> NATS event -> Leads Agent agent
+-> Creates lead record in CRM + Supabase -> Drafts acknowledgment email
+-> Stored in `drafts` table -> User approves -> Email API sends (Gmail or Microsoft Graph, based on tenant's connected provider)
+```
+
+
+Email Content Sanitization (ARCH-12)
+
+
+Before publishing to NATS, strip HTML tags, normalize whitespace, enforce maximum character limits per field (subject: 500 chars, body: 10,000 chars, sender: 254 chars). The Haiku input classifier (Section 12, Layer 1) is mandatory for all inbound email content before the Leads Agent receives it --- not optional. Emails flagged as potential injection are routed to a human review queue rather than silently dropped.
+
+
+**SendGrid Inbound Parse security:** Cryptographic URL path token (primary) + basic auth (secondary) + Cloudflare WAF IP allowlist (supplementary) + ECDSA signature verification via SendGrid Security Policies. Full verification details in the Webhook Ingestion flow below. Rotate the URL token quarterly or immediately if compromised.
+
+
+Gmail OAuth Scope (INT-05)
+
+
+Gmail OAuth scope: `https://www.googleapis.com/auth/gmail.send` (sensitive scope) --- sends email on behalf of the user from their Gmail address. Emails are composed and approved in the Kiptra UI, then sent via the Gmail API. Sensitive scope verification requires only a demo video and 3--5 business days, no security assessment cost. Drafts are stored in the Kiptra `drafts` table for human-in-the-loop approval, NOT in the customer's Gmail drafts folder. Once approved, the email is sent via `gmail.send`. Email identity: the customer's Gmail account must use the same domain as the `From:` header to maintain DMARC alignment with SPF/DKIM. An email deliverability health check during onboarding verifies SPF, DKIM, and DMARC configuration for the customer's domain.
+
+**Spec Amendment (Attack Audit 2026-03-22):** Google enforces hard limit of 50 refresh tokens per user per OAuth2 client. When the 51st token is issued, the oldest is automatically revoked with no notification. In multi-tenant apps where a user connects multiple organizations, each connection consumes a token. Track active tokens per user. Revoke tokens explicitly on disconnect (call Google's revoke endpoint). Warn users approaching the limit.
+
+**Spec Amendment (Attack Audit 2026-03-22):** Google does not notify on token revocation (user revokes via Google Account > Security, or Google auto-revokes after 6 months of inactivity). Implement integration health checks: every 15 minutes per active Google connection, make lightweight API call (`people.get` or `userinfo`). On 401, mark integration status as `error`, notify tenant owner via in-app notification + email, prompt re-authorization. Never assume stored tokens are valid without testing.
+
+
+Microsoft 365 / Outlook OAuth (INT-19)
+
+
+**OAuth flow:** Standard OAuth 2.0 Authorization Code Flow with PKCE via `login.microsoftonline.com/common/oauth2/v2.0/authorize`. Customer signs in with their Microsoft account, approves permissions, done. Scopes: `Mail.Send`, `Mail.Read`, `Calendars.Read`, `offline_access` --- all standard delegated permissions requiring no security assessment or restricted scope review (simpler than Google's sensitive scope process).
+
+**Publisher verification:** Microsoft Cloud Partner Program (CPP/MPN) publisher verification --- 2--6 weeks lead time, free. Without this, users see an "unverified" warning on the consent screen. Start enrollment during Wave 2b (pre-launch action item).
+
+**Token lifecycle differences vs Google:**
+
+- **Refresh tokens expire after 90 days of inactivity** (vs Google's indefinite). BullMQ cron job refreshes Microsoft tokens every 60 days to prevent silent expiry.
+- **Webhook subscriptions max ~3 days (~4,230 minutes)** for mail/calendar resources (vs Google Calendar's 7 days). BullMQ scheduled job renews Microsoft Graph subscriptions every 2 days. Subscription notification URL must be HTTPS with valid SSL.
+- **Reconciliation polling:** Same 15--30 minute fallback poll as Google Calendar, using Microsoft Graph delta queries for incremental sync.
+
+**Admin consent gotcha (CRITICAL for construction companies):** Some Microsoft 365 organizations disable user consent, requiring an IT admin to approve the app first. Kiptra supports the admin consent endpoint (`/adminconsent`) as a fallback. During onboarding, if the standard consent flow fails with `AADSTS65001`, Kiptra displays: "Your organization requires admin approval. Share this link with your IT admin: [admin consent URL]." This is common in larger construction companies with managed IT. The admin consent URL format: `https://login.microsoftonline.com/{tenant}/adminconsent?client_id={app_id}&redirect_uri={redirect}`.
+
+**App registration:** Microsoft Entra ID (formerly Azure AD) --- free, 15-minute setup. Register a multi-tenant app with redirect URI pointing to the Kiptra OAuth callback endpoint.
+
+
+Provider Abstraction Pattern (INT-20)
+
+
+All email and calendar operations use provider-agnostic interfaces so agent code is never coupled to Google or Microsoft APIs directly:
+
+```typescript
+interface EmailProvider {
+  send(params: { to: string; subject: string; body: string; replyTo?: string }): Promise<{ messageId: string }>;
+  getProfile(): Promise<{ email: string; name: string }>;
+}
+
+interface CalendarProvider {
+  getEvents(params: { start: Date; end: Date }): Promise<CalendarEvent[]>;
+  getFreeBusy(params: { start: Date; end: Date }): Promise<BusySlot[]>;
+  watchChanges(webhookUrl: string): Promise<{ subscriptionId: string; expiresAt: Date }>;
+  renewWatch(subscriptionId: string): Promise<{ expiresAt: Date }>;
+}
+
+// Implementations: GoogleEmailProvider, MicrosoftEmailProvider,
+//                  GoogleCalendarProvider, MicrosoftCalendarProvider
+// Factory resolves provider from tenant's integrations table at runtime
+```
+
+The drafts table and human-in-the-loop approval flow are identical regardless of email provider. The `drafts.provider` column stores which provider to use when sending the approved draft.
+
+
+### OAuth Token Lifecycle
+
+
+Flow
+Customer connects QuickBooks -> OAuth 2.0 redirect -> access_token (1hr) + refresh_token (100 days)
+-> Encrypted (AES-256-GCM) -> Stored in `integrations` table
+-> On agent request: check expiry -> auto-refresh if needed
+-> CRITICAL: refresh_token expires after 100 days of NON-USE -> alert customer to reconnect
+
+Microsoft 365 token lifecycle:
+Customer connects Outlook -> OAuth 2.0 + PKCE redirect -> access_token (1hr) + refresh_token (90-day rolling)
+-> Encrypted (AES-256-GCM) -> Stored in `integrations` table
+-> On agent request: check expiry -> auto-refresh if needed
+-> CRITICAL: refresh_token expires after 90 days of INACTIVITY (shorter than Google/QB)
+-> BullMQ cron: proactive refresh every 60 days to prevent silent expiry
+-> Alert at 75 days of non-use (before 90-day expiry)
+```
+
+
+**Hybrid Active-Active coordination:** Token refresh operations use a Valkey distributed lock (`SET NX EX` with key `token-refresh:{integration_id}`, TTL 30s) to ensure only one node refreshes at a time. This prevents the race condition where both nodes simultaneously consume the same refresh token, which would permanently invalidate it under QB's rotation model.
+
+
+QuickBooks Refresh Token Rotation (INT-02)
+
+
+QuickBooks OAuth implements refresh token rotation: every call to the token endpoint returns both a new `access_token` AND a new `refresh_token`, immediately revoking the old refresh token. The background refresh job must atomically update BOTH tokens in the `integrations` table in a single transaction before returning. A `refresh_token_obtained_at` timestamp tracks when the current refresh token was issued; alerts fire at 85 days of non-use (before the 100-day expiry). If the token endpoint returns 200 but the DB write fails, the old refresh token is already permanently revoked. Do NOT retry the token exchange. Surface a re-authorization prompt to the tenant immediately.
+
+
+**Intuit November 2025 policy:** 5-year hard expiry on refresh tokens (regardless of usage). Mandatory Reconnect URL field (enforced January 2026). Handle `refresh_token_expiry` field in token endpoint responses. Track `refresh_token_absolute_expiry` in the `integrations` table and alert tenants 30 days before the 5-year hard expiry to re-authorize.
+
+**Spec Amendment (Attack Audit 2026-03-22):** First QB API call after token refresh takes 5-10s; `getCompanyInfo()` can take 30-45s (server-side cold-start on Intuit's infrastructure). Set QB HTTP client timeout to 45s minimum. Proactively refresh tokens at 50 minutes (not 60) so the cold-start latency penalty occurs in the background cron job, not on a user-facing request. The circuit breaker `resetTimeout` for QB must be at least 60s to account for this behavior.
+
+
+### Secrets Architecture
+
+
+- **Envelope encryption:** Each tenant gets a unique Data Encryption Key (DEK) for encrypting their OAuth tokens and API credentials. DEKs are themselves encrypted by a platform-wide Key Encryption Key (KEK). Day 1: KEK stored in Docker secrets. Post-launch: migrate KEK to HashiCorp Vault or DigitalOcean Managed Secrets. **Rotation schedule:** KEK rotates annually or immediately on suspected compromise. Per-tenant DEK rotation is available for compromised-tenant-key response: generate new DEK, re-encrypt all tenant secrets, update `tenant_keys` row --- without requiring a full KEK rotation.
+
+- **Key rotation:** The `integrations` table includes a `key_version` column. When the KEK rotates, new writes use the new version; a background job re-encrypts existing rows. Old DEKs remain decryptable until migration completes.
+
+**Spec Amendment (Attack Audit 2026-03-22):** Clarify: `key_version` is extracted from first 2 bytes of the encrypted blob (INT-03 format: `key_version (2 bytes) || iv (12 bytes) || ciphertext || auth_tag (16 bytes)`). No separate `key_version` column is needed on the `integrations` table --- the version is embedded in the blob. The `tenant_keys` table stores the DEK-to-version mapping. Remove any conflicting prose that suggests adding a `key_version` column to the `integrations` table itself (the DDL in Section 5b correctly omits it).
+
+- **Runtime injection:** All provider API keys (Anthropic, OpenAI, SendGrid, etc.) are injected at container startup via Docker secrets --- never baked into images or environment files committed to version control.
+
+- **Encrypted blob format (INT-03):** `key_version (2 bytes) || iv (12 bytes) || ciphertext || auth_tag (16 bytes)`, base64-encoded as a single column value. AES-256-GCM requires a unique 96-bit random IV per encryption operation, never reused with the same key. DEK storage: a `tenant_keys` table stores one row per tenant containing `{ dek_encrypted_with_kek, key_version, created_at }`. Decryption path: read `key_version` -> select KEK version -> decrypt DEK -> use DEK to decrypt the OAuth token. KEK migration trigger: before the 10th paying customer, migrate from Docker secrets to HashiCorp Vault or DigitalOcean Managed Secrets.
+
+- **KEK backup strategy (Day 1):** Encrypted KEK copy stored in 1Password vault shared between founders. Losing the KEK means all tenant OAuth tokens are permanently unrecoverable --- no bypass exists. Verify backup integrity quarterly.
+
+- **Spec Amendment (Attack Audit 2026-03-22):** Store KEK as a Docker secret (file-based mount, not environment variable): `docker secret create encryption_kek <keyfile>`. Mount via `secrets:` directive in Docker Compose, accessed at `/run/secrets/encryption_kek`. Environment variables are readable via `docker inspect` by any user with Docker socket access --- a compromised monitoring container or debug session exposes the KEK. Document KEK rotation procedure: (1) generate new KEK, (2) create new Docker secret with version suffix, (3) update Compose to reference new secret, (4) background job re-encrypts all DEKs with new KEK version, (5) remove old secret after migration verified.
+
+
+### Webhook Ingestion (JobTread, QB, Calendar)
+
+
+Flow
+External webhook -> LB -> VPS endpoint /webhooks/:service/:webhookToken
+-> Per-service webhook authentication:
+ QuickBooks: verify intuit-signature header using HMAC-SHA256 with verifier token
+ Google Calendar: validate X-Goog-Channel-Token matches token set during channel creation
+ Google Calendar channel lifecycle: A BullMQ cron job renews expiring Calendar watch channels before their expiry (max 7 days). The X-Goog-Channel-Token provides tenant routing only, not authentication -- actual security relies on restricting the webhook endpoint to Google's published IP ranges via Cloudflare WAF, consistent with the SendGrid approach.
+ Google Calendar polling fallback: Push notifications are explicitly NOT 100% reliable (Google docs: "small percentage may be dropped"). Implement a 15-30 minute reconciliation poll as fallback to catch missed push notifications.
+ Microsoft Graph (Outlook Email + Calendar): Create subscription via POST /subscriptions endpoint.
+ Max subscription lifetime: ~4,230 minutes (~3 days) for mail and calendar resources.
+ BullMQ scheduled job renews subscriptions every 2 days (before 3-day expiry).
+ Notification URL must be HTTPS with valid SSL — Microsoft validates the endpoint on subscription creation.
+ Subscription validation: Microsoft sends a validationToken query parameter on creation; endpoint must echo it back within 10 seconds.
+ Tenant routing: clientState field (set during subscription creation) maps notifications to tenant_id server-side.
+ Microsoft Graph polling fallback: Same 15-30 minute reconciliation poll using delta queries for incremental sync.
+ JobTread: URL token authentication + IP allowlisting (no HMAC available)
+ SendGrid Inbound Parse: cryptographically random unguessable URL path token (primary) + basic auth on webhook endpoint (secondary) + Cloudflare WAF IP List for SendGrid ranges (supplementary — IP ranges may change without notice). ECDSA signature verification available via SendGrid Security Policies (parse webhook security policy + public key verification against raw multipart/form-data body before framework parsing). Secondary: OAuth token verification.
+ Stripe: verify stripe-signature header using stripe.webhooks.constructEvent() with the webhook signing secret (WHSEC_). Reject unsigned or incorrectly signed events with 401.
+ IMPORTANT: All Stripe webhook endpoints MUST verify signatures using stripe.webhooks.constructEvent(body, sig, webhookSecret).
+ Webhook handler uses service-role database access (RLS-exempt) — documented as explicit exception in ESLint whitelist.
+ All webhooks: idempotency check on (service, external_event_id, tenant_id) before processing
+ 
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Webhook processing MUST use outbox pattern: (1) INSERT webhook event into `webhook_events` (dedup) + INSERT into `outbox_events` (for NATS publish) in the SAME database transaction. (2) Outbox polling worker (see Wave 2b) reads pending outbox rows and publishes to NATS. (3) On NATS ack, mark outbox row as `'sent'`. This prevents event loss in the gap where webhook dedup INSERT succeeds but NATS publish fails (network error, NATS unavailable). Without outbox, a webhook is "received" (dedup entry exists, so retries are rejected) but never processed by agents. The current flow (store -> publish -> hope) has a reliability gap that the outbox pattern closes.
+
+    Replay protection: Reject webhooks with timestamps older than 5 minutes. For providers with timestamps in headers (Stripe stripe-signature t= field), validate freshness before signature verification or processing.
+
+**Spec Amendment (Attack Audit 2026-03-22) (CRITICAL):** All webhook signature verification MUST operate on raw request body bytes. In Hono, clone raw request via `c.req.raw.clone().arrayBuffer()` BEFORE accessing `c.req.json()`. Signature computed against parsed/re-serialized JSON will ALWAYS fail because `JSON.stringify(parsedObject)` may produce different bytes than the original payload (key ordering, Unicode escapes, whitespace, number precision). This is a guaranteed production bug without this pattern. Applies to: Stripe (HMAC-SHA256), QuickBooks (HMAC-SHA256), SendGrid (ECDSA).
+
+**Spec Amendment (Attack Audit 2026-03-22):** Per-provider timestamp extraction for replay protection: Stripe: `t` from `Stripe-Signature` header. QB: `eventNotification.time` (CloudEvents format post-Nov 2025). JobTread: no timestamp --- rely on URL token + IP allowlist. SendGrid: ECDSA signature sufficient (no timestamp in protocol).
+ Event ordering: Stripe does NOT guarantee webhook delivery order. invoice.payment_failed can arrive before invoice.payment_succeeded. customer.subscription.updated can arrive before customer.subscription.created. Mitigation: Store stripe_event_created (the Stripe event object's created timestamp, not received_at) on each webhook_events row. Before applying a billing_status state transition, verify that stripe_event_created is greater than the last applied event's timestamp for that subscription. Implement an explicit billing state machine with valid transitions: active->past_due, active->canceling, past_due->active, past_due->canceled, canceling->canceled. Reject any transition not in this map.
+-> Store raw event in `event_bus_log`
+-> Publish to NATS: TENANT_{id}.webhook.{service}.{event_type}
+-> Relevant agent(s) subscribe and process
+```
+
+
+ACL Error Normalization (INT-14)
+
+
+All integration adapters normalize errors into a standard `IntegrationError` type with fields: `code` (enum: `AUTH_EXPIRED`, `RATE_LIMITED`, `NOT_FOUND`, `VALIDATION_ERROR`, `PROVIDER_DOWN`, `UNKNOWN`), `message` (human-readable), `retryable` (boolean), and `retryAfterMs` (number | null). Agents never handle raw provider errors --- they react to normalized codes. This enables consistent retry logic, alerting, and circuit-breaker behavior across all integrations.
+
+
+---

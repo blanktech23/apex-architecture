@@ -1,0 +1,2392 @@
+---
+title: "16. Kitchen & Bath AI Design Tool"
+slug: "kitchen-bath-design"
+section: "16"
+---
+
+A browser-based 3D kitchen and bathroom design tool that replaces legacy Windows-only CAD software with an AI-powered, collaborative platform. This module leverages three AI engines in a closed feedback loop to generate, validate, and evaluate designs in real time --- bringing professional-grade kitchen design to the browser.
+
+
+**Deployment model:** The K&B design editor is **embedded directly within the Design Agent agent's chat window** in the Kiptra dashboard --- not a separate app or subdomain. The designer converses with the Design Agent ("Create an L-shaped kitchen, 12x14, white shaker cabinets, quartz countertops"), and the 3D viewport renders inline alongside the chat. This preserves the existing auth flow (no separate login), shares Zustand state with the dashboard, and keeps the design workflow within the agent interaction paradigm that defines the entire Kiptra platform. The `kb-editor` package exports a `` React component consumed by the agent chat UI.
+
+
+### 16.1 Overview & Strategic Rationale
+
+
+The Kitchen & Bath AI Design Tool is a ground-up reimagining of how kitchen and bathroom spaces are designed. It replaces Cyncly's 2020 Design --- the incumbent tool that dominates the K&B industry --- with a modern, browser-based alternative powered by AI.
+
+
+**Key insight:** 2020 Design is Windows-only, crash-prone, and costs $2,500--$3,000/year after private equity extraction. Designers hate it but remain locked in because manufacturer catalogs are only available through its ecosystem. Catalog data is available through manufacturer relationships, aggregators (KitchenDEV, Kitchen365), and public spec sheets. While Cyncly's ecosystem creates friction, underlying product data is not exclusively controlled by any single vendor --- meaning the lock-in is largely artificial.
+
+
+**Why Kiptra builds this:**
+
+
+- **Co-founder validation:** Adam runs a K&B design and remodel business with direct manufacturer relationships. He has confirmed demand from peers who would switch immediately given a viable alternative.
+
+- **Market disruption:** Legacy CAD tools (Revit, 2020 Design, ProKitchen) are desktop-bound, expensive, and have not innovated in a decade. A browser-based, AI-powered tool with real-time collaboration is a generational leap.
+
+- **Catalog data is accessible:** Manufacturer product data (dimensions, finishes, pricing, 3D models) is available through multiple channels --- dealer portal exports, FTP data drops, partnership-negotiated access (requires Adam's manufacturer relationships), 2020 Design format files, PDF spec sheets, and aggregators like KitchenDEV/Kitchen365.
+
+- **AI makes it possible now:** LLMs can generate spatial layouts from natural language. SMT solvers can formally verify building code compliance. Vision models can evaluate rendered designs for aesthetics and ergonomics. None of this was feasible two years ago.
+
+
+### 16.2 Three-Model AI Loop Architecture
+
+
+The core innovation is three AI engines operating in a closed feedback loop. Each model has a distinct role, and together they produce code-compliant, aesthetically sound kitchen layouts from natural language input.
+
+
+Flow
+&#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;
+&#9474; THREE-MODEL AI LOOP &#9474;
+&#9474; &#9474;
+&#9474; &#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488; &#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488; &#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488; &#9474;
+&#9474; &#9474; CLAUDE &#9474; &#9474; Z3 SMT &#9474; &#9474; GEMINI 3.0 &#9474; &#9474;
+&#9474; &#9474; Sonnet/Opus &#9474; &#9474; Solver &#9474; &#9474; Pro &#9474; &#9474;
+&#9474; &#9474; &#9474; &#9474; &#9474; &#9474; &#9474; &#9474;
+&#9474; &#9474; NL Input -> &#9474; &#9474; Formal NKBA &#9474; &#9474; Rendered image &#9474; &#9474;
+&#9474; &#9474; JSON Layout &#9474; &#9474; Validation &#9474; &#9474; evaluation &#9474; &#9474;
+&#9474; &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9516;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496; &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9516;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496; &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9516;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496; &#9474;
+&#9474; &#9474; &#9474; &#9474; &#9474;
+&#9474; &#9660; &#9660; &#9660; &#9474;
+&#9474; &#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488; &#9474;
+&#9474; &#9474; ITERATION PROTOCOL &#9474; &#9474;
+&#9474; &#9474; &#9474; &#9474;
+&#9474; &#9474; 1. Claude generates layout (cabinet runs -> coordinates) &#9474; &#9474;
+&#9474; &#9474; 2. Z3 validates NKBA constraints (UNSAT cores on fail) &#9474; &#9474;
+&#9474; &#9474; 3. Three.js renders 2D floor plan image &#9474; &#9474;
+&#9474; &#9474; 4. Gemini evaluates spatial flow, balance, ergonomics &#9474; &#9474;
+&#9474; &#9474; 5. If issues -> compile fix list -> return to Claude &#9474; &#9474;
+&#9474; &#9474; 6. Max 5 rounds &middot; Single-round: ~15-25s &middot; Multi-round (2-5): ~30-75s &#9474; &#9474;
+&#9474; &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496; &#9474;
+&#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;
+
+```
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** AI loop error handling matrix is undefined. Required failure modes:
+> - **Claude invalid JSON:** Retry once with stricter prompt. If second attempt fails, return schema error to designer.
+> - **Claude timeout (>30s):** Retry once. If second timeout, fall back to nearest template layout for room dimensions.
+> - **Z3 hangs (>5s):** Terminate WASM Worker via `worker.terminate()`. Apply `rlimit`-style timeout on server. Return partial validation with warning.
+> - **Gemini timeout (>15s):** Skip visual evaluation for this round. Proceed with Z3-validated layout (score = N/A).
+> - **All 5 rounds fail convergence:** Return the best attempt (highest Gemini score among Z3-SAT rounds) with full violation list. Do not silently discard — designer sees "Best effort: 3 remaining violations" with specifics.
+
+> **KB Amendment (2026-03-21):** Layout-type-aware iteration budget recommended. G-Shape and island layouts average 4-6 iterations with 40-50% first-pass NKBA compliance. Raise max to 7 for complex layouts. Simple galley/L-shape can keep max 5 (75-85% first-pass compliance).
+
+
+
+#### Layout Generation (Claude Sonnet/Opus)
+
+
+Natural language input is converted to structured JSON kitchen layouts using a cabinet "runs" abstraction --- not individual (x,y) coordinates. A run is a sequence of cabinets along a wall segment. A deterministic function converts runs to precise coordinates, eliminating the geometric errors that plague direct LLM coordinate generation.
+
+> **KB Amendment:** Appliance dimensions must be specified or selected from catalog BEFORE layout generation. This prevents the #1 design regret (appliance-cabinet fit issues). The AI loop should reject layout requests without appliance specifications.
+
+
+
+AI Spatial Reasoning Limitation
+
+
+LLM spatial reasoning has known limitations --- models struggle with precise geometric placement and distance estimation. The cabinet-run abstraction with deterministic coordinate resolution works around these limitations by keeping LLMs in the semantic domain (which cabinets, in what order) rather than the geometric domain (exact x,y coordinates). The Z3 solver catches geometric constraint violations that LLMs cannot reliably avoid, ensuring NKBA compliance regardless of LLM output quality.
+
+
+TypeScript
+// Claude outputs cabinet runs, not coordinates
+interface CabinetRun {
+ wallId: string;
+ startOffset: number; // inches from wall start
+ direction: &apos;left-to-right&apos; | &apos;right-to-left&apos;;
+ cabinets: RunCabinet[]; // sequential, no gaps
+}
+
+// Deterministic function --- no LLM geometry errors
+function resolveRunToCoordinates(
+ run: CabinetRun,
+ walls: Wall[]
+): PlacedCabinet[] {
+ const wall = walls.find(w => w.id === run.wallId);
+ let cursor = run.startOffset;
+ return run.cabinets.map(cab => {
+ const pos = wallPointAtOffset(wall, cursor);
+ cursor += cab.width;
+ return { ...cab, x: pos.x, y: pos.y, rotation: wall.angle };
+ });
+}
+```
+
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** `Wall`, `WallOpening`, and `RoomModel` are referenced 10+ times (in `resolveRunToCoordinates`, `POST /api/kb/designs`, NATS payloads) but never formally defined. Missing definitions:
+>
+> ```typescript
+> interface WallSegment {
+>   id: string;
+>   startPoint: { x: number; y: number };
+>   endPoint: { x: number; y: number };
+>   thickness: number;              // inches, default 4.5
+>   height: number;                 // inches, default 96
+>   isExterior: boolean;
+>   openings: WallOpening[];
+> }
+>
+> interface WallOpening {
+>   id: string;
+>   type: 'door' | 'window' | 'pass_through';
+>   offsetFromStart: number;
+>   width: number;
+>   height: number;
+>   sillHeight: number;             // 0 for doors, ~36 for windows
+> }
+>
+> interface RoomModel {
+>   id: string;
+>   walls: WallSegment[];
+>   ceilingHeight: number;
+>   plumbingLocations: { x: number; y: number; type: 'water' | 'drain' | 'gas' }[];
+>   electricalLocations: { x: number; y: number; voltage: 120 | 240; amperage: number }[];
+> }
+> ```
+
+#### Constraint Validation (Z3 SMT Solver)
+
+
+The Z3 SMT solver provides formal NKBA compliance validation. Of the 31 NKBA Kitchen Planning Guidelines, 24 are fully encodable as mathematical constraints. When a layout fails validation, Z3 returns UNSAT cores --- the minimal set of constraints that conflict --- telling Claude exactly what to fix.
+
+
+#### Visual Evaluation (Gemini 3.0 Pro)
+
+
+After Z3 validates the layout, Three.js renders a 2D floor plan image. Gemini 3.0 Pro receives this rendered image and evaluates spatial flow, visual balance, ergonomics, aesthetics, and safety via a structured JSON scoring rubric. This catches qualitative issues that formal constraints cannot express. Note: Gemini 3.0 Pro (or latest available) is selected for its top-ranked vision capabilities (ranked #1 on LMArena Vision leaderboard). The AI evaluation step uses a lightweight 2D floor plan render (=2 GB VRAM |
+Chrome 90+, Firefox 90+, Safari 16.4+, Edge 90+ |
+Full PBR materials, shadow maps (2048x2048), environment map reflections, path-traced preview (Phase 2) |
+Interactive 3D editing at 60fps. Full feature set. 2D/3D view toggle. |
+ |
+
+|
+**Tier 2** |
+Simplified 3D |
+WebGL 2.0 + integrated GPU (Intel UHD 620+, Intel Iris Xe, AMD Vega) with >=512 MB shared VRAM |
+Chrome 90+, Firefox 90+, Safari 16.4+, Edge 90+ |
+Simplified materials (`MeshLambertMaterial`), no shadow maps, single directional light, no reflections, no path tracing |
+Interactive 3D editing at 30--60fps. Reduced visual fidelity. 2D/3D toggle available. |
+ |
+
+|
+**Tier 3** |
+2D Only |
+WebGL 1.0 minimum (or WebGL 2.0 with very low GPU memory). Chromebooks, older iPads, budget Android tablets. |
+Chrome 80+, Safari 14+ |
+2D orthographic floor plan only. No 3D viewport. Canvas2D fallback for rendering if WebGL unstable. Server-side 3D renders on demand. |
+2D floor plan editing. "Request 3D Preview" button triggers server render (5--15 sec). Static image result. |
+ |
+
+|
+**Tier 4** |
+View Only |
+No WebGL support, or device fails all GPU benchmarks. |
+Any modern browser |
+Pre-rendered static images only. No interactive canvas. Read-only project viewer with zoom/pan on images. |
+View designs as image gallery. Add comments/annotations on static images. Cannot edit. "Open on a desktop for editing" banner. |
+ |
+
+
+
+> **KB Amendment:** Mandatory R3F Canvas configuration: `frameloop="demand"`. Design tools are idle 90%+ of the time. On-demand rendering eliminates GPU usage and battery drain during idle. OrbitControls and TransformControls call `invalidate()` automatically.
+
+> **KB Amendment:** Mandatory `webglcontextlost`/`webglcontextrestored` event handlers. WebGL context loss is routine on mobile (tab switch, sleep/wake, GPU memory pressure). Must call `event.preventDefault()` on loss, stop render loop, show user notification ("Restoring your design..."), and fully reinitialize on restore.
+
+> **KB Amendment:** GPU resources are NOT garbage collected. Mandatory `disposeObject()` utility required for geometry, materials, and textures. Monitor `renderer.info.memory.geometries` and `renderer.info.memory.textures` in production. ImageBitmap textures from GLTF need `texture.source.data.close()`.
+
+#### 16.3.1.2 Runtime Feature Detection
+
+
+Device capability detection runs once on application load and caches the result in `localStorage` (key: `kiptra_kb_device_tier`, TTL: 7 days). Users can manually override their tier in Settings ("Graphics Quality" dropdown). The detection pipeline takes = {
+ 'RTX 4090': 24576, 'RTX 4080': 16384, 'RTX 3070': 8192,
+ 'GTX 1060': 6144, 'RX 580': 8192, 'Apple M1': 8192,
+ 'Apple M2': 8192, 'Apple M3': 8192, 'Intel UHD': 512,
+ 'Intel Iris': 1024, 'Mali': 256, 'Adreno': 512,
+ };
+ for (const [key, mem] of Object.entries(known)) {
+ if (renderer.includes(key)) return mem;
+ }
+ // Fallback: estimate from max texture size
+ if (maxTexSize >= 16384) return 4096; // likely discrete GPU
+ if (maxTexSize >= 8192) return 1024; // likely integrated
+ if (maxTexSize >= 4096) return 512; // likely mobile
+ return 256; // low-end mobile
+}
+```
+
+
+#### Tier Assignment Logic
+
+
+TypeScript
+type RenderTier = 1 | 2 | 3 | 4;
+
+function assignRenderTier(caps: DeviceCapabilities): RenderTier {
+ // Tier 4: No WebGL at all
+ if (caps.webglVersion === 0) return 4;
+
+ // Tier 4: WebGL present but benchmark completely fails
+ if (caps.benchmarkFPS = 2048;
+
+ if (
+ isDiscreteGPU &&
+ hasEnoughMemory &&
+ caps.benchmarkFPS >= 45 &&
+ caps.maxTextureSize >= 8192
+ ) return 1;
+
+ // Tier 2: Everything else with WebGL 2.0 (integrated GPUs, mid-range)
+ return 2;
+}
+```
+
+
+#### Micro-Benchmark Details
+
+
+The GPU benchmark renders a rotating scene with 10,000 textured triangles (a single `BufferGeometry`) for exactly 120 frames, measuring actual frame delivery time via `performance.now()`. Total benchmark time is ~2 seconds at 60fps. The benchmark canvas is 256x256 pixels (offscreen) to minimize overhead. Result is median FPS across the 120 frames, excluding the first 10 frames (warm-up). The benchmark is **not** Three.js --- it uses raw WebGL to avoid loading the Three.js bundle for devices that will ultimately be assigned Tier 3 or 4.
+
+
+#### 16.3.1.3 Performance Budgets Per Tier
+
+
+|
+Budget Category |
+Tier 1 (Full 3D) |
+Tier 2 (Simplified 3D) |
+Tier 3 (2D Only) |
+Tier 4 (View Only) |
+ |
+
+
+|
+**Target Frame Rate** |
+60 fps |
+30 fps (with 60fps goal) |
+N/A (static 2D) |
+N/A |
+ |
+
+|
+**Max Polygon Count** |
+500,000 triangles |
+150,000 triangles |
+N/A |
+N/A |
+ |
+
+|
+**Max Draw Calls** |
+200 per frame |
+80 per frame |
+N/A |
+N/A |
+ |
+
+> **KB Amendment:** Architectural mandates for draw call compliance:
+> - `InstancedMesh` for all repeated hardware (handles, hinges, knobs) — collapses 200+ draw calls to 1-3
+> - `mergeGeometries()` for static geometry (walls, floor, ceiling)
+> - Panel-based cabinet construction (individual BoxGeometry per panel), NOT CSG boolean operations
+> - `three-bvh-csg` reserved for countertop cutouts (sink/cooktop) ONLY
+
+
+|
+**Max Texture Memory** |
+512 MB |
+128 MB |
+32 MB (2D textures only) |
+0 (images served as JPEG/WebP) |
+ |
+
+|
+**Max Texture Resolution** |
+2048x2048 per texture |
+1024x1024 per texture |
+512x512 (floor/wall patterns) |
+N/A |
+ |
+
+|
+**Shadow Map Resolution** |
+2048x2048 (PCF soft) |
+None (shadows disabled) |
+N/A |
+N/A |
+ |
+
+|
+**Max Lights** |
+8 (2 directional + 6 point/spot) |
+2 (1 directional + 1 ambient) |
+N/A |
+N/A |
+ |
+
+|
+**Environment Map** |
+256x256 HDR cubemap |
+None |
+N/A |
+N/A |
+ |
+
+|
+**Material Type** |
+`MeshStandardMaterial` (PBR) |
+`MeshLambertMaterial` |
+Canvas2D fills/strokes |
+Static images |
+ |
+
+> **KB Amendment:** Per-instance roughness/color variation (2-5%) on cabinets and tiles to avoid "CG uniformity." Real wood has grain variation; real tiles have slight color differences. Uniform materials is a top CG giveaway.
+
+
+|
+**Anti-Aliasing** |
+MSAA 4x |
+FXAA (post-process) |
+Canvas2D native AA |
+N/A |
+ |
+
+|
+**Max Scene Nodes** |
+500 |
+200 |
+200 (2D representations) |
+N/A |
+ |
+
+|
+**LOD Levels** |
+3 (high/med/low) |
+2 (med/low) |
+N/A |
+N/A |
+ |
+
+|
+**JS Bundle (3D)** |
+~450 KB gzipped (Three.js + R3F + Drei) |
+~450 KB gzipped (same bundle, reduced runtime features) |
+~15 KB (Canvas2D renderer only) |
+~5 KB (image viewer) |
+ |
+
+|
+**Initial Load Time** |
+ & {
+ shadowMapEnabled: boolean;
+ shadowMapSize: number;
+ pixelRatio: number;
+ toneMapping: number;
+ };
+ materials: {
+ type: 'standard' | 'lambert' | 'basic';
+ envMapIntensity: number;
+ maxTextureRes: number;
+ };
+ scene: {
+ maxLights: number;
+ maxDrawCalls: number;
+ maxPolygons: number;
+ lodBias: number; // 0 = highest detail, 2 = lowest
+ enableShadows: boolean;
+ enableReflections: boolean;
+ enableAO: boolean;
+ enablePathTracing: boolean;
+ antiAliasMode: 'msaa' | 'fxaa' | 'none';
+ };
+}
+
+const TIER_CONFIGS: Record = {
+ 1: {
+ renderer: {
+ antialias: true,
+ shadowMapEnabled: true,
+ shadowMapSize: 2048,
+ pixelRatio: Math.min(window.devicePixelRatio, 2),
+ toneMapping: 4, // ACESFilmicToneMapping
+ },
+ materials: {
+ type: 'standard',
+ envMapIntensity: 1.0,
+ maxTextureRes: 2048,
+ },
+ scene: {
+ maxLights: 8,
+ maxDrawCalls: 200,
+ maxPolygons: 500000,
+ lodBias: 0,
+ enableShadows: true,
+ enableReflections: true,
+ enableAO: true,
+ enablePathTracing: true, // Phase 2
+ antiAliasMode: 'msaa',
+ },
+ },
+ 2: {
+ renderer: {
+ antialias: false, // FXAA instead
+ shadowMapEnabled: false,
+ shadowMapSize: 0,
+ pixelRatio: 1, // Force 1x for performance
+ toneMapping: 0, // NoToneMapping
+ },
+ materials: {
+ type: 'lambert',
+ envMapIntensity: 0,
+ maxTextureRes: 1024,
+ },
+ scene: {
+ maxLights: 2,
+ maxDrawCalls: 80,
+ maxPolygons: 150000,
+ lodBias: 1,
+ enableShadows: false,
+ enableReflections: false,
+ enableAO: false,
+ enablePathTracing: false,
+ antiAliasMode: 'fxaa',
+ },
+ },
+};
+```
+
+
+#### 16.3.1.5 Server-Side Rendering --- Tiered Escalation (Tiers 3 & 4)
+
+
+Devices assigned Tier 3 or Tier 4 cannot run interactive 3D rendering. Instead, the server renders 3D previews on demand via serverless GPU functions on Modal.com (or RunPod). This replaces the previous CPU software rendering approach --- serverless GPU is 5--10x faster, produces real GPU quality (hardware-accelerated ray tracing), and costs less than dedicated GPU instances thanks to per-second billing with scale-to-zero.
+
+
+|
+Component |
+Technology |
+Details |
+ |
+
+
+|
+Render Server |
+Modal.com serverless GPU (NVIDIA A10/L4) |
+BullMQ queues render requests on VPS. Each request triggers a Modal serverless function running `three-gpu-pathtracer` headless on a GPU container. Concurrency is cloud-scaled (not VPS-bound) --- no impact on VPS CPU/memory budget. Zero idle cost (per-second billing, scale to zero). |
+ |
+
+|
+Request Flow |
+BullMQ job queue -> Modal API |
+Client sends `POST /api/kb/render` with `{ projectId, viewType, resolution }`. API creates BullMQ job. Worker calls Modal serverless function via HTTPS API. Modal renders scene on GPU, uploads PNG/WebP to DO Spaces / R2, returns CDN URL. Client polls job status or receives Socket.io push on completion. |
+ |
+
+|
+Render Quality |
+Superior to Tier 1 (real GPU) |
+Server renders with full PBR materials, shadows, environment maps, and hardware-accelerated ray tracing. Output is 1920x1080 PNG (perspective) or 2400x1800 PNG (floor plan). WebP conversion for bandwidth savings (~60% smaller). Real GPU quality --- not software emulation. |
+ |
+
+|
+Render Time |
+1--3 seconds (4K) |
+GPU rendering is 5--10x faster than CPU software rendering. Typical kitchen: ~1--2 seconds. Complex scenes: ~3 seconds. Results cached per project version --- re-render only on scene change. |
+ |
+
+|
+Caching |
+DO Spaces / R2 + Valkey |
+Renders cached by `projectId + version + viewType + resolution` hash. Cache TTL: indefinite (invalidated on scene edit). Valkey stores cache keys for fast lookup. Storage cost: ~200 KB per render (WebP). CDN serves cached renders globally. |
+ |
+
+|
+View Types |
+4 pre-defined camera positions |
+(1) Top-down floor plan, (2) 3/4 perspective overview, (3) Eye-level walkthrough from kitchen entry, (4) Detail view of primary work triangle. User can request custom viewpoint via angle/position parameters. |
+ |
+
+
+Tiered Escalation Path
+
+
+|
+Tier |
+Technology |
+When |
+Cost per Render |
+Monthly at 10K Renders |
+Quality |
+ |
+
+
+|
+**Tier 1 (Launch)** |
+`three-gpu-pathtracer` headless on Modal serverless GPU (A10/L4) |
+Day 1 |
+~$0.001 |
+~$10--30 |
+Same Three.js scene graph as client --- no format conversion. Real GPU path tracing. $0.0003/sec, 1--3 sec per 4K render. |
+ |
+
+|
+**Tier 2 (v2)** |
+Blender Cycles headless on Modal/RunPod |
+When photorealism demanded |
+~$0.05 |
+~$500--800 |
+glTF-to-Blender conversion pipeline. Production-quality photorealistic rendering. Open source (GPL), no licensing fees. |
+ |
+
+|
+**Tier 3 (Premium)** |
+V-Ray App SDK self-hosted |
+When revenue justifies |
+~$0.10 + licensing |
+~$1,000 + $10--50K/yr SDK |
+Best-in-class photorealistic quality (Emmy/Academy Award-winning). Purpose-built home design variant available. Bulgarian company (Chaos Group) --- EU jurisdiction, no geopolitical risk. |
+ |
+
+
+Architecture
+Browser: three-gpu-pathtracer (interactive preview, real-time, 60fps)
+ &darr; API: &quot;Render at 4K&quot;
+Modal/RunPod Serverless GPU (A10, per-second billing)
+ &boxvr;&boxh;&boxh; Tier 1: three-gpu-pathtracer headless (fast, $0.001/render)
+ &boxvr;&boxh;&boxh; Tier 2: Blender Cycles headless (photorealistic, ~$0.05/render)
+ &boxur;&boxh;&boxh; Tier 3: V-Ray App SDK (premium, ~$0.10/render + licensing)
+ &darr;
+DO Spaces / R2 Storage -> CDN -> Client receives rendered image
+```
+
+
+TypeScript
+// Server-side render request handler (serverless GPU)
+import { Queue } from 'bullmq';
+
+const renderQueue = new Queue('kb-server-render', { connection: redis });
+
+app.post('/api/kb/render', async (c) => {
+ const { projectId, viewType, resolution } = c.req.valid('json');
+ const project = await getProject(projectId);
+
+ // Check cache first
+ const cacheKey = `render:${projectId}:${project.version}:${viewType}:${resolution}`;
+ const cached = await redis.get(cacheKey);
+ if (cached) return c.json({ url: cached, cached: true });
+
+ // Queue render job --- dispatched to Modal serverless GPU
+ const job = await renderQueue.add('render', {
+ projectId,
+ sceneData: project.scene_data,
+ viewType, // 'floor_plan' | 'perspective' | 'eye_level' | 'detail'
+ resolution, // '1080p' | '1440p' | '4k'
+ renderTier: 'pathtracer', // 'pathtracer' | 'blender_cycles' | 'vray'
+ format: 'webp',
+ quality: 85,
+ }, {
+ priority: 1,
+ removeOnComplete: { age: 3600 },
+ attempts: 2,
+ });
+
+ return c.json({ jobId: job.id, status: 'queued', estimatedSeconds: 3 });
+});
+```
+
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Server render API contract is described in prose but not in the API Endpoints table. Formal definition:
+>
+> `POST /api/v1/kb/render`
+> - **Request:** `{ projectId: UUID, viewType: 'floor_plan' | 'perspective' | 'eye_level' | 'detail', resolution: '720p' | '1080p' | '4k', format: 'webp' | 'png' }`
+> - **Response (202 Accepted):** `{ jobId: string, status: 'queued', wsChannel: string }` — client subscribes to `wsChannel` via Socket.io for progress updates.
+> - **Response (200 OK, cache hit):** `{ url: string, cached: true }` — CDN URL of previously rendered image.
+> - **WebSocket events on `wsChannel`:** `render:progress` (percentage), `render:completed` (url), `render:failed` (error).
+
+#### 16.3.1.6 Mobile & Tablet Considerations
+
+
+|
+Concern |
+iPad (Tier 1--2) |
+Android Tablet (Tier 2--3) |
+Phone (Tier 3--4) |
+ |
+
+
+|
+**Touch Controls** |
+One-finger: select/drag. Two-finger pinch: zoom. Two-finger drag: pan. Three-finger: orbit (3D only). Long press: context menu. Double tap: center on object. |
+Same as iPad |
+View-only gestures: pinch-zoom, pan on static images. No editing. |
+ |
+
+|
+**Viewport Sizing** |
+Canvas fills available height minus toolbar (44px) and bottom panel (48px). `ResizeObserver` handles orientation changes. Minimum canvas: 600x400px. |
+Same as iPad. If screen = { 1: 55, 2: 28 };
+ private readonly SAMPLE_WINDOW = 60; // frames
+
+ onFrame(deltaMs: number): void {
+ this.frameTimes.push(deltaMs);
+ if (this.frameTimes.length a + b) / this.frameTimes.length;
+ const avgFPS = 1000 / avgMs;
+ this.frameTimes = [];
+
+ const target = this.TARGET_FPS[this.currentTier];
+
+ if (avgFPS target * 1.2 && this.degradationLevel > 0) {
+ // Performance recovered — restore quality
+ this.restore();
+ }
+ }
+
+ private degrade(): void {
+ this.degradationLevel = Math.min(this.degradationLevel + 1, 3);
+ switch (this.degradationLevel) {
+ case 1: // Reduce pixel ratio
+ renderer.setPixelRatio(Math.max(renderer.getPixelRatio() * 0.75, 0.5));
+ break;
+ case 2: // Drop shadow quality or disable
+ renderer.shadowMap.enabled = false;
+ forceLODLevel(1); // medium LOD for all objects
+ break;
+ case 3: // Switch to Tier 2 materials
+ swapMaterials('lambert');
+ disableEnvironmentMap();
+ forceLODLevel(2); // lowest LOD for all objects
+ break;
+ }
+ }
+
+ private restore(): void {
+ this.degradationLevel = Math.max(this.degradationLevel - 1, 0);
+ // Reverse the degradation steps (restore in reverse order)
+ }
+}
+```
+
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** PBR material library lacks a formal schema. Materials are referenced across tiers but the data structure is undefined. Required:
+>
+> ```typescript
+> interface PBRMaterialDefinition {
+>   id: string;
+>   name: string;                    // e.g., "Cambria Brittanicca"
+>   category: 'wood' | 'laminate' | 'stone' | 'metal' | 'tile' | 'paint' | 'glass';
+>   textures: {
+>     baseColor: string;             // KTX2 URL (GPU-compressed)
+>     normal: string;                // KTX2 URL
+>     roughness: string;             // KTX2 URL
+>     metallic?: string;             // KTX2 URL (metals only)
+>   };
+>   properties: {
+>     roughness: number;             // default 0.5
+>     metalness: number;             // default 0.0
+>     color: string;                 // hex fallback when textures not loaded
+>   };
+>   variants: {
+>     roughnessJitter: number;       // per-instance variation (0.02-0.05)
+>     colorJitter: number;           // per-instance variation (0.02-0.05)
+>   };
+>   catalogFinishIds: string[];      // maps to kb_catalog_products.finishes
+> }
+> ```
+
+#### 16.3.1.8 LOD (Level of Detail) Strategy
+
+
+|
+LOD Level |
+Triangle Count (per cabinet) |
+Texture Resolution |
+Trigger Distance |
+Details Included |
+ |
+
+
+|
+**LOD 0 (High)** |
+~2,000 triangles |
+1024x1024 |
+15 meters from camera |
+Box geometry with color-matched material. No geometric detail. Used for distant/background cabinets. |
+ |
+
+
+LOD transitions use Three.js `LOD` objects with hysteresis (different switch-in and switch-out distances) to prevent popping at tier boundaries. LOD 0 geometry is generated procedurally from cabinet parameters; LOD 1 and LOD 2 are simplified versions generated at asset creation time using the `meshopt_simplifier` WASM module (Meshoptimizer).
+
+
+#### 16.3.1.9 Bundle Splitting & Lazy Loading
+
+
+The Three.js bundle (~450 KB gzipped) is never loaded for Tier 3 or Tier 4 devices. The device tier is determined *before* the main application bundle loads, using a lightweight detection script (~3 KB) that runs inline in the HTML.
+
+
+|
+Bundle |
+Size (gzipped) |
+Loaded For |
+Loading Strategy |
+ |
+
+
+|
+`kb-detect.js` |
+~3 KB |
+All devices |
+Inline `` in HTML head. Runs before React hydration. Sets `window.__KB_TIER`. |
+ |
+
+|
+`kb-editor-3d.js` |
+~450 KB |
+Tier 1, Tier 2 |
+`React.lazy(() => import('./KBEditor3D'))`. Dynamic import triggered only if tier import('./KBEditor2D'))`. Canvas2D floor plan editor. Lightweight. |
+ |
+
+|
+`kb-viewer.js` |
+~5 KB |
+Tier 4 |
+`React.lazy(() => import('./KBViewer'))`. Static image gallery with zoom/pan. |
+ |
+
+|
+`kb-pathtracer.js` |
+~120 KB |
+Tier 1 only (Phase 2) |
+Dynamic import on user action ("Render Preview" button). Never pre-loaded. |
+ |
+
+
+TypeScript
+// Tier-based component loading — no Three.js on low-end devices
+import { lazy, Suspense } from 'react';
+
+const KBEditor3D = lazy(() => import('./KBEditor3D'));
+const KBEditor2D = lazy(() => import('./KBEditor2D'));
+const KBViewer = lazy(() => import('./KBViewer'));
+
+function DesignViewport({ projectId }: { projectId: string }) {
+ const tier = useDeviceTier(); // reads window.__KB_TIER or localStorage cache
+
+ return (
+ }>
+ {tier }
+ {tier === 3 && }
+ {tier === 4 && }
+
+ );
+}
+```
+
+
+#### 16.3.1.10 Texture Compression & Asset Pipeline
+
+
+|
+Format |
+Tier 1 |
+Tier 2 |
+Tier 3/4 |
+Browser Support |
+ |
+
+
+|
+**Basis Universal (KTX2)** |
+Primary format for all PBR textures. ~75% smaller than PNG. GPU-decompressed. Served via CDN with `Accept` header negotiation. |
+Same format, 50% resolution (1024 -> 512). |
+N/A |
+Chrome 90+, Firefox 90+, Safari 16.4+ |
+ |
+
+|
+**WebP** |
+Fallback for browsers without KTX2. Server renders. |
+Same. |
+Primary format for 2D patterns and server renders. |
+All modern browsers |
+ |
+
+|
+**JPEG** |
+N/A |
+N/A |
+N/A |
+Tier 4 fallback for very old browsers. |
+ |
+
+
+The asset pipeline pre-generates textures at 3 resolutions (2048, 1024, 512) and 2 formats (KTX2, WebP) during the build process using `basisu` CLI. Total asset storage per material: ~800 KB (6 variants). CDN serves the appropriate variant based on device tier and browser capabilities. Three.js `KTX2Loader` handles decompression with a shared `BasisTextureLoader` Web Worker.
+
+
+GPU Memory Monitoring Limitation
+
+
+There is no reliable cross-browser API for querying actual GPU memory usage. `WEBGL_debug_renderer_info` exposes the GPU model name (from which memory can be estimated) but not live memory consumption. The `performance.memory` API (Chrome-only) reports JS heap, not GPU memory. Our approach: maintain a running estimate of allocated texture bytes based on what the application loads (tracked in a `TextureMemoryTracker` singleton). When estimated usage exceeds 70% of the tier's texture memory budget, begin evicting least-recently-used textures and downgrading LOD levels. This is a best-effort heuristic, not a guarantee.
+
+
+**Mobile Safari GPU constraint:** WebGL contexts on mobile Safari are limited to ~256MB GPU memory. Mitigation: `TextureMemoryTracker` enforces a 200MB hard cap on iOS, aggressive LOD downgrading at 150MB, and KTX2 compression reduces texture memory by 4--6x compared to uncompressed RGBA.
+
+
+**Decisions locked:**
+
+
+**1. Four tiers, not three.** Tier 3 (2D only) and Tier 4 (view only) are distinct because jobsite tablet users need to *view* designs even if they cannot edit them. A "sorry, your device isn't supported" message is unacceptable for a construction platform.
+
+
+**2. Detection before bundle load.** The ~3 KB detection script runs before React hydration to avoid downloading 450 KB of Three.js on devices that will never use it. This is a hard requirement --- not an optimization.
+
+
+**3. Serverless GPU rendering, not CPU software rendering.** The server-side render uses Modal.com serverless GPU (NVIDIA A10/L4) with `three-gpu-pathtracer` running headless. Rationale: serverless GPU costs ~$0.001 per render ($0.0003/sec, 1--3 sec per 4K render) with zero idle cost (scale to zero, per-second billing). This is 5--10x faster than CPU software rendering (1--3 sec vs 5--15 sec), produces real GPU quality (hardware-accelerated ray tracing), and has no impact on VPS CPU/memory budget. Monthly cost at 10K renders: ~$10--30. Tiered escalation to Blender Cycles (photorealistic) and V-Ray App SDK (premium) as demand warrants.
+
+
+**4. Phones are view-only.** Screen width JSON layout via structured outputs, cabinet-run abstraction | |
+
+| Constraint Validator | Z3 (WASM) + TypeScript | Formal NKBA compliance, UNSAT cores, feasibility checking | |
+
+| Product Optimizer | OR-Tools CP-SAT | SKU selection against budget, BOM cost optimization | |
+
+| Visual Evaluator | Gemini 3.0 Pro | Rendered floor plan critique --- spatial flow, balance, ergonomics | |
+
+| Catalog RAG | pgvector + sentence-transformers | Hybrid vector + metadata search across manufacturer catalogs | |
+
+| Material System | PBR (`MeshStandardMaterial`) | Wood grain, painted, laminate, stone textures with environment maps | |
+
+| CSG Engine | three-bvh-csg | Boolean operations for sink/cooktop cutouts in countertops | |
+
+| Export Pipeline | jsPDF, ezdxf, web-ifc, SVG.js | PDF, DXF, IFC, SVG, PNG exports for contractors and clients | |
+
+
+### 16.4.1 BOM -> Estimate Engine Bridge
+
+
+The BOM -> Estimate bridge is the data pipeline that converts a finalized K&B design into a billable project estimate. It connects the K&B design tool (Section 16) to the Estimate Engine (Section 7b) via the canonical domain model (Section 3c), with optional downstream sync to JobTread or other PM tools via the Anti-Corruption Layer (Section 7a). This is the subsystem that turns a 3D kitchen rendering into money.
+
+
+#### Data Flow
+
+
+Flow
+&#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;
+&#9474; BOM -> ESTIMATE PIPELINE &#9474;
+&#9474; &#9474;
+&#9474; &#9312; Design Finalized &#9474;
+&#9474; &#9474; User clicks "Generate Estimate" in Design Agent chat &#9474;
+&#9474; &#9474; Design status -> 'finalized' in kb_projects &#9474;
+&#9474; &#9660; &#9474;
+&#9474; &#9313; BOM Extraction &#9474;
+&#9474; &#9474; Scene graph traversal -> kb_project_bom rows &#9474;
+&#9474; &#9474; Each scene node with a catalog ref -> BOM line item &#9474;
+&#9474; &#9474; Countertop area computed from cabinet runs (sqft) &#9474;
+&#9474; &#9474; Hardware count derived from cabinet/drawer counts &#9474;
+&#9474; &#9660; &#9474;
+&#9474; &#9314; Catalog Resolution &#9474;
+&#9474; &#9474; BOM node_id -> kb_catalog_products JOIN &#9474;
+&#9474; &#9474; Price lookup: dealer_cost (if available) or price_usd &#9474;
+&#9474; &#9474; Discontinued/out-of-stock items flagged with substitution &#9474;
+&#9474; &#9660; &#9474;
+&#9474; &#9315; BOM -> EstimateLine Mapping &#9474;
+&#9474; &#9474; Category mapping: kb category -> estimate category &#9474;
+&#9474; &#9474; Markup/margin applied per tenant config &#9474;
+&#9474; &#9474; Labor cost injected per product type &#9474;
+&#9474; &#9474; Custom items added as manual line items &#9474;
+&#9474; &#9660; &#9474;
+&#9474; &#9316; Estimate Creation &#9474;
+&#9474; &#9474; Sales Agent receives mapped line items &#9474;
+&#9474; &#9474; create_estimate_draft tool -> drafts table &#9474;
+&#9474; &#9474; Status: AWAITING_APPROVAL (human-in-the-loop) &#9474;
+&#9474; &#9660; &#9474;
+&#9474; &#9317; Integration Sync (Optional) &#9474;
+&#9474; Approved estimate -> ACL -> JobTread/Procore adapter &#9474;
+&#9474; Canonical Estimate -> adapter.write() -> external PM tool &#9474;
+&#9474; Failure -> mark 'sync_pending', BullMQ retry (Section 12) &#9474;
+&#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;
+```
+
+
+#### BOM Schema
+
+
+The BOM is extracted from the scene graph when the designer finalizes a layout. Each scene node that references a `kb_catalog_products` row produces one BOM item. Countertops and hardware are computed items derived from cabinet geometry, not direct catalog references.
+
+
+TypeScript
+// Emitted by the K&B tool's BOM extraction function
+// Stored in kb_project_bom + returned via API
+
+interface BomItem {
+ id: string; // UUID, PK in kb_project_bom
+ projectId: string; // FK to kb_projects
+ nodeId: string; // scene graph node ID (nanoid)
+ productId: string | null; // FK to kb_catalog_products (null = custom item)
+ sku: string | null; // manufacturer SKU, denormalized for display
+ name: string; // human-readable ("KraftMaid B24 Base Cabinet")
+ category: BomCategory; // discriminated union
+ quantity: number; // integer for units, decimal for sqft/lf
+ unitOfMeasure: &apos;each&apos; | &apos;sqft&apos; | &apos;lf&apos; | &apos;set&apos;;
+ unitCost: number; // dealer cost if confirmed, MSRP if not
+ priceConfirmed: boolean; // true = dealer price, false = MSRP/estimated
+ dimensions: {
+ width: number; // inches
+ height: number; // inches
+ depth: number; // inches
+ } | null;
+ manufacturer: string | null; // "KraftMaid", "Sub-Zero", etc.
+ finish: string | null; // "Dove White", "Stainless Steel"
+ leadTimeDays: number | null; // from catalog, null if unknown
+ discontinued: boolean; // flagged during catalog resolution
+ metadata: Record; // door style, construction, hinge type, etc.
+  listPrice?: number;          // Manufacturer list/MSRP price
+  multiplier?: number;         // Dealer multiplier (e.g., 0.45 = 55% off list)
+  dealerNetCost?: number;      // Actual dealer cost (listPrice * multiplier)
+  wasteFactor?: number;        // Material waste percentage (e.g., 0.15 = 15%)
+}
+
+type BomCategory =
+ | &apos;cabinet_base&apos;
+ | &apos;cabinet_wall&apos;
+ | &apos;cabinet_tall&apos;
+ | &apos;cabinet_corner&apos;
+ | &apos;countertop&apos;
+ | &apos;backsplash&apos;
+ | &apos;appliance&apos;
+ | &apos;fixture&apos; // sinks, faucets
+ | &apos;hardware&apos; // knobs, pulls, hinges
+ | &apos;lighting&apos;
+ | &apos;filler&apos; // filler strips between runs
+ | &apos;custom&apos;; // non-catalog items (custom millwork, etc.)
+
+interface Bom {
+ id: string; // UUID
+ projectId: string;
+ projectVersion: number; // snapshot of kb_projects.version at extraction
+ items: BomItem[];
+ extractedAt: string; // ISO 8601
+ totalMaterialCost: number; // sum of (quantity * unitCost) across all items
+ unresolvableItems: string[]; // nodeIds with no catalog match
+ priceWarnings: PriceWarning[]; // stale prices, discontinued, unconfirmed
+}
+
+interface PriceWarning {
+ bomItemId: string;
+ type: &apos;stale&apos; | &apos;discontinued&apos; | &apos;unconfirmed&apos; | &apos;out_of_stock&apos;;
+ message: string;
+ suggestedSubstitute: string | null; // product_id of suggested replacement
+}
+```
+
+
+#### Category Mapping Layer
+
+
+K&B BOM categories map to Estimate Engine line item categories. The mapping is not 1:1 --- the BOM is product-granular (cabinet_base vs cabinet_wall), while the estimate groups by trade/section for customer-facing quotes. The `estimate_category_map` is tenant-configurable JSONB stored on the `tenants` table.
+
+
+| BOM Category | Estimate Category | Unit | Labor Rule | |
+
+
+| `cabinet_base` | Cabinetry | each | 1.5 hrs/cabinet x labor rate | |
+
+| `cabinet_wall` | Cabinetry | each | 1.0 hrs/cabinet x labor rate | |
+
+| `cabinet_tall` | Cabinetry | each | 2.0 hrs/cabinet x labor rate | |
+
+| `cabinet_corner` | Cabinetry | each | 2.5 hrs/cabinet x labor rate | |
+
+| `countertop` | Countertops & Fabrication | sqft | 0.5 hrs/sqft + $15/sqft fabrication | |
+
+| `backsplash` | Tile & Backsplash | sqft | 0.75 hrs/sqft x labor rate | |
+
+| `appliance` | Appliances | each | 1.0 hrs/unit (connect only, no rough-in) | |
+
+| `fixture` | Plumbing Fixtures | each | 2.0 hrs/fixture (install + connect) | |
+
+| `hardware` | Cabinetry | set | 0 (included in cabinet labor) | |
+
+| `lighting` | Electrical | each | 1.0 hrs/fixture x labor rate | |
+
+| `filler` | Cabinetry | each | 0.25 hrs/piece x labor rate | |
+
+| `custom` | Custom & Millwork | each | Manual entry required | |
+
+
+#### Markup, Margin, and Labor Injection
+
+
+The mapping layer applies three cost transforms before producing estimate line items. All rates are tenant-configurable via `tenants.estimate_config` JSONB.
+
+
+TypeScript
+interface EstimateConfig {
+ laborRatePerHour: number; // e.g., $85/hr (tenant's install crew rate)
+ defaultMarkupPercent: number; // e.g., 0.30 (30% markup on materials)
+ categoryMarkupOverrides: Record; // per-category overrides
+ contingencyPercent: number; // e.g., 0.10 (10% contingency)
+ laborHoursOverrides: Record; // override default hrs
+ taxRate: number; // materials tax rate (labor typically untaxed)
+ includeTaxInEstimate: boolean; // show tax as separate line or rolled in
+  pricingMode: 'net_cost' | 'list_with_multiplier' | 'fixed';
+  categoryWasteFactors?: Record<string, number>;  // e.g., { tile: 0.15, wood: 0.50 }
+}
+
+// Transform: BomItem -> EstimateLine
+function mapBomItemToEstimateLine(
+ item: BomItem,
+ config: EstimateConfig,
+ categoryMap: Record
+): EstimateLine {
+ const markup = config.categoryMarkupOverrides[item.category]
+ ?? config.defaultMarkupPercent;
+ const laborHours = config.laborHoursOverrides[item.category]
+ ?? DEFAULT_LABOR_HOURS[item.category];
+ const materialCost = item.quantity * item.unitCost;
+ const materialWithMarkup = materialCost * (1 + markup);
+ const laborCost = laborHours * item.quantity * config.laborRatePerHour;
+
+ return {
+ category: categoryMap[item.category],
+ description: item.name,
+ sku: item.sku,
+ quantity: item.quantity,
+ unitOfMeasure: item.unitOfMeasure,
+ materialCost: materialWithMarkup,
+ laborCost,
+ totalCost: materialWithMarkup + laborCost,
+ sourceRef: { bomItemId: item.id, productId: item.productId },
+ };
+}
+```
+
+
+#### API Contract
+
+
+The Design Agent calls a single Hono RPC endpoint to generate an estimate from a finalized K&B project. The endpoint extracts the BOM, maps to estimate lines, and invokes the Sales Agent via BullMQ. The response is async --- the estimate draft is delivered via NATS -> Socket.io push.
+
+
+TypeScript
+// Route: POST /api/v1/kb/projects/:projectId/estimate
+// Auth: Bearer token (tenant context extracted from JWT)
+// Permission: Design Agent or user with 'manager' role
+
+// Request
+interface GenerateEstimateRequest {
+ projectId: string; // UUID, path param
+ includeLabor: boolean; // default true
+ includeContingency: boolean; // default true
+ overrideMarkupPercent?: number; // override tenant default for this estimate
+ notes?: string; // passed to Sales Agent context
+ excludeCategories?: BomCategory[]; // e.g., exclude appliances (customer-supplied)
+}
+
+// Response (synchronous acknowledgment)
+interface GenerateEstimateResponse {
+ bomId: string; // UUID of extracted BOM snapshot
+ executionId: string; // agent_executions.id (track via WebSocket)
+ itemCount: number; // total BOM items extracted
+ warnings: PriceWarning[]; // stale/discontinued/unconfirmed prices
+ estimatedTotalMaterial: number; // pre-markup material subtotal
+}
+
+// Error responses
+// 400: Project not in 'finalized' status
+// 400: BOM extraction produced 0 items (empty design)
+// 404: Project not found or not in tenant scope
+// 409: Estimate generation already in progress for this project
+// 422: >50% of BOM items have unresolvable catalog references
+// 429: Tenant AI budget exhausted (Section 4 pre-flight check)
+```
+
+
+TypeScript
+// Hono route implementation (packages/backend/src/routes/kb-estimate.ts)
+
+const kbEstimateRoute = new Hono()
+ .post(&apos;/projects/:projectId/estimate&apos;, tenantMiddleware(), async (c) => {
+ const { projectId } = c.req.param();
+ const body = await c.req.json();
+ const input = GenerateEstimateRequestSchema.parse(body);
+ const tenantId = c.get(&apos;tenantId&apos;);
+
+ // 1. Validate project status
+ const project = await getKbProject(tenantId, projectId);
+ if (project.status !== &apos;finalized&apos;) throw new HTTPException(400);
+
+ // 2. Check for in-flight estimate generation
+ const existing = await findActiveEstimateExecution(tenantId, projectId);
+ if (existing) throw new HTTPException(409);
+
+ // 3. Extract BOM from scene graph
+ const bom = await extractBom(project.scene_data, tenantId, projectId);
+
+ // 4. Resolve catalog prices + flag warnings
+ const resolved = await resolveBomPrices(bom, tenantId);
+
+ // 5. Map BOM -> EstimateLines
+ const config = await getTenantEstimateConfig(tenantId);
+ const lines = resolved.items
+ .filter(i => !input.excludeCategories?.includes(i.category))
+ .map(i => mapBomItemToEstimateLine(i, config, CATEGORY_MAP));
+
+ // 6. Queue Sales Agent execution
+ const executionId = await queueEstimateAgent({
+ tenantId,
+ projectId,
+ bomId: resolved.id,
+ lineItems: lines,
+ includeLabor: input.includeLabor,
+ includeContingency: input.includeContingency,
+ notes: input.notes,
+ });
+
+ // 7. Publish NATS event
+ await nats.publish(
+ buildSubject(tenantId, &apos;kb&apos;, &apos;bom&apos;, &apos;generated&apos;),
+ { bomId: resolved.id, projectId, itemCount: resolved.items.length }
+ );
+
+ return c.json({
+ bomId: resolved.id,
+ executionId,
+ itemCount: resolved.items.length,
+ warnings: resolved.priceWarnings,
+ estimatedTotalMaterial: resolved.totalMaterialCost,
+ }, 202);
+ });
+```
+
+
+#### NATS Event Flow
+
+
+The BOM -> Estimate pipeline emits 4 events using the canonical NATS subject format (`TENANT_{tenantId}.{domain}.{name}.{event}`) via the `buildSubject()` helper. All events carry the standard inter-agent payload schema (Section 7b: `event_type`, `tenant_id`, `source_agent`, `target_agent`, `payload`, `context_ref`).
+
+
+| Event Subject | Source | Trigger | Subscribers | Payload | |
+
+
+|
+`TENANT_{id}.kb.bom.generated` |
+KB Estimate Route |
+BOM extracted from scene graph |
+Sales Agent, CEO Agent |
+`{ bomId, projectId, itemCount, totalMaterialCost, warningCount }` |
+ |
+
+|
+`TENANT_{id}.kb.bom.price_warning` |
+KB Estimate Route |
+>=1 BOM item has stale/discontinued/unconfirmed price |
+Design Agent, Bookkeeping Agent |
+`{ bomId, warnings: PriceWarning[] }` |
+ |
+
+|
+`TENANT_{id}.estimate.draft.created` |
+Sales Agent |
+Agent produces estimate draft via `create_estimate_draft` tool |
+Dashboard (Socket.io push), Project Management Agent |
+`{ estimateId, draftId, projectId, totalAmount, lineItemCount }` |
+ |
+
+|
+`TENANT_{id}.estimate.approved` |
+Dashboard API |
+User approves the estimate draft |
+Integration Service (ACL sync), Project Management Agent, CEO Agent |
+`{ estimateId, projectId, approvedBy, totalAmount }` |
+ |
+
+
+#### Edge Cases
+
+
+| Scenario | Detection | Behavior | |
+
+
+|
+**Catalog product has no price** |
+`price_usd IS NULL AND dealer_cost IS NULL` on `kb_catalog_products` |
+BOM item included with `unitCost: 0`, `priceConfirmed: false`. `PriceWarning` of type `&apos;unconfirmed&apos;` emitted. Estimate line item shows "PRICE TBD" --- human must fill in before approval. The estimate cannot be approved while any line item has zero cost unless the user explicitly overrides with a manual price. |
+ |
+
+|
+**Product is discontinued** |
+`discontinued = true` on `kb_catalog_products` |
+BOM item flagged with `discontinued: true`. Catalog RAG runs a substitution query: same manufacturer + same dimensions + same category + in-stock. `PriceWarning.suggestedSubstitute` populated with the closest match. User must accept the substitute or provide a manual replacement before the estimate can be approved. |
+ |
+
+|
+**BOM includes custom/non-catalog items** |
+`productId IS NULL` on the BOM item (scene node has no catalog reference) |
+BOM item created with `category: &apos;custom&apos;`, `unitCost: 0`, `priceConfirmed: false`. Custom items are passed through to the estimate as manual line items. The Sales Agent generates a cost estimate based on dimensions and material type using its LLM context (Sonnet), but marks the line as "AI Estimated --- Verify". Labor hours default to 0 (manual entry required). |
+ |
+
+|
+**Design changes after estimate sent** |
+`kb_projects.version` > `Bom.projectVersion` on the linked estimate |
+The existing estimate is **not** auto-invalidated. When the user re-finalizes the updated design, a new BOM is extracted and a new estimate draft is generated. The dashboard shows a "Design Updated Since Estimate" badge on the stale estimate. A diff view shows added/removed/changed BOM items between the two versions. The old estimate remains accessible for audit. |
+ |
+
+|
+**>50% of items unresolvable** |
+Count of `productId IS NULL` items / total items > 0.5 |
+API returns HTTP 422. The design likely uses placeholder/generic objects that were never matched to catalog products. The user is directed back to the Design Agent to assign catalog products before generating an estimate. |
+ |
+
+|
+**Price staleness (>90 days since last sync)** |
+`kb_catalog_products.updated_at Estimate pipeline, its context assembly (Section 7b, AI-08) includes additional K&B-specific data. This does not change the agent's `stopWhen: stepCountIs(17)` budget or its 8K `max_tokens` output limit.
+
+
+TypeScript
+// Additional context injected when source = 'kb_bom'
+interface KbEstimateContext {
+ bomId: string;
+ projectName: string;
+ roomDimensions: { width: number; depth: number };
+ layoutType: string; // "U-shaped", "L-shaped", "galley", etc.
+ cabinetCount: number;
+ applianceCount: number;
+ countertopSqft: number;
+ hasIsland: boolean;
+ materialGrade: &apos;budget&apos; | &apos;mid&apos; | &apos;premium&apos; | &apos;luxury&apos;; // inferred from price distribution
+ priceWarnings: PriceWarning[];
+ preComputedLineItems: EstimateLine[]; // mapped BOM items (agent reviews, adjusts, groups)
+}
+
+// Token budget impact: ~1,500 additional tokens for K&B context
+// Total Estimate Engine budget remains ~17,500 tokens input (Section 7b)
+```
+
+
+Core Value Proposition
+
+
+This bridge is the reason the K&B tool exists inside Kiptra rather than as a standalone product. Without it, a designer uses 2020 Design to create a layout, manually re-enters every cabinet SKU into a spreadsheet or JobTread to build an estimate, then manually creates a project in their PM tool. Three separate tools, three data entry passes, three opportunities for transcription errors. With the bridge, the designer finalizes a 3D layout and clicks one button. The BOM is extracted from the scene graph, prices are resolved from the catalog, markup and labor are applied per the contractor's configured rates, and a complete estimate draft lands in their approval queue --- traceable back to the exact design version that produced it. The estimate syncs to JobTread or Procore via the same ACL that handles every other integration. This **design -> estimate -> project** pipeline in a single platform is the moat: it eliminates the data re-entry that costs K&B contractors 2--4 hours per project and removes the pricing errors that erode margins on 30%+ of remodeling jobs.
+
+
+> **KB Amendment (2026-03-21):** 40-50% of a kitchen/bath remodel estimate consists of items NOT in the 3D design's BOM: demolition ($1,500-5,000), plumbing rough-in ($2,500-4,000), electrical ($1,800-3,500), permits ($200-2,000), floor protection, dumpster, painting, and contingency (10-20%). The estimate engine must auto-suggest non-BOM item templates based on project type (kitchen vs bath) with tenant-configurable local cost defaults.
+
+
+Implementation Sequencing
+
+
+The BOM -> Estimate bridge depends on three prerequisites: (1) the canonical domain model's `Estimate` and `EstimateLine` interfaces (Section 3c, Wave 1), (2) the `create_estimate_draft` tool in the Sales Agent (Wave 2), and (3) the `kb_catalog_products` table populated with at least one manufacturer's catalog data (Month 3 of K&B build). The bridge itself is a Month 4--5 deliverable --- after BOM extraction exists (Month 3) and after the Sales Agent is operational (Wave 2). The NATS event flow and ACL sync are already built by the time this bridge ships.
+
+
+#### 16.4.2 K&B Design-to-Project Pipeline --- End-to-End Data Flow
+
+
+The complete flow from a designer's natural language description to a billable project in JobTread. This pipeline crosses three system boundaries: the K&B design editor (Three.js/R3F), the Kiptra core platform (Hono API + agents), and the external integration layer (JobTread adapter).
+
+
+Flow
+SEQUENCE DIAGRAM: Design -> BOM -> Estimate -> Project
+======================================================
+
+[Designer] [Design Agent] [K&B AI Loop] [Catalog RAG] [Sales Agent] [JobTread Adapter]
+ | | | | | |
+ | &quot;L-shaped kitchen | | | | |
+ | 12x14, white | | | | |
+ | shaker, quartz, | | | | |
+ | $40K budget&quot; | | | | |
+ |------------------->| | | | |
+ | | | | | |
+ | POST /api/kb/ | | | |
+ | designs | | | |
+ | {nl_input, room_spec, | | | |
+ | project_id} | | | |
+ | | | | | |
+ | | BullMQ job: | | | |
+ | | kb-design-generate | | | |
+ | |-------------------->| | | |
+ | | | | | |
+ | | ROUND 0: Claude (Sonnet) | | |
+ | | NL -> CabinetRun[] JSON | | |
+ | | (structured output, | | |
+ | | ~3--5 sec) | | |
+ | | | | | |
+ | | resolveRunToCoordinates() | | |
+ | | CabinetRun[] -> | | |
+ | | PlacedCabinet[] with | | |
+ | | (x, y, rotation) | | |
+ | | | | | |
+ | | Z3 WASM validation | | |
+ | | 24 NKBA constraints | | |
+ | | (~100--500ms) | | |
+ | | | | | |
+ | | IF UNSAT: | | |
+ | | Extract conflict cores | | |
+ | | Feed back to Claude | | |
+ | | ROUND N+1 (max 5) | | |
+ | | | | | |
+ | | IF SAT: | | |
+ | | Three.js server render | | |
+ | | 2D floor plan PNG | | |
+ | | | | | |
+ | | Gemini 3.0 Pro evaluation | | |
+ | | Image -> VisualEvaluation | | |
+ | | (flow, balance, ergo) | | |
+ | | (~5--8 sec) | | |
+ | | | | | |
+ | | IF score >= 7 AND no | | |
+ | | critical issues: DONE | | |
+ | | | | | |
+ | | NATS publish: | | | |
+ | | TENANT_{id}.kb. | | | |
+ | | design.generated | | | |
+ | | | | | |
+ | | | | | |
+ | | | | | |
+ | POST /api/kb/ | | | |
+ | designs/:id/bom | | | |
+ | | | | | |
+ | | For each node in scene graph: | | |
+ | | Extract: type, width, height, | | |
+ | | depth, style, finish | | |
+ | | |----search query---->| | |
+ | | | pgvector hybrid: | | |
+ | | | vector similarity | | |
+ | | | + metadata filters | | |
+ | | | (width, category, | | |
+ | | | finish, price) | | |
+ | | | | | |
+ | | || | | |--(triggered)------->|
+ | | | | | |
+ | POST /api/estimates | | | |
+ | {source: &apos;kb_design&apos;, | | | |
+ | design_id, bom_id} | | | |
+ | | | | | |
+ | | | | BullMQ job: |
+ | | | | estimate-generate |
+ | | | | | |
+ | | | | READ kb_project_bom |
+ | | | | JOIN kb_catalog_products |
+ | | | | | |
+ | | | | Transform BOM -> estimate: |
+ | | | | - Group by category |
+ | | | | (cabinets, countertops, |
+ | | | | appliances, plumbing, |
+ | | | | hardware, labor) |
+ | | | | - Apply markup % |
+ | | | | per category |
+ | | | | - Calculate labor |
+ | | | | (cabinet_count * rate |
+ | | | | + complexity factor) |
+ | | | | - Add contingency (10--15%) |
+ | | | | | |
+ | | | | INSERT INTO estimates |
+ | | | | INSERT INTO |
+ | | | | estimate_line_items |
+ | | | | | |
+ | | | | NATS publish: |
+ | | | | TENANT_{id}.agent. |
+ | | | | estimate_engine. |
+ | | | | completed |
+ | | | | | |
+ | | | | | |
+ | | | | | |
+ | POST /api/projects | | | |
+ | {source: &apos;kb_estimate&apos;, | | | |
+ | estimate_id} | | |----sync to JT------>|
+ | | | | | |
+ | | | | | Anti-corruption
+ | | | | | layer maps:
+ | | | | | Kiptra Estimate ->
+ | | | | | JT Project
+ | | | | | Kiptra Line Items ->
+ | | | | | JT Cost Items
+ | | | | | Kiptra Contact ->
+ | | | | | JT Customer
+ | | | | | |
+ | | | | | Pave API:
+ | | | | | mutation {
+ | | | | | createProject(
+ | | | | | name, customer,
+ | | | | | costItems[])
+ | | | | | }
+ | | | | | |
+ | | | | | NATS publish:
+ | | | | | TENANT_{id}.
+ | | | | | integration.
+ | | | | | jobtread.
+ | | | | | project_created
+ | | | | | |
+ | Cabinet Runs** |
+Natural language + `RoomModel` (walls, doors, windows, plumbing) |
+Claude structured output converts descriptive text into ordered `CabinetRun[]`. Each run references a `wallId`, `startOffset` (inches), and ordered `segments[]` (type, width). Claude chooses cabinet sizes from standard widths (9&Prime;--48&Prime; in 3&Prime; increments). |
+`CabinetRun[]` --- abstract wall-relative layout, no absolute coordinates |
+Claude Sonnet (Vercel AI Gateway, ~3--5s) |
+Structured output guarantees valid JSON schema. Semantic validation (negative widths, impossible sizes) caught by Zod `RunSegment` schema. On schema failure: retry once with stricter prompt. On semantic failure: pass errors to Z3 step. |
+ |
+
+|
+**2. Runs -> Coordinates** |
+`CabinetRun[]` + `Wall[]` (geometry) |
+Deterministic `resolveRunToCoordinates()` walks each run segment-by-segment, accumulating offset along the wall vector. Produces absolute `(x, y, rotation)` for every cabinet. Corner cabinets trigger wall-transition logic. No LLM involved --- pure geometry. |
+`PlacedCabinet[]` with absolute coordinates forming a complete scene graph |
+TypeScript (deterministic, validation error returned to Claude with specific overshoot measurement. |
+ |
+
+|
+**3. Coordinates -> Validated Layout** |
+`PlacedCabinet[]` + `Appliance[]` + `Sink` |
+Z3 WASM solver encodes 24 NKBA constraints as formal logic. Checks work triangle (legs 4'--9', sum =42&Prime; work aisle, >=36&Prime; walkway), landing areas (sink: 24&Prime;/18&Prime;, range: 12&Prime;/15&Prime;, fridge: 15&Prime; handle side), non-overlap, wall attachment, storage minimums. Returns SAT/UNSAT with specific constraint violations as UNSAT cores. |
+SAT: validated layout. UNSAT: minimal conflict set with measured vs required values. |
+Z3 WASM (~100--500ms) |
+UNSAT cores identify exactly which constraints conflict. Fed back to Claude with specific measurements (&quot;Sink left landing: 10&Prime;, need >=18&Prime;&quot;). Max 5 rounds. If fundamentally infeasible (room too small for layout type): return FAIL with explanation to designer. |
+ |
+
+|
+**4. Layout -> Matched SKUs (BOM)** |
+`PlacedCabinet[]` with (type, width, style, finish) per item |
+For each scene node: query `kb_catalog_products` via pgvector hybrid search (embedding similarity + metadata filters on width, category, finish). Returns top-5 matching SKUs per position. OR-Tools CP-SAT selects optimal SKU assignment across all positions: exactly one SKU per position, total cost 90 days): amber warning on affected line items. |
+ |
+
+|
+**5. BOM -> Estimate** |
+`kb_project_bom` rows joined with `kb_catalog_products` |
+Sales Agent groups BOM items by category (cabinets, countertops, appliances, plumbing fixtures, hardware, backsplash). Adds computed line items: countertop fabrication (sqft x $15/sqft), installation labor (cabinet_count x hourly_rate x complexity_factor), design fee (if applicable), permit fees (flat rate from tenant config). Applies per-category markup percentages from tenant's `estimate_config` JSONB. Adds contingency (10--15%, configurable). Generates `estimates` row with `estimate_line_items` detail. |
+`estimates` + `estimate_line_items` in Supabase. Categories: materials, labor, fees, contingency. Each line: description, quantity, unit_price, markup_pct, extended_price. |
+Sales Agent (Sonnet, ~8--12s for analysis + comparison) |
+If BOM has &quot;generic&quot; items (no SKU matched): estimate shows &quot;estimated&quot; pricing with disclaimer. Estimate stored as `status: &apos;draft&apos;` in `drafts` table for human approval before customer delivery. Price discrepancy >20% vs budget triggers alert. |
+ |
+
+|
+**6. Estimate -> JobTread Project** |
+Approved `estimates` + `estimate_line_items` + `contacts` (customer) |
+Anti-corruption layer (`JobTreadAdapter.write()`) maps Kiptra domain types to JobTread's Pave GraphQL schema. `Estimate` -> `Project` (name, description, status). `EstimateLine` -> `CostItem` (category, description, amount, unit_cost, quantity). `Contact` -> `Customer` (name, email, phone, address). Adapter handles JT-specific requirements: cost item categories must match JT's enum values, customer dedup by email, project naming convention. |
+JobTread project with linked cost items and customer record. External ID stored as `external_ref` on Kiptra estimate for bidirectional sync. |
+JobTread Pave API (REST/GraphQL, via token bucket rate limiter) |
+API failure: mark estimate as `sync_pending`, queue BullMQ retry with exponential backoff (3 attempts). Partial failure (project created but cost items fail): store JT project ID, retry cost item creation only. Rate limit (429): back-pressure via token bucket, retry after `Retry-After` header. All failures create escalation record for manual resolution. |
+ |
+
+
+#### NATS Event Table
+
+
+| Subject | Publisher | Consumer(s) | Payload Summary | Trigger | |
+
+
+|
+`TENANT_{id}.kb.design.generation_started` |
+Design Agent |
+Socket.io (progress indicator) |
+`{ project_id, design_id, nl_input_summary }` |
+Designer submits NL design request |
+ |
+
+|
+`TENANT_{id}.kb.design.iteration_progress` |
+K&B AI Loop (orchestrator) |
+Socket.io (progress indicator) |
+`{ design_id, round, total_rounds, z3_status, gemini_score, constraint_violations[] }` |
+Each iteration round completes |
+ |
+
+|
+`TENANT_{id}.kb.design.generated` |
+K&B AI Loop (orchestrator) |
+Design Agent, Socket.io |
+`{ design_id, project_id, layout_type, cabinet_count, nkba_pass_count, gemini_score, iteration_count }` |
+AI loop converges (SAT + score >= 7) |
+ |
+
+|
+`TENANT_{id}.kb.design.generation_failed` |
+K&B AI Loop (orchestrator) |
+Design Agent, Notification Service |
+`{ design_id, failure_reason, last_z3_violations[], best_gemini_score, rounds_attempted }` |
+Max rounds exhausted or fundamental infeasibility |
+ |
+
+|
+`TENANT_{id}.kb.design.updated` |
+Hono API (PATCH handler) |
+Socket.io (collaborative awareness) |
+`{ project_id, design_id, changed_nodes[], user_id }` |
+Designer manually edits layout (drag, swap finish) |
+ |
+
+|
+`TENANT_{id}.kb.design.bom_started` |
+Hono API |
+Socket.io (progress indicator) |
+`{ design_id, node_count }` |
+Designer clicks &quot;Generate BOM&quot; |
+ |
+
+|
+`TENANT_{id}.kb.design.bom_ready` |
+Catalog RAG + OR-Tools pipeline |
+Design Agent, Socket.io, Sales Agent |
+`{ design_id, bom_id, line_item_count, total_materials_cost, unmatched_count, budget_delta }` |
+SKU matching and optimization complete |
+ |
+
+|
+`TENANT_{id}.kb.design.bom_failed` |
+Catalog RAG pipeline |
+Design Agent, Notification Service |
+`{ design_id, failure_reason, unmatched_items[] }` |
+OR-Tools infeasible or catalog search failure |
+ |
+
+|
+`TENANT_{id}.agent.estimate_engine.started` |
+BullMQ worker (agent executor) |
+Socket.io (agent execution dashboard) |
+`{ execution_id, source: &apos;kb_design&apos;, design_id, bom_id }` |
+Sales Agent begins processing BOM |
+ |
+
+|
+`TENANT_{id}.agent.estimate_engine.completed` |
+Sales Agent |
+Design Agent, Socket.io, Notification Service |
+`{ execution_id, estimate_id, total_amount, category_breakdown: { cabinets, countertops, appliances, labor, contingency }, status: &apos;draft&apos; }` |
+Estimate generation complete |
+ |
+
+|
+`TENANT_{id}.agent.estimate_engine.approved` |
+Hono API (approval handler) |
+JobTread Adapter, Notification Service |
+`{ estimate_id, approved_by, customer_id }` |
+Designer/PM approves estimate for customer delivery |
+ |
+
+|
+`TENANT_{id}.integration.jobtread.project_created` |
+JobTread Adapter |
+Project Management Agent, Socket.io, Notification Service |
+`{ estimate_id, jobtread_project_id, jobtread_url, cost_item_count, sync_status }` |
+Anti-corruption layer successfully creates JT project |
+ |
+
+|
+`TENANT_{id}.integration.jobtread.sync_failed` |
+JobTread Adapter |
+Notification Service, DLQ handler |
+`{ estimate_id, error_code, error_message, retry_count, next_retry_at }` |
+JT API call fails (timeout, 429, 5xx) |
+ |
+
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Missing NATS event subjects for catalog and render operations:
+>
+> | Subject | Publisher | Consumer(s) | Payload Summary | Trigger |
+> |---------|-----------|-------------|-----------------|---------|
+> | `TENANT_{id}.kb.catalog.product_updated` | Catalog Sync Worker | Search Index, BOM Recalculator | `{ product_id, changes[], manufacturer_id }` | Nightly sync detects price/spec change |
+> | `TENANT_{id}.kb.catalog.import_completed` | Catalog Import Worker | Admin Dashboard, Notification Service | `{ manufacturer_id, products_added, products_updated, errors[] }` | Bulk catalog import finishes |
+> | `TENANT_{id}.kb.render.started` | Render Queue Worker | Socket.io (progress indicator) | `{ job_id, project_id, view_type, resolution }` | Modal serverless GPU function invoked |
+> | `TENANT_{id}.kb.render.progress` | Modal GPU Worker | Socket.io (progress bar) | `{ job_id, percent_complete, estimated_remaining_sec }` | Render progress callback |
+> | `TENANT_{id}.kb.render.completed` | Modal GPU Worker | Socket.io, CDN Cache | `{ job_id, project_id, url, render_time_ms, format }` | GPU render finishes successfully |
+> | `TENANT_{id}.kb.render.failed` | Modal GPU Worker | Socket.io, Notification Service | `{ job_id, error_code, error_message, retry_count }` | GPU render fails after retries |
+> | `TENANT_{id}.kb.validation.completed` | Z3 WASM Worker | Socket.io, Design Agent | `{ design_id, sat_status, violations[], constraint_count, solve_time_ms }` | Z3 validation completes (SAT or UNSAT) |
+
+
+#### API Endpoints
+
+
+| Method | Route | Request Body | Response | Side Effects | |
+
+
+|
+`POST` |
+`/api/kb/designs` |
+`{ project_id, nl_input, room_spec: RoomModel, design_brief: DesignBrief }` |
+`{ design_id, status: &apos;generating&apos;, job_id }` (202 Accepted) |
+Creates `kb_projects` row (status=&apos;generating&apos;). Queues BullMQ `kb-design-generate` job. NATS publish `kb.design.generation_started`. |
+ |
+
+|
+`GET` |
+`/api/kb/designs/:id` |
+--- |
+`{ design_id, scene_data (JSONB), status, version, nkba_compliance[], gemini_score }` |
+None (read-only). Returns full scene graph for DesignViewport rendering. |
+ |
+
+|
+`PATCH` |
+`/api/kb/designs/:id` |
+`{ scene_data: partial JSONB, changed_nodes[] }` |
+`{ design_id, version (incremented) }` |
+UPDATE `kb_projects.scene_data` (JSONB merge). INSERT `kb_project_versions` snapshot. NATS publish `kb.design.updated`. Triggers client-side Z3 re-validation (Tier 1 TypeScript rules). |
+ |
+
+|
+`POST` |
+`/api/kb/designs/:id/bom` |
+`{ budget_constraint?: number, preferred_manufacturers?: string[] }` |
+`{ bom_id, status: &apos;processing&apos;, job_id }` (202 Accepted) |
+Queues BullMQ `kb-bom-generate` job. Reads scene graph, queries catalog, runs OR-Tools. Writes to `kb_project_bom`. NATS publish `kb.design.bom_ready` on completion. |
+ |
+
+|
+`GET` |
+`/api/kb/designs/:id/bom` |
+--- |
+`{ bom_id, items[]: { node_id, product: { sku, name, manufacturer, price }, quantity, unit_price }, totals_by_category, unmatched_items[] }` |
+None. JOIN `kb_project_bom` with `kb_catalog_products` and `kb_manufacturers`. |
+ |
+
+|
+`POST` |
+`/api/estimates` |
+`{ source: &apos;kb_design&apos;, design_id, bom_id, markup_config?: { category: pct }[], contingency_pct?: number }` |
+`{ estimate_id, status: &apos;generating&apos;, execution_id }` (202 Accepted) |
+Queues BullMQ `estimate-generate` job. Sales Agent reads BOM, generates categorized estimate. Writes to `estimates` + `estimate_line_items`. Status transitions: QUEUED -> RUNNING -> AWAITING_APPROVAL. |
+ |
+
+|
+`POST` |
+`/api/estimates/:id/approve` |
+`{ customer_id, send_to_customer?: boolean }` |
+`{ estimate_id, status: &apos;approved&apos; }` |
+UPDATE estimate status. NATS publish `estimate_engine.approved`. If `send_to_customer=true`: queue email via Notification Service. |
+ |
+
+|
+`POST` |
+`/api/estimates/:id/create-project` |
+`{ sync_to_jobtread?: boolean }` |
+`{ project_id, jobtread_project_id?, sync_status }` |
+Creates Kiptra project from estimate. If `sync_to_jobtread=true`: triggers anti-corruption layer. `JobTreadAdapter.write()` maps domain types and calls Pave API. NATS publish `integration.jobtread.project_created`. |
+ |
+
+
+#### Data Transformation Detail
+
+
+Flow
+TRANSFORMATION PIPELINE (data shapes at each boundary)
+======================================================
+
+1. NL Input
+ &quot;L-shaped kitchen, 12x14, white shaker, quartz, $40K&quot;
+ |
+ v
+2. CabinetRun[] (Claude structured output)
+ [
+ { wallId: &quot;south&quot;, startOffset: 0, direction: &quot;left-to-right&quot;,
+ cabinets: [
+ { type: &quot;base_cabinet&quot;, width: 36 },
+ { type: &quot;sink_base&quot;, width: 33 },
+ { type: &quot;base_cabinet&quot;, width: 24 },
+ { type: &quot;dishwasher_gap&quot;, width: 24 }
+ ]},
+ { wallId: &quot;east&quot;, startOffset: 0, direction: &quot;left-to-right&quot;,
+ cabinets: [
+ { type: &quot;corner_base&quot;, width: 36 },
+ { type: &quot;base_cabinet&quot;, width: 30 },
+ { type: &quot;range_gap&quot;, width: 36 },
+ { type: &quot;base_cabinet&quot;, width: 24 },
+ { type: &quot;tall_pantry&quot;, width: 24 }
+ ]}
+ ]
+ |
+ v resolveRunToCoordinates() [deterministic, no LLM]
+ |
+3. PlacedCabinet[] (absolute coordinates)
+ [
+ { id: &quot;B1&quot;, type: &quot;base_cabinet&quot;, x: 0, y: 0,
+ width: 36, depth: 24, rotation: 0 },
+ { id: &quot;SB1&quot;, type: &quot;sink_base&quot;, x: 36, y: 0,
+ width: 33, depth: 24, rotation: 0 },
+ ...
+ ]
+ |
+ v Z3 validation (24 NKBA constraints)
+ |
+4. ValidatedLayout (SAT + compliance report)
+ { layout: PlacedCabinet[],
+ compliance: [
+ { guideline: 3, name: &quot;Work Triangle&quot;, status: &quot;pass&quot;,
+ measured: &quot;18&apos;4\&quot;&quot;, required: &quot; JobTread mapping)
+ |
+7. JobTread Project (via Pave GraphQL API)
+ createProject:
+ name: &quot;Kitchen Remodel - [Customer Name]&quot;
+ customer: { name, email, phone, address }
+ costItems: [
+ { category: &quot;Materials&quot;, description: &quot;KraftMaid WSH Cabinets (14)&quot;,
+ amount: 8715, unitCost: 62250, quantity: 14 },
+ { category: &quot;Materials&quot;, description: &quot;Cambria Quartz 3cm (42 sqft)&quot;,
+ amount: 4284, unitCost: 10200, quantity: 42 },
+ { category: &quot;Labor&quot;, description: &quot;Cabinet Installation&quot;,
+ amount: 2100, unitCost: 15000, quantity: 14 },
+ ...
+ ]
+ Response: { projectId: &quot;jt-12345&quot;, url: &quot;https://app.jobtread.com/...&quot; }
+
+ Kiptra stores: estimates.external_ref = &quot;jt-12345&quot;
+ Bidirectional sync: JT webhook -> Kiptra updates on project changes
+
+```
+
+
+**Key insight:** The anti-corruption layer is the critical boundary. Kiptra's domain model (Estimate, EstimateLine, Contact) is the canonical source of truth. The JobTread adapter translates *outward* on create and translates *inward* on webhook receipt. If JobTread is replaced with Procore or Jobber, only the adapter changes --- the design pipeline, BOM engine, and estimate generation are completely decoupled. The adapter implements `IntegrationAdapter` (Section 6), so this swap is verified at compile time.
+
+
+### 16.5 NKBA Design Standards Enforcement
+
+
+The National Kitchen & Bath Association publishes 31 Kitchen Planning Guidelines covering clearances, landing areas, storage minimums, ventilation, and safety.
+
+
+#### Two-Tier Validation
+
+
+**Tier 1 --- TypeScript Rule Engine (real-time, client-side):** Simple distance and clearance checks per frame. Violations highlighted in red with inline measurements showing the shortfall.
+
+
+**Tier 2 --- Z3 SMT Solver (WASM or server):** Full formal optimization and feasibility checking. Used to validate Claude's generated layouts and return UNSAT cores identifying exactly which constraints conflict. Runs in ~100--500ms.
+
+
+#### Key Constraints
+
+
+| Constraint | NKBA Requirement | Tier | |
+
+
+| Work Triangle | Sum =42&Prime; (one cook), >=48&Prime; (two cooks) | TS + Z3 | |
+
+| Walkway Width | >=36&Prime; | TypeScript | |
+
+| Sink Landing | >=24&Prime; on one side, >=18&Prime; on other | TypeScript | |
+
+| Range Landing | >=12&Prime; on one side, >=15&Prime; on other | TypeScript | |
+
+| Fridge Landing | >=15&Prime; on handle side | TypeScript | |
+
+| Dishwasher Proximity | Within 36&Prime; of nearest sink edge | TypeScript | |
+
+| Cooktop Safety | Not under operable window | TS + Z3 | |
+
+| Storage Minimums | Per NKBA formula based on kitchen size | Z3 | |
+
+
+### 16.6 Manufacturer Catalog System
+
+
+#### Data Sources
+
+
+| Source | Format | Coverage | Reliability | |
+
+
+| Direct manufacturer feeds | Dealer portal exports (CSV/XML), FTP data drops, or partnership-negotiated access. Requires Adam's relationships. Not standard REST APIs. | SKUs, pricing, dimensions, finishes | High (authoritative) | |
+
+| 2020 Design format files | Proprietary | Full product libraries | High (industry standard) | |
+
+| PDF spec sheets | PDF -> Claude extraction | Dimensions, features, install specs | Medium (parsing variance) | |
+
+| KitchenDEV / Kitchen365 | API | Aggregated catalog data | Medium (third-party) | |
+
+
+> **KB Amendment:** Catalog data quality is significantly worse than this table implies. Most manufacturers provide "a PDF spec book and an Excel price list" with merged cells, color-coded rows, mixed units, and notes like "call for pricing." 3D models are almost non-existent — products exist only inside 2020 Design's proprietary catalog format. Realistic automated extraction rate from PDFs: ~70%. Excel ETL requires manufacturer-specific adapters for each format variant.
+
+> **⚠️ LEGAL RISK (KB Amendment):** Cyncly filed an IP infringement lawsuit against SHD AG in August 2024 for using their Catalogue Editor tools to create catalogs for competing platforms. Cyncly treats their catalog format as copyrighted IP. Any attempt to reverse-engineer or directly port 2020 Design catalogs carries significant legal risk. **Recommendation:** Source catalog data from manufacturers directly (CSV via dealer relationships), not from Cyncly's ecosystem. Consult legal counsel before any 2020 Design format interaction.
+
+- **Key Manufacturers:** KraftMaid, MasterBrand, Wellborn, Fabuwood (cabinets); Sub-Zero, Wolf, Thermador, Bosch (appliances); Cambria, Kohler, Moen (countertops/plumbing)
+
+- **RAG Architecture:** pgvector hybrid search (vector similarity + metadata filters for width, category, finish, price range)
+
+- **Sync:** Nightly BullMQ jobs, 90-day price staleness warnings, estimated vs confirmed pricing
+
+- **3D Models:** Procedural cabinet generation as fallback, Blender automation for format conversion, async GLTF loading with bounding-box placeholders
+
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Catalog search API endpoint is missing from the API Endpoints table. Required:
+>
+> `POST /api/v1/kb/catalog/search`
+> - **Request:** `{ query: string, filters: { category?: string, manufacturer_id?: UUID, width_min?: number, width_max?: number, finish_family?: string, price_max?: number }, limit?: number (default 20) }`
+> - **Response:** `{ results: CatalogProduct[], total_count: number, search_mode: 'hybrid' | 'vector' | 'keyword' }`
+> - **Behavior:** pgvector hybrid search (embedding cosine similarity + tsvector keyword match + metadata filters). Falls back to keyword-only if embedding service unavailable. Results include `similarity_score` for transparency.
+
+### 16.7 New Tech Stack Additions
+
+
+| Category | Package | Purpose | |
+
+
+| 3D Rendering | `three`, `@react-three/fiber`, `@react-three/drei` | Core 3D engine, React integration, utility components | |
+
+| 3D Utilities | `three-bvh-csg`, `troika-three-text`, `three-mesh-bvh` | Boolean geometry (for countertop sink/cooktop cutouts ONLY — cabinet construction uses panel-based BoxGeometry, not CSG), SDF text, BVH acceleration | |
+
+| 3D Advanced (Phase 2) | `three-gpu-pathtracer` | Progressive path-traced rendering | |
+
+| State | `zundo`, `immer`, `mitt`, `nanoid` | Undo/redo, immutable updates, event bus, ID generation | |
+
+| AI | `@ai-sdk/anthropic`, `@ai-sdk/google` via Vercel AI SDK + Vercel AI Gateway | Claude structured outputs, Gemini vision --- routed through the Vercel AI Gateway (Section 4) for cost tracking, fallback routing, and per-tenant spending limits | |
+
+| Constraint Solver | `z3-solver` (WASM) | Formal NKBA constraint validation | |
+
+| Optimization | OR-Tools (Python) | CP-SAT for SKU selection and BOM optimization | |
+
+| Vector Search | `pgvector` + `sentence-transformers` | Catalog RAG hybrid search | |
+
+| Export (client) | `jspdf`, `@svgdotjs/svg.js`, `web-ifc`, `html2canvas` | PDF, SVG, IFC, PNG export | |
+
+| Export (server) | `ezdxf`, `IfcOpenShell` (Python) | DXF and IFC generation | |
+
+| 3D Pipeline | `gltfjsx` | Generate typed R3F components from GLTF models with proper dispose/preload | |
+
+| Development | `r3f-perf` | Performance monitoring overlay for R3F (draw calls, FPS, memory) | |
+
+| Export | Manufacturer-specific order format (CSV/XML per manufacturer) | Electronic cabinet order format for manufacturer submission | |
+
+> **Note:** OFDA XML is an office furniture standard. Kitchen cabinet ordering uses manufacturer-specific formats. References to "OFDA" in this document should be read as "manufacturer-specific electronic order format."
+
+| Collaboration (Phase 3) | `yjs`, `y-supabase` | CRDT real-time collaboration | |
+
+
+### 16.7.1 BOM Preview Component
+
+**In-canvas BOM preview panel** --- a collapsible side panel within the K&B design canvas that displays the Bill of Materials in real time as the user places items. Updates live as scene objects change.
+
+- **Item list:** Catalog product name, SKU, manufacturer, finish/color variant
+- **Quantities:** Auto-counted from scene graph (e.g., 3x base cabinets, 1x sink)
+- **Prices:** Unit price and line total from `kb_catalog_products`, subtotal and grand total at bottom
+- **Export buttons:** PDF (via `jspdf`), CSV (native), Electronic Cabinet Order XML (manufacturer-specific order format)
+- **Panel behavior:** Toggleable via toolbar button (`ClipboardList` icon). Docked to right side of canvas. 320px width, scrollable. Collapses to icon-only on mobile. Panel state persisted in Zustand store.
+- **Data source:** Reads directly from the scene graph's catalog references, joined against `kb_catalog_products` for pricing. No separate API call --- derived from in-memory scene state.
+
+
+### 16.8 Database Schema
+
+
+Five new tables extend the Supabase database. All tables include `tenant_id` columns and RLS policies using `current_setting('app.tenant_id', true)` --- the same `set_tenant_context()` pattern established in Section 5. The `user_id` column tracks the creator/owner within the tenant for fine-grained access (e.g., "my designs" vs "team designs"), but tenant isolation is always enforced at the RLS layer.
+
+
+SQL
+-- 1. Design projects
+CREATE TABLE kb_projects (
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ tenant_id UUID REFERENCES tenants NOT NULL,
+ user_id UUID REFERENCES auth.users NOT NULL,
+ name TEXT NOT NULL,
+ scene_data JSONB NOT NULL DEFAULT &apos;{}&apos;,
+ settings JSONB NOT NULL DEFAULT &apos;{}&apos;,
+ thumbnail_url TEXT,
+ status TEXT NOT NULL DEFAULT &apos;draft&apos;,
+ version INTEGER NOT NULL DEFAULT 1,
+ created_at TIMESTAMPTZ DEFAULT now(),
+ updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 2. Version history
+CREATE TABLE kb_project_versions (
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ project_id UUID REFERENCES kb_projects ON DELETE CASCADE,
+ version INTEGER NOT NULL,
+ scene_data JSONB NOT NULL,
+ created_by UUID REFERENCES auth.users,
+ created_at TIMESTAMPTZ DEFAULT now(),
+ UNIQUE(project_id, version)
+);
+
+-- 3. Manufacturer registry
+CREATE TABLE kb_manufacturers (
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ name TEXT NOT NULL UNIQUE,
+ slug TEXT NOT NULL UNIQUE,
+ website TEXT,
+ logo_url TEXT
+);
+
+-- 4. Catalog products (SKUs) with full-text + vector search
+CREATE TABLE kb_catalog_products (
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ manufacturer_id UUID REFERENCES kb_manufacturers,
+ sku TEXT NOT NULL,
+ name TEXT NOT NULL,
+ category TEXT NOT NULL, -- cabinet, appliance, countertop, plumbing
+ width NUMERIC,
+ height NUMERIC,
+ depth NUMERIC,
+ finishes JSONB,
+ price_usd NUMERIC,
+ price_confirmed BOOLEAN DEFAULT false,
+ gltf_url TEXT,
+ search_vector TSVECTOR,
+ embedding halfvec(768),
+ UNIQUE(manufacturer_id, sku)
+);
+
+> **KB Amendment:** Changed from VECTOR(384) to halfvec(768). MiniLM-L6 at 384 dimensions cannot distinguish similar cabinet SKUs (>0.95 cosine similarity between "B15 Maple Praline" and "B18 Maple Praline"). BGE-base at 768 dimensions with halfvec quantization provides adequate discrimination at half the storage cost of full float vectors.
+
+CREATE INDEX idx_catalog_search ON kb_catalog_products USING GIN(search_vector);
+CREATE INDEX idx_catalog_embedding ON kb_catalog_products USING hnsw(embedding vector_cosine_ops);
+
+-- 5. Bill of materials
+CREATE TABLE kb_project_bom (
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ project_id UUID REFERENCES kb_projects ON DELETE CASCADE,
+ node_id TEXT NOT NULL,
+ product_id UUID REFERENCES kb_catalog_products,
+ quantity INTEGER NOT NULL DEFAULT 1,
+ unit_price NUMERIC
+);
+```
+
+
+### 16.9 AI Model Requirements
+
+
+| Model | Role | API / Runtime | Latency | Cost | |
+
+
+| Claude Sonnet 4.6 / Opus 4.6 | Layout generation, NL commands | Anthropic SDK structured outputs | ~3--5 sec | Per-token | |
+
+| Gemini 3.0 Pro | Visual evaluation of floor plans | Google GenAI SDK | ~5--8 sec | Per-token | |
+
+| Z3 SMT Solver | Formal NKBA validation | WASM (client) or Python | ~100--500ms | Free | |
+
+| OR-Tools CP-SAT | SKU / BOM optimization | Python server-side | ~200ms--2sec | Free | |
+
+| Flux/SD (Phase 2) | AI image enhancement | Replicate / fal.ai | ~10--30 sec | $0.02--$0.06/render | |
+
+| sentence-transformers | Catalog embeddings | Local Python | ~5ms/embed | Free | |
+
+
+### 16.10 Implementation Timeline (6 Months)
+
+
+| Month | Focus | Key Deliverables | |
+
+
+| **Month 1** | Foundation | Room drawing (walls), 2D/3D toggle, measurements, monorepo setup, scene graph store, basic PBR | |
+
+
+
+> **KB Amendments to Month 1:**
+> - 90-degree-only wall constraint (non-orthogonal deferred to Phase 2)
+> - `frameloop="demand"` on R3F Canvas
+> - Zustand store with `getState()` pattern for `useFrame` access
+> - Feet-inches dimension display utility (`formatDimension()`)
+> - `webglcontextlost`/`webglcontextrestored` handlers
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Dimension input UX is unspecified. Construction professionals use feet-inches notation, not decimal inches. Required:
+> - **Accepted input formats:** `10'6"`, `10'-6"`, `126`, `10ft 6in`, `10.5'`. All parsed to internal inches.
+> - **Internal format:** Inches (integer or float).
+> - **Display format:** `X'-Y"` (e.g., `10'-6"`).
+> - **Required utilities:** `parseDimension(input: string): number` (inches) and `formatDimension(inches: number): string` (display).
+> - **Validation:** Reject negative values, values > 600" (50 feet), non-numeric input. Show inline error with accepted formats.
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** `KBEditorStore` Zustand store shape is never defined despite being the central state container. Required interface:
+>
+> ```typescript
+> interface KBEditorStore {
+>   // Scene data slices
+>   walls: Record<string, WallSegment>;
+>   cabinets: Record<string, PlacedCabinet>;
+>   appliances: Record<string, PlacedAppliance>;
+>   fixtures: Record<string, PlacedFixture>;
+>   countertops: Record<string, CountertopSlab>;
+>   // Selection & interaction
+>   selectedIds: Set<string>;
+>   hoveredId: string | null;
+>   viewMode: '2d' | '3d';
+>   activeTool: 'select' | 'wall' | 'cabinet' | 'appliance' | 'measure' | 'pan';
+>   snapEnabled: boolean;
+>   gridVisible: boolean;
+>   // Project metadata
+>   projectId: string | null;
+>   isDirty: boolean;
+>   nkbaViolations: NKBAViolation[];
+> }
+> ```
+
+| **Month 2** | Cabinet System | Cabinet runs along walls, auto-countertops, material/finish swap, PBR library, snap system | |
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Snap/grid system behavior is referenced but never specified. Required:
+> - **Grid spacing:** 1" (fine), 3" (default), 6" (coarse). Toggle with `G` key, cycle through spacings.
+> - **Snap targets (priority order):** Wall endpoints (4" threshold), cabinet edges (2" threshold), standard cabinet widths (3" threshold), grid intersections (1" threshold).
+> - **Snap override:** Hold `Shift` to temporarily disable all snapping.
+> - **Visual feedback:** Snap guides rendered as dashed cyan lines. Active snap target highlighted with circle indicator.
+
+| **Month 3** | Appliances + Catalog | Appliance library, drag-drop, CSG cutouts, catalog search, manufacturer import, BOM generation | |
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Cabinet parametric model lacks construction-specific parameters. Required `CabinetParameters` interface:
+>
+> ```typescript
+> interface CabinetParameters {
+>   kcmaCode: string;                 // KCMA standard code (e.g., "B15", "W3630")
+>   constructionType: 'framed' | 'frameless';
+>   doorStyle: string;                // e.g., "Shaker", "Slab", "Raised Panel"
+>   overlayType: 'full' | 'partial' | 'inset';
+>   hingeType: 'concealed' | 'exposed' | 'self_closing';
+>   drawerType: 'standard' | 'soft_close' | 'push_to_open';
+>   drawerCount: number;
+>   shelfCount: number;
+>   material: string;                 // e.g., "Maple", "Birch", "MDF"
+>   finish: string;                   // e.g., "Praline", "White", "Natural"
+>   finishFamily: string;             // grouping for search (e.g., "light_wood", "painted_white")
+> }
+> ```
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Appliance data model lacks mechanical/electrical parameters critical for NKBA validation and installation specs. Required:
+>
+> ```typescript
+> interface ApplianceParameters {
+>   applianceType: 'range' | 'cooktop' | 'oven' | 'microwave' | 'dishwasher' | 'refrigerator' | 'hood' | 'disposal' | 'compactor';
+>   fuelType: 'electric' | 'gas' | 'dual_fuel' | 'none';
+>   voltage: 120 | 240 | null;
+>   amperage: number | null;
+>   cfmRating: number | null;        // for range hoods
+>   waterConnection: boolean;
+>   gasConnection: boolean;
+>   ventType: 'ducted' | 'ductless' | 'downdraft' | 'none';
+>   cutoutDimensions: { width: number; depth: number; height: number } | null; // for built-ins
+>   doorSwing: 'left' | 'right' | 'french' | 'drawer' | 'none';
+> }
+> ```
+
+| **Month 4** | NKBA + AI | Z3 constraints (24 rules), violation display, Claude layout generation, iteration loop | |
+
+| **Month 5** | Polish + Persistence | Project CRUD, property panel, keyboard shortcuts, elevation views, undo/redo (50 steps) | |
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Project versioning has two tiers but the spec conflates them. Clarification:
+> - **Client-side (Zundo):** 50-step undo/redo stack. Uses JSON Patch deltas (not full snapshots) for memory efficiency. Lost on page reload. Temporal middleware wraps Zustand store.
+> - **Server-side (`kb_project_versions`):** Triggered on explicit save, auto-save (60s interval), AI loop completion, and BOM generation. Stores full `scene_data` JSONB snapshot. Max 100 versions per project; oldest pruned beyond limit (FIFO). Version metadata includes `trigger_type` ('manual' | 'auto_save' | 'ai_completion' | 'bom_generation').
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Keyboard shortcuts referenced in Month 5 but never enumerated. Required shortcut map:
+> - `Ctrl+Z` / `Cmd+Z`: Undo. `Ctrl+Y` / `Cmd+Shift+Z`: Redo.
+> - `Delete` / `Backspace`: Delete selected objects.
+> - `Escape`: Deselect all / cancel active tool.
+> - `V`: Select tool. `W`: Wall drawing tool. `C`: Cabinet placement tool. `M`: Measure tool.
+> - `G`: Toggle grid. `S`: Toggle snap.
+> - `2`: Switch to 2D view. `3`: Switch to 3D view.
+> - `Ctrl+D` / `Cmd+D`: Duplicate selected objects.
+> - `Ctrl+S` / `Cmd+S`: Save project (prevent browser default).
+
+| **Month 6** | Export + Gemini | PDF/DXF/SVG/IFC/PNG export, Gemini visual evaluation, full AI loop, Adam UAT | |
+
+> **KB Amendments to Month 6:**
+> - DEFER IFC export to Phase 2 (residential remodelers do not use BIM tools)
+> - ADD Electronic Cabinet Order export (Phase 1: file download, Phase 2: FTP auto-upload with contractor credentials, Phase 3: direct manufacturer API integration)
+
+
+**Future Phases:**
+
+
+- **Phase 2:** Photorealistic rendering --- `three-gpu-pathtracer` + Flux/SD img2img with ControlNet
+
+- **Phase 3:** Real-time collaboration via Yjs CRDT synced through `y-supabase`
+
+> **Phase 2 Scope (KB-Derived, Post-Launch):**
+> - Bathroom design support (27 NKBA bathroom guidelines)
+> - IFC BIM export (deferred from Month 6)
+> - OR-Tools CP-SAT Python microservice (replaces greedy TS optimizer)
+> - Non-orthogonal wall support (angles, soffits)
+> - Dealer volume tier pricing
+> - Spec document upload + structured extraction
+> - Submittal package generation
+
+
+Staffing & AI-Buildability
+
+
+This timeline assumes AI-driven development (Claude Code, Cursor, AI agent pipelines) with Joseph as the sole developer + Adam (4--8 hrs/wk domain expertise for manufacturer relationships, NKBA validation, and design review). ~80--90% AI-buildable (schemas, stores, CRUD, API, UI, validation rules, constraint encodings, tests). ~10--20% requires human 3D/geometry expertise: wall mitering, CSG edge cases, cabinet fitting, camera controllers, PBR tuning. No additional engineering hires required.
+
+
+
+> **Spec Amendment (Attack Audit 2026-03-22):** Template system for quick-start layouts is referenced but never defined. Required:
+>
+> ```typescript
+> interface DesignTemplate {
+>   id: string;
+>   name: string;
+>   layoutType: 'galley' | 'l_shape' | 'u_shape' | 'island' | 'g_shape';
+>   roomDimensions: { width: number; depth: number }; // inches
+>   sceneData: JSONB;               // pre-built scene graph
+>   thumbnail: string;              // CDN URL
+>   cabinetCount: number;
+>   budgetTier: 'economy' | 'mid_range' | 'premium';
+> }
+> ```
+>
+> **Seed templates (7):** Galley 8x10, Galley 10x12, L-Shape 10x12, L-Shape 12x14, U-Shape 12x14, U-Shape 14x16, Island 14x16. Each template pre-populated with standard cabinet runs, default appliance positions, and NKBA-compliant work triangle. Templates are the fallback when AI loop fails convergence.
+
+### 16.11 Integration with Kiptra Platform
+
+
+#### Shared (Reuse from Kiptra)
+
+
+- Next.js (App Router), Hono API, Supabase (Postgres + Auth + Storage), Zustand, Zod, Vercel, GitHub CI/CD
+
+
+#### New / Dedicated
+
+
+- Three.js / React Three Fiber rendering pipeline
+
+- Z3 WASM constraint solver
+
+- OR-Tools Python microservice *(Fallback: if Python microservice proves operationally burdensome, CP-SAT optimization can be approximated with a greedy/heuristic algorithm in TypeScript for MVP. Full CP-SAT fidelity is only needed for complex multi-constraint BOM optimization with >20 SKU positions.)*
+
+- Catalog RAG system (pgvector + sentence-transformers)
+
+- Python export services (ezdxf, IfcOpenShell)
+
+- PBR asset pipeline + 3D model pipeline (Blender automation + procedural generation)
+
+
+#### Monorepo Structure
+
+
+Directory
+kiptra-ai/
+&#9500;&#9472;&#9472; packages/
+&#9474; &#9500;&#9472;&#9472; frontend/ # Existing Kiptra Next.js frontend (Section 14)
+&#9474; &#9500;&#9472;&#9472; backend/ # Hono API + BullMQ + NATS (Section 14)
+&#9474; &#9500;&#9472;&#9472; shared/ # Zod schemas, types, domain interfaces
+&#9474; &#9500;&#9472;&#9472; config/ # ESLint, TypeScript, Prettier configs
+&#9474; &#9500;&#9472;&#9472; kb-editor/ # K&B design tool frontend (Three.js/R3F)
+&#9474; &#9500;&#9472;&#9472; kb-core/ # K&B scene graph, node types, validation
+&#9474; &#9492;&#9472;&#9472; kb-viewer/ # Embeddable 3D viewer (read-only)
+&#9500;&#9472;&#9472; services/
+&#9474; &#9492;&#9472;&#9472; kb-python/ # Python services (OR-Tools, ezdxf, IfcOpenShell)
+&#9492;&#9472;&#9472; turbo.json
+```
+
+
+Monorepo Extension Note
+
+
+The K&B tool adds `kb-editor/`, `kb-core/`, and `kb-viewer/` as new workspace packages alongside the existing Section 14 structure (`frontend/`, `backend/`, `shared/`, `config/`). The `services/kb-python/` directory introduces a Python microservice --- the only non-TypeScript component in the monorepo. This runs as a separate Docker container (see Section 12 implications) and communicates with the Hono backend via internal HTTP, not as a Turborepo workspace package. This is an exception to the Monolith-First principle (Section 3b), justified by the fact that Z3, OR-Tools, ezdxf, and IfcOpenShell have no viable TypeScript alternatives.
+
+> **KB Amendment:** Defer `services/kb-python/` (OR-Tools CP-SAT) to Phase 2. For MVP, use a greedy/heuristic TypeScript BOM optimizer. Kitchen designs with <20 SKU positions are adequately served by sorting candidates by price-to-value ratio with conflict backtracking. The Python microservice adds Docker complexity and inter-service communication overhead that is not justified until catalog depth exceeds 50K products.
+
+
+### 16.12 Key Risks
+
+
+| Risk | Likelihood | Impact | Mitigation | |
+
+
+|
+3D model pipeline bottleneck --- inconsistent manufacturer formats |
+High |
+High |
+Procedural cabinet generator covers ~90% of standard types. Blender automation for batch conversion. Async loading with bounding-box placeholders. |
+ |
+
+|
+Claude layout quality insufficient |
+Medium |
+High |
+Cabinet-run abstraction eliminates direct coordinate errors. Z3 catches formal violations. Gemini provides aesthetic feedback. Max 5 iteration rounds. |
+ |
+
+|
+Manufacturer catalog data inconsistency |
+High |
+Medium |
+Strict Zod schema validation on ingest. Data cleaning pipeline. 90-day price staleness warnings. Adam validates for launch manufacturers. |
+ |
+
+|
+Z3 WASM bundle size too large |
+Medium |
+Medium |
+Lazy-load Z3 on demand. Server-side fallback. TypeScript rules handle real-time checks without Z3. |
+ |
+
+|
+CSG performance for cutouts |
+Medium |
+Low |
+`three-bvh-csg` uses BVH acceleration. Pre-compute on placement (not per-frame). Cache in scene graph. |
+ |
+
+**Risk #21 (KB-Derived): Cyncly IP Enforcement on Catalog Formats**
+- Severity: HIGH | Likelihood: MEDIUM
+- Cyncly sued SHD AG (Aug 2024) for using their catalog tools for competing platforms. Any 2020 Design format interaction carries legal risk.
+- Mitigation: Source catalog data exclusively from manufacturers via direct relationships (Adam's CSV feeds). Do not reverse-engineer or parse 2020 Design format files. Consult legal counsel.
+
+**Risk #22 (KB-Derived): Manufacturer Data Quality Significantly Worse Than Expected**
+- Severity: MEDIUM | Likelihood: HIGH
+- Most manufacturers provide only PDF spec books and Excel price lists with merged cells, inconsistent formats, and notes like "call for pricing." 3D models are almost non-existent outside 2020 Design's ecosystem.
+- Mitigation: Build manufacturer-specific ETL adapters. Start with Adam's top 3 manufacturers. Accept 70% automated extraction rate and manual review for the rest.
+
+**Key insight:** The highest-risk items (3D model pipeline and catalog data) are both mitigated by Adam's direct manufacturer relationships and domain expertise. His involvement is not optional --- it's a critical dependency for the entire 6-month build.
+
+### 16.13 Legal & Compliance Requirements (KB-Derived, 2026-03-21)
+
+#### 16.13.1 AI Design Liability (CRITICAL — Pre-Launch)
+AI-generated kitchen/bath layouts that violate building code create liability risk. No legal precedent yet but the legal community is actively warning.
+
+**Required mitigations:**
+- Terms of Service with explicit liability limitation for AI-generated designs
+- Prominent disclaimer on ALL design outputs: "FOR PLANNING PURPOSES ONLY — NOT FOR CONSTRUCTION. Verify all dimensions and code compliance with a licensed professional before building."
+- Tech E&O (Errors & Omissions) insurance ($2,000-5,000/year)
+- Never use "certified," "approved," or "guaranteed" for AI-generated layouts
+- Log all AI-generated designs with full constraint validation results for defensibility
+
+#### 16.13.2 NKBA Intellectual Property
+**Copyright:** NKBA Kitchen & Bath Planning Guidelines are copyrighted and sold commercially. Dimensional facts (e.g., "36 inches minimum clearance") are NOT copyrightable (Feist Publications v. Rural Telephone, 1991). Creative expression (guideline text, diagrams, commentary) IS copyrightable.
+
+**Trademark:** "NKBA" is a registered trademark. Cannot say "NKBA Certified" or "NKBA Approved" — implies endorsement.
+
+**Required mitigations:**
+- Encode rules as functional code using dimensional values only — never copy NKBA guideline text verbatim
+- UI must say "designed following industry dimensional guidelines" NOT "NKBA Compliant"
+- Add non-affiliation disclaimer: "Not affiliated with or endorsed by the National Kitchen & Bath Association"
+- The mockup's "NKBA Compliant" badge must be reworded to "Code-Compliant" or "Clearance Verified"
+
+#### 16.13.3 Manufacturer Catalog Data
+Dealer net pricing (multipliers, volume tiers) is often treated as trade secret by manufacturers. Unauthorized storage or display may violate dealer agreements.
+
+**Required mitigations:**
+- Written permission from each manufacturer before storing pricing data
+- Dealer net costs visible ONLY to the authenticated contractor who owns the dealer account — never exposed publicly
+- Data licensing agreement template for manufacturer onboarding
+- Price data must be deletable per manufacturer request (contractual right)
+
+#### 16.13.4 OFDA Standard Correction
+OFDA (Office Furniture Dealers Alliance) XML is for commercial office furniture ordering, NOT kitchen cabinets. Kitchen cabinet manufacturers use proprietary ordering formats (manufacturer-specific portals, CSV/Excel uploads). References to "OFDA XML" in this spec should be understood as "manufacturer-specific order format" — the actual format varies by manufacturer (KraftMaid, Merillat, Yorktowne each have their own).
+
+#### 16.13.5 Data Privacy (CCPA / State Privacy Laws)
+Floor plans with customer addresses, project details, and pricing constitute personal information under CCPA and 15+ state privacy laws.
+
+**Required mitigations:**
+- Privacy policy covering design data collection, storage, and sharing
+- Data Subject Access Request (DSAR) handling process
+- Multi-tenant data isolation (already implemented via Supabase RLS)
+- Data retention policy with customer deletion rights
+- Design data encrypted at rest
+
+#### 16.13.6 Construction Estimates
+Generating construction estimates in software does not require a contractor's license in most states, provided estimates are framed as "approximate cost ranges" not "bids" or "quotes."
+
+**Required mitigations:**
+- All estimates labeled "APPROXIMATE — For planning purposes only"
+- Never use "bid," "quote," or "guaranteed price" in estimate UI
+- Disclaimer: "Actual costs may vary. Consult with your contractor for final pricing."
+
+#### 16.13.7 Pre-Launch Legal Budget
+Estimated $18,000 - $51,000 for:
+- Terms of Service + Privacy Policy drafting ($5,000-15,000)
+- IP review (NKBA, manufacturer data, competitor analysis) ($5,000-15,000)
+- Tech E&O insurance ($2,000-5,000/year)
+- Data licensing agreement template ($3,000-8,000)
+- State-by-state estimate disclaimer review ($3,000-8,000)
+
+#### 16.13.8 Terms of Service Implementation Requirements
+
+The Kiptra AI Terms of Service (see `/kiptra-legal/terms-of-service.md`) contains legally critical provisions that MUST be enforced in the application code:
+
+**Mandatory UI/UX Enforcement Points:**
+
+1. **First-Use Acceptance Gate:** Users MUST affirmatively accept the ToS (checkbox + "I Accept" button) before accessing any design tool features. Record acceptance timestamp, ToS version, user ID, and IP address in a `tos_acceptances` table. Re-prompt on ToS version changes.
+
+2. **AI Output Disclaimers (ToS Section 4):** Every AI-generated design output MUST display:
+   - On-screen: "FOR PLANNING PURPOSES ONLY — Not for construction without professional verification"
+   - In exported PDFs: Full disclaimer block on cover sheet AND footer of every page
+   - In exported DXF/SVG/IFC files: Disclaimer in metadata/comment fields
+   - In shared links: Disclaimer banner above the shared design view
+   - In estimate outputs: "APPROXIMATE COST RANGE — Not a bid, quote, or guaranteed price"
+
+3. **Constraint Validation Disclaimers (ToS Section 4.4):** The "Clearance Verified" badge and any dimensional compliance indicators MUST include a tooltip or adjacent text: "Based on industry dimensional guidelines. Advisory only — verify with a licensed professional before construction."
+
+4. **Estimate Disclaimers (ToS Section 5.3):** Every estimate output MUST include:
+   - Header: "APPROXIMATE ESTIMATE — For planning purposes only"
+   - Footer: "Pricing based on available catalog data as of [date]. Actual costs may vary significantly. This is not a bid, quote, or contract. Consult with your contractor for final pricing."
+   - Material pricing age: Display "Prices last updated: [date]" with visual warning if >90 days old
+
+5. **Export Watermark/Disclaimer Injection:**
+   - PDF exports: programmatically inject disclaimer text via jsPDF on cover sheet
+   - PNG/JPEG renders: overlay disclaimer text at bottom of image
+   - CSV/XML order exports: include disclaimer row/comment
+   - All exports: include "Generated by Kiptra AI v[X.X] on [date]. For planning purposes only."
+
+6. **Data Deletion Compliance (ToS Section 7, CCPA):**
+   - Implement DELETE /api/v1/users/:id/data endpoint
+   - Must delete: all designs, BOMs, estimates, project data, uploaded documents
+   - Must retain: anonymized aggregate analytics, audit logs (legal hold)
+   - 30-day grace period after account cancellation before permanent deletion
+   - Email confirmation of deletion completion
+
+7. **Modification Notification (ToS Section 13):**
+   - System to track ToS version and notify users of material changes
+   - 30-day advance notice via email AND in-app banner
+   - Re-acceptance required for material changes
+   - Previous ToS versions archived and accessible
+
+**Database Requirements:**
+
+```sql
+-- ToS acceptance tracking (required for legal defensibility)
+CREATE TABLE tos_acceptances (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id),
+  tos_version TEXT NOT NULL,           -- e.g., '1.0.0'
+  accepted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ip_address INET,
+  user_agent TEXT,
+  acceptance_method TEXT NOT NULL,     -- 'checkbox_click', 'api_accept'
+  UNIQUE(user_id, tos_version)
+);
+
+-- Ensure RLS: users can only see their own acceptances
+ALTER TABLE tos_acceptances ENABLE ROW LEVEL SECURITY;
+```
+
+**Pre-Launch Checklist (Legal):**
+- [ ] ToS reviewed and approved by licensed attorney
+- [ ] Privacy Policy drafted and linked from ToS
+- [ ] ToS acceptance gate implemented and tested
+- [ ] All AI output disclaimer injection points implemented
+- [ ] All estimate disclaimer injection points implemented
+- [ ] All export disclaimer/watermark injection points implemented
+- [ ] Data deletion endpoint implemented and tested
+- [ ] ToS versioning and notification system implemented
+- [ ] Tech E&O insurance policy active
+- [ ] Manufacturer data licensing agreements signed (per 16.13.3)
+- [ ] CCPA/state privacy compliance verified
+
+#### 16.13.9 Patent Landscape Analysis (USPTO Search, 2026-03-22)
+
+**Finding: No active patents from Cyncly or predecessors block any Kiptra feature.**
+
+A comprehensive USPTO patent search across all Cyncly-related entities (Cyncly, 20-20 Technologies, Compusoft, Planit Software, Planit Holdings) found:
+
+- **Cyncly**: Zero patents filed
+- **20-20 Technologies**: 1 patent (US7072729B2, design-to-manufacturing workflow) — **expired 2023**, lapsed for non-payment in 2018
+- **Compusoft**: Zero relevant patents (8 results were unrelated companies)
+- **Planit Software**: Zero relevant patents
+- **Chief Architect**: 7 patents, all architectural structure/AR navigation — none covering kitchen/cabinet/BOM features
+- **Coohom/Kujiale**: Zero US patents
+
+**Cyncly's IP strategy is copyright + trade secret, not patents.** Their litigation (SHD AG, August 2024) targets unauthorized use of their Catalogue Editor software and catalog data formats, not design tool functionality.
+
+**Mandatory safeguards (unchanged from 16.13.5):**
+- Zero Cyncly-derived source code in the codebase
+- Zero Cyncly-formatted catalog data (.CAT files) ingested — use manufacturer CSVs only
+- Legal review required before hiring any former Cyncly employee for competing features
+- Document independent development provenance for all catalog, BOM, and design-to-order features
+
+**One expired threat for awareness:** AR Design Innovations LLC (patent troll) held US7277572B2 covering 3D interior design systems. Expired March 2026. They previously sued Amazon and Houzz. No longer a concern.
+
+**Recommendation:** Conduct a follow-up FTO (Freedom to Operate) analysis with patent counsel ($5K-$15K) before production launch to cover any patents not discoverable via public search. This is standard practice and provides legal defensibility.

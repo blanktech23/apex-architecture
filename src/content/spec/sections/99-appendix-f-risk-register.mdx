@@ -1,0 +1,222 @@
+---
+title: "Appendix F: Technical Risk Register"
+slug: "appendix-f-risk-register"
+section: "99"
+---
+
+> Technical risks only. Business/market risks (churn, competitive response, market contraction) excluded.
+
+
+
+
+Known risks with severity assessment and mitigation strategies. Risks are categorized by impact and likelihood.
+
+
+|
+ # |
+ Risk |
+ Severity |
+ Mitigation |
+ |
+
+
+|
+ 1 |
+ **AI costs exceed monthly recurring per customer** |
+ High |
+ Smart model routing (non-negotiable), per-tenant spending limits, per-provider daily spending caps (AI-28), token budgets per agent |
+ |
+
+|
+ 2 |
+ **Churn at 40%+ (above optimistic 30% base case)** |
+ High |
+ Industry median is 36--60% for SMB SaaS (see Appendix C). Mitigations: batch onboarding for quality, 30/60/90 day check-ins, track NPS, proactive support agent intervention on usage drops. At 40% churn, Year 3 active customers drop from 190 to ~152. |
+ |
+
+|
+ 3 |
+ **QuickBooks OAuth / JobTread grant key expiration** |
+ Low |
+ Weekly background token refresh for QB (100-day expiry), monthly lightweight API call to keep JobTread grant keys alive (3-month inactivity expiry), re-auth alert system for both |
+ |
+
+|
+ 4 |
+ **VPS failure** |
+ Low |
+ Dual-VPS architecture from Day 1. Two identical DigitalOcean droplets behind a managed Load Balancer with 30-second health checks. If primary fails (3 consecutive failures = 90 seconds), traffic auto-routes to the secondary node (already actively serving traffic in Hybrid Active-Active mode for HTTP request handling). Note: NATS event bus and scheduled agent triggers run on the primary node only --- during primary VPS failure, event-driven agent execution is suspended while HTTP request handling continues on the secondary. 0% customer impact on HTTP requests during single-node failure; event-driven agent execution resumes when primary recovers. Remaining SPOF is Supabase (managed HA) --- mitigated by daily pg_dump backups to DO Spaces. |
+ |
+
+|
+ 5 |
+ **Slate PoC doesn't deliver results** |
+ High |
+ Get Slate metrics by Week 4, pivot agent priorities based on real usage |
+ |
+
+|
+ 6 |
+ **Model routing misconfiguration** |
+ Medium |
+ Wrong model assigned to a task type degrades quality or inflates cost. Mitigation: Quarterly routing audit comparing actual token costs per agent against expected costs; automated alert if any agent's cost-per-call deviates >30% from baseline. |
+ |
+
+|
+ 7 |
+ **Integration API changes/breaks** |
+ Low |
+ Anti-Corruption Layer with canonical domain model (Section 7a), local data mirror with webhook + polling sync, automated Pave schema snapshot tests, version pinning, weekly integration health checks. CSV/manual import as universal fallback. |
+ |
+
+|
+ 8 |
+ **Adam's bandwidth split between Slate and Kiptra sales** |
+ Low |
+ Kiptra's own agents automate Slate's admin work, directly freeing Adam's time. As revenue grows, Adam transitions from part-time sales to full-time. The product solves the salesperson's bandwidth problem --- a self-reinforcing loop. |
+ |
+
+|
+ 9 |
+ **Legal & Compliance Exposure** |
+ Medium |
+
+
+- **AI liability disclaimers in ToS:** "AI outputs are decision support tools, not professional advice. All estimates, financial summaries, and recommendations must be reviewed by qualified humans before use."
+
+- **E&O + cyber liability insurance:** Covers claims if an AI-generated estimate leads to a financial loss. Budgeted Y1: $3K, Y2: $5K, Y3: $8K.
+
+- **Privacy Policy + DPA:** Customer data governed by data processing agreements. Tenant data isolation explicitly documented. DPAs required with Anthropic and OpenAI before processing customer financial data. Both providers offer zero-data-retention API agreements.
+
+- **No model training on customer data:** Customer data is NEVER used for model training --- antitrust mitigation prevents algorithmic bid-rigging claims if competing contractors use the platform.
+
+- **Lien waiver disclaimers:** AI-generated documents must be reviewed by contractor's legal counsel before use.
+
+- **CCPA compliance:** Data access/deletion requests honored within 45 calendar days (CCPA statutory requirement), with option to extend by additional 45 days with consumer notification. Acknowledge receipt within 10 business days. Kiptra targets 30-day completion as internal SLA exceeding CCPA minimum. Data discovery spans ALL stores: Supabase (primary), Valkey (session/cache), NATS JetStream logs, Grafana Loki (structured logs), and DO Spaces backups. Identity verification required for all data access/deletion requests (email ownership confirmation + account authentication). Backup handling: daily `pg_dump` backups containing deleted tenant data are purged on natural rotation (30-day retention cycle), not individually scrubbed --- documented as a CCPA-permitted exception under the 'unreasonable effort' clause. Third-party processor deletion: Anthropic and OpenAI delete conversation data per their respective DPAs (zero-data-retention API agreements already mandated).
+
+- **Legal counsel:** Adam (co-founder) manages legal counsel relationship for ongoing compliance.
+
+- **Terms of Service & Privacy Policy (Wave 4 pre-launch gate):** ToS and Privacy Policy must be drafted and published before the first paying customer. Budget: $3K--$5K for legal counsel. ToS must include: AI liability disclaimers, limitation of liability, SLA terms (RPO/RTO disclosure), data ownership clauses, and acceptable use policy. Privacy Policy must include: CCPA-compliant data collection disclosure, cookie policy, and third-party processor list (Anthropic, OpenAI, SendGrid, Stripe, DigitalOcean) with data retention periods per processor.
+
+- **Customer-facing DPA:** Template Data Processing Agreement for B2B customers (standard expectation for $5K+ annual SaaS contracts). Include in Wave 4 legal preparation alongside ToS. DPA template covers: data processing scope, sub-processor list, breach notification timeline (72 hours), data deletion obligations.
+
+- **Contractor licensing risk:** AI-generated estimates may implicate state contractor licensing requirements in certain jurisdictions. Mitigation: all estimates are labeled "decision support --- requires licensed contractor review before submission." Legal review of top 10 target states' licensing requirements before launch. This is a Wave 4 pre-launch legal item.
+
+
+ |
+ |
+
+|
+ 10 |
+ **Competitive Response (Buildertrend / Procore ship AI)** |
+ Medium |
+
+
+- **Timeline:** 12--24 months before incumbents can ship equivalent multi-agent AI
+
+- **Assessment:** Buildertrend has NO public API. Launched AI-powered Client Updates (mid-2025). Active AI roadmap under evaluation but no multi-agent orchestration capabilities announced (verified Mar 2026). Adding multi-agent AI to a monolithic legacy platform is a 2--3 year engineering effort minimum. Procore has announced "Agentic APIs" but targets enterprise GCs ($50K+/year contracts) --- serving $275/mo remodelers would cannibalize their positioning. Trunk Tools ($40M Series B, $70M total funding, Jul 2025) targets large commercial GCs with document Q&A --- different ICP entirely.
+
+- **Speed moat:** 21-week build to production while competitors are 2--3 years from equivalent capability
+
+- **Lock-in via workflow:** Once agents are configured for a contractor's specific processes, switching costs are high (prompt customization, integration configuration, historical data)
+
+- **Network effect:** Ambassador network creates compounding acquisition that competitors can't replicate with paid marketing
+
+- **Domain depth:** Agent prompts encode construction-specific knowledge (lien laws, draw schedules, AIA documents, CSI codes) that general-purpose AI tools lack
+
+- **Pricing moat:** $275--$750/mo is below enterprise competitors' minimum deal sizes. They can't profitably serve this segment.
+
+- **Market size buffer:** Even at 1,000 customers, Kiptra is a rounding error in the ~128K remodeling firms in the US market (NAHB data). Expansion into HVAC, landscaping, and GC verticals via the template system widens the moat further.
+
+
+ |
+ |
+
+|
+ 11 |
+ **Adam dependency --- Single-person sales engine** |
+ High |
+ Build inbound channels by Month 6; hire SDR earlier (at 30--40 customers) if warm leads deplete faster than projected. |
+ |
+
+|
+ 12 |
+ **AI model pricing increases --- Anthropic/OpenAI raise prices 2x** |
+ Medium |
+ Vercel AI Gateway's multi-provider routing enables rapid switching to cheaper models; $35/customer conservative buffer absorbs moderate increases. |
+ |
+
+|
+ 13 |
+ **Regulatory risk for AI-generated estimates --- State/local government regulates AI-generated construction estimates or lien waivers** |
+ Medium |
+ All AI outputs are human-reviewed drafts, never auto-executed. Legal review of output disclaimers. |
+ |
+
+|
+ 14 |
+ **LiteLLM production degradation --- Eliminated** |
+ Low |
+ Eliminated --- LiteLLM replaced with managed Vercel AI Gateway. No self-hosted proxy to degrade. |
+ |
+
+|
+ 15 |
+ **NATS standalone-mode failure --- Primary VPS failure loses event bus** |
+ Medium |
+ Agent execution re-triggerable from BullMQ state; NATS treated as delivery mechanism, not durable store. 3rd NATS node ($5--10/mo) as future upgrade for JetStream HA. **Spec Amendment (Attack Audit 2026-03-22):** NATS failover automation (Wave 3): deploy a watchdog process on the secondary VPS that monitors primary NATS health via `/healthz` endpoint. If primary is unreachable for 5 consecutive minutes, auto-promote secondary NATS from leaf node to standalone hub. Target: reduce failover time from 30+ minutes (manual SSH + reconfigure) to under 5 minutes (automated). Watchdog alerts on-call via SMS on promotion and requires manual confirmation to demote back to leaf node when primary recovers. |
+ |
+
+|
+ 16 |
+ **Prompt injection via inbound channels --- Crafted emails or support tickets manipulate agent behavior** |
+ High |
+ Three-layer defense (architectural separation, static tool permissions, probabilistic classifier). All inbound content sanitized before agent processing. |
+ |
+
+|
+ 17 |
+ **Construction market contraction** |
+ High |
+
+ The US remodeling market is cyclical --- it contracted sharply in 2008--2009 and softened in 2023--2024 as interest rates rose. A 20% market contraction would: (1) Reduce viable target customers (fewer active contractors), (2) Cause customers to cut discretionary software spend, (3) Accelerate churn above 45% as companies downsize, (4) Reduce Adam's Slate revenue and sales bandwidth. Likelihood: Medium (construction cycles run 5--7 years). Mitigation: (a) The $5--20K setup fee front-loads revenue, reducing exposure to mid-contract churn. (b) Multi-vertical expansion (HVAC, electrical, plumbing per Section 6) diversifies beyond remodeling. (c) AI agents that reduce overhead costs become MORE valuable during a downturn, not less --- position as a cost-cutting tool when selling in a soft market. (d) Maintain 6 months of Year 1 operating reserves ($20--30K, scaling to $100K+ as monthly costs grow) from Y1 profit.
+ |
+ |
+
+|
+ 18 |
+ **Business OS module complexity underestimated --- 18 modules with deep business logic and real-time collaboration** |
+ High |
+
+ Phase the build: 5 core modules first (scorecards, goals, meetings, org chart, issues), 4 advanced modules second, 9 remaining in Phase 3. Each module is a self-contained feature with its own schema, agents, and UI. Timeboxed 2-week sprints with user testing between phases. Cancel advanced modules if core adoption is weak. 18--28 week range reflects genuine uncertainty.
+ |
+ |
+
+|
+ 19 |
+ **Three.js 3D rendering performance --- Browser-based 3D design may not match native CAD tools** |
+ Medium |
+
+ 3-tier rendering strategy (real-time preview -> path-traced final -> AI-enhanced photorealistic) manages expectations. WebGL 2.0 baseline with WebGPU optional upgrade path. Kitchen scenes are bounded complexity (<500 objects typically). Adam validates visual quality at each milestone. Fallback: export to SketchUp/Revit for final presentation if browser rendering insufficient.
+ |
+ |
+
+|
+ 20 |
+ **Payment Processing Disruption --- Stripe account restriction or fund holds** |
+ Low |
+ Card payments accepted with surcharge (2.9% + $0.30, revenue-neutral). Stripe hold risk mitigated by: volume ramping, proactive verification, ACH as default/recommended payment method, Helcim backup. ACH remains the pre-selected default, reducing card volume and associated dispute risk. Card surcharge makes processing fees revenue-neutral --- customers pay the fee, not Kiptra. **Backup processor:** Helcim maintained as documented backup --- if Stripe account is ever restricted, Helcim processes payments while the Stripe issue is resolved. Helcim supports both ACH and card payments. |
+ |
+
+
+| 23 | **AI design liability --- layout violates building code, someone builds it** | HIGH | ToS liability limitation, "NOT FOR CONSTRUCTION" disclaimers, Tech E&O insurance, validation logging |
+| 24 | **NKBA copyright/trademark infringement --- copying guideline text or claiming endorsement** | MEDIUM | Encode dimensions only (facts not copyrightable), never copy text, say "Code-Compliant" not "NKBA Compliant" |
+| 25 | **Dealer pricing trade secret violation --- storing/exposing confidential manufacturer pricing** | MEDIUM | Written manufacturer permission, tenant-isolated pricing visibility, data licensing agreements |
+| 26 | **CCPA/state privacy --- design data with customer PII triggers compliance obligations** | MEDIUM | Privacy policy, DSAR process, RLS isolation, data retention policy, encryption at rest |
+| 27 | **Patent infringement from unknown third-party trolls** | LOW | USPTO search found zero blocking patents from competitors. FTO analysis with patent counsel recommended pre-launch ($5-15K). Independent development documented. |
+
+
+Confidential --- For Internal Use Only
+
+
+Kiptra AI &bull; March 2026

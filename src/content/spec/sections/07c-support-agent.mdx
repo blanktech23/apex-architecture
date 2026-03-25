@@ -1,0 +1,128 @@
+---
+title: "7c. Support Agent (AI-First Customer Support)"
+slug: "support-agent"
+section: "07c"
+---
+
+The Support Agent RAG infrastructure powers **two distinct interfaces:**
+
+| | Support Widget (Customer-Facing) | Help Bot (Internal) |
+|--|---|---|
+| **KB source** | Customer support articles (57--83 articles) | Kiptra product documentation (40--60 articles) |
+| **Model** | Haiku -> Sonnet escalation | Haiku only (bounded scope) |
+| **Context** | Customer data, ticket history | Current route, user role, feature state |
+| **Cost** | ~$0.029/response | ~$0.005/response (Haiku only, short answers) |
+| **API route** | `POST /api/v1/support/conversations` | `POST /api/v1/help` |
+| **DB** | `support_conversations` + `support_messages` | Same tables, `source: 'help_bot'` discriminator |
+
+Both share the same pgvector RAG pipeline, embedding model, hybrid search, and confidence thresholds --- only the knowledge base content and model routing differ.
+
+Instead of hiring support staff, Kiptra deploys a **7th agent --- the Support Agent** --- built on the same `AgentPluginFactory` pattern as the operational agents. This agent targets **20--25% autonomous resolution at launch**, scaling to **35--45% after 6 months** of content iteration and feedback loops, with smart escalation to founders for complex issues. These targets are based on realistic benchmarks for vertical SaaS products launching with a fresh knowledge base --- not the 40--60% figures commonly cited by chatbot vendors measuring "deflection" (user abandoned before creating a ticket) rather than true resolution.
+
+
+Why Custom, Not Managed
+
+
+Managed platforms (Intercom $137--$593/mo, Zendesk $215--$905/mo) require building the same API integration work anyway --- and can't natively query Supabase execution logs, check NATS event flow, or restart failed agents. The custom agent costs **$225/mo at 50 customers ($4.50/customer/mo)** --- still cheaper than Intercom at ~$374/mo (2 seats x $137 + ~100 Fin resolutions x $0.99) --- Intercom charges per-seat, not per-customer. Resolution rates start at 20--25% at launch, scaling to 35--45% after 6 months of content iteration.
+
+
+### Knowledge Base Architecture
+
+
+The Support Agent is grounded in a **pgvector-powered RAG** (Retrieval-Augmented Generation) pipeline that ensures all responses are sourced from verified content rather than LLM hallucination.
+
+
+- **Embedding model:** OpenAI `text-embedding-3-small` ($0.02/1M tokens) --- same model used by the operational agents' knowledge retrieval layer (AI-16b)
+
+- **Chunking strategy:** 512-token chunks with 50-token overlap, preserving section boundaries and code blocks. For articles exceeding 2,000 tokens, store `parent_section_heading` reference with each chunk to enable hierarchical context reconstruction during retrieval.
+
+- **Embedding version pinning:** Store `model_version` alongside all vector embeddings. On startup, verify the configured embedding model matches stored vectors. Model upgrades require blue-green reindexing: generate new embeddings with the new model in parallel, swap the HNSW index atomically, then drop old vectors.
+
+- **Hybrid search:** Vector similarity (cosine distance via pgvector HNSW index) + BM25 keyword search, fused via **Reciprocal Rank Fusion (RRF)** for optimal retrieval. Hybrid search outperforms pure vector similarity by 15--25% on domain-specific queries where exact terminology matters (e.g., "OAuth token refresh" vs semantic "login stopped working")
+
+- **Retrieval:** Top-5 chunks returned via RRF fusion. Confidence derived from top-1 cosine similarity (vector component, NOT the fused RRF score). Thresholds calibrated on 50+ labeled query-answer pairs before launch. Consider cross-encoder reranker (Cohere Rerank) for better calibration.
+
+- **Multi-tenant isolation:** All KB queries filtered by `tenant_id` via RLS. Shared platform KB articles are accessible to all tenants; tenant-specific articles (custom workflows, account-specific guides) are isolated
+
+
+### Support Agent Tools
+
+
+The Support Agent has access to 5 purpose-built tools in addition to the read-only operational tools (see Agent-Tool Permission Matrix):
+
+
+| Tool | Description | Behavior | |
+
+
+|
+ `search_knowledge_base` |
+ Searches the support KB using hybrid retrieval (vector + BM25 via RRF) |
+ Returns top-5 chunks with confidence scores. All responses MUST be grounded in retrieved content. If no relevant chunks are found, the agent does not fabricate an answer. |
+ |
+
+|
+ `escalate_to_human` |
+ Creates a support ticket with full conversation context |
+ Includes: conversation transcript, sentiment analysis (positive/neutral/frustrated/angry), suggested resolution based on diagnostic context, severity tag (P1--P4), and the specific reason escalation was triggered. |
+ |
+
+|
+ `check_account_status` |
+ Reads tenant subscription, usage, and billing status |
+ Queries live Supabase data for: current plan tier, billing cycle, usage against limits, payment status, active agent count. Used for account-specific questions without exposing raw database access. |
+ |
+
+|
+ `query_execution_logs` |
+ Queries agent execution history for diagnostic context |
+ Read-only access to `agent_executions` table filtered by tenant. Used to diagnose agent failures, check recent execution status, and provide specific error context. |
+ |
+
+|
+ `check_integration_health` |
+ Checks OAuth token status and integration sync health |
+ Read-only check of integration connection status, last successful sync timestamp, and token expiry. Does NOT refresh tokens (requires human confirmation via drafts table). |
+ |
+
+
+Additionally, the Support Agent has read-only access to `query_jobtread_projects` and `query_quickbooks_summary` for diagnostic context when customers report integration or data issues (see Agent-Tool Permission Matrix).
+
+
+### Confidence-Gated Response System
+
+
+Every Support Agent response is gated by a confidence threshold derived from KB retrieval quality. This prevents the agent from confidently stating incorrect information.
+
+
+| Confidence Score | Behavior | Example | |
+
+
+|
+ **>= 0.85** (High) |
+ Direct answer with source citation. Response includes "Based on [article title]" attribution. |
+ "To reconnect your JobTread integration, go to Settings -> Integrations -> JobTread and click Reconnect. *(Source: Integration Troubleshooting Guide)*" |
+ |
+
+|
+ **0.60--0.84** (Medium) |
+ Answer with disclaimer + proactive offer of human help. "I found some relevant information, but I'm not fully confident in this answer. Would you like me to connect you with our team?" |
+ Partial matches, multi-topic queries, edge cases not fully covered in KB |
+ |
+
+|
+ ** Joseph/TJ)
+
+
+- AI tags severity level and includes full diagnostic context
+
+- Creates a ticket in Linear with conversation history + what the AI already tried
+
+- Notifies founders via Slack/email --- they pick it up with 80% of diagnosis already done
+
+- Escalation triggers: unresolved after 2 attempts, customer requests human, billing disputes, data integrity issues, confidence score = 4.0/5.0 | |
+
+| **Resolution Rate** | % of conversations resolved without human escalation | 35--45% | |
+
+| **Containment Rate** | % of conversations where user did not subsequently contact a human | >= 50% | |
+
+| **CES (Customer Effort Score)** | How easy was it to get help? (1--7 scale; lower is better). Collected via optional 1-question survey appended to post-conversation feedback prompt (alongside CSAT thumbs up/down). |
